@@ -63,7 +63,30 @@ Workers do not need direct PostgreSQL access. The frontend communicates with the
 
 ---
 
-## 3. Infrastructure and Scaling
+## 3. Lưu trữ kết quả
+
+To optimize bandwidth and memory on the constrained node, the system completely bypasses the backend for serving large result files. 
+
+### Storage Separation
+*   **MinIO (Heavy Data):** Stores the raw binary output (e.g., processed images.png,...).
+*   **PostgreSQL (Metadata):** Stores only lightweight JSON summaries (e.g., file size, object counts, id) for quick API retrieval and display.
+
+### Direct Delivery via Gateway API
+*   **Public Read Access:** The MinIO `results` bucket is configured for public read-only access.
+*   **Same-Origin Routing:** The Kubernetes Gateway API (HTTPRoute) combined with a Cloudflare Tunnel exposes MinIO on the same domain as the frontend using path-based routing (e.g., `yourdomain.com/results/`).
+*   **Frontend Integration:** Because the files are served same-origin, the frontend can natively display media (`<img src="/results/...">`) and trigger native browser downloads (`<a href="/results/..." download>`) without CORS issues or complex backend proxying.
+*   **Security:** Job IDs rely strictly on UUIDs (e.g., `/results/<uuid>/output.jpg`), utilizing unguessable paths to prevent directory enumeration in the absence of user authentication.
+
+### Data deletion (MVP)
+Given the lack of user authentication and the need to preserve disk space in, all user data is treated as ephemeral.
+
+*   **Time-To-Live (TTL):** MinIO buckets (`uploads` and `results`) utilize built-in lifecycle policies to automatically delete objects after 24 hours.
+*   **Database Pruning:** A periodic background task (or K8s CronJob) deletes job rows in PostgreSQL older than 24 hours.
+*   **Lazy Cancellation:** If a user cancels a job mid-flight, the backend marks the database row as `DELETED`. The worker is allowed to finish. Once the backend receives the delayed `COMPLETED` event for a deleted job, it immediately deletes the job and result MinIO objects.
+
+---
+
+## 4. Infrastructure and Scaling
 
 ### Kubernetes and KEDA
 
@@ -95,7 +118,7 @@ This reduces repeated initialization overhead, particularly on the project's res
 
 ---
 
-## 4. Technology Rationale
+## 5. Technology Rationale
 
 | Component      | Responsibility           | Rationale                                         |
 | -------------- | ------------------------ | ------------------------------------------------- |
@@ -110,7 +133,7 @@ NATS JetStream and KEDA provide durable asynchronous messaging and event-driven 
 
 ---
 
-## 5. Team Responsibilities
+## 6. Team Responsibilities
 
 ```text
 project-root/
@@ -157,7 +180,7 @@ Each component can be developed and tested independently using mock events, test
 
 ---
 
-## 6. Final Architecture Decision
+## 7. Final Architecture Decision
 
 The project uses:
 

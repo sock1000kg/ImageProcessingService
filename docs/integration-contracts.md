@@ -120,6 +120,7 @@ The backend may also maintain internal states such as:
 ```text
 PENDING
 QUEUED
+DELETED (This helps check for deletes mid-job and job cleanups)
 ```
 
 These states do not need to and shouldn't be emitted by the worker.

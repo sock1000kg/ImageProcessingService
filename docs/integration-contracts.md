@@ -137,7 +137,7 @@ These states do not need to and shouldn't be emitted by the worker.
   "stage": "DONE",
   "result": {
     "bucket": "results",
-    "key": "uuid-1234-5678/result.json"
+    "key": "uuid-1234-5678/job-id/result.json"
   },
   "resultSummary": {
     "objectsDetected": 4,

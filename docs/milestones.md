@@ -9,7 +9,7 @@ File này có mục đích chia các lượt công việc và theo dõi tiến �
 
 [ ] Phân phối tác vụ: Đẩy lệnh xử lý (chứa định danh jobId và đường dẫn tệp trong MinIO) vào các chủ đề (subject) tương ứng trên NATS JetStream (ví dụ: jobs.ai hoặc jobs.image) -> Update trạng thái thành QUEUED trong PostgreSQL.
 
-[ ] Đồng bộ trạng thái: Lắng nghe các sự kiện tiến độ từ NATS (chủ đề jobs.events) để cập nhật trạng thái thực tế (PROCESSING, COMPLETED, FAILED) và phần trăm hoàn thành vào cơ sở dữ liệu PostgreSQL. Khi job xong thì cung cấp URL public thẳng đến MinIO:/results/user-uuid/job-id cho user xem (MinIO sẽ expose ra cho public bởi Infra để tiết kiệm tgian).
+[ ] Đồng bộ trạng thái: Lắng nghe các sự kiện tiến độ từ NATS (chủ đề jobs.events) để cập nhật trạng thái thực tế (PROCESSING, COMPLETED, FAILED là tối thiểu, hiện phần trăm thì tuỳ 2 Huy có thích làm ko) vào PostgreSQL. Khi job xong thì cung cấp URL public thẳng đến MinIO:/results/user-uuid/job-id/result cho user xem/tải (MinIO sẽ expose ra cho public bởi Infra để tiết kiệm tgian).
 
 [ ] Cung cấp REST API: Cho phép frontend gửi yêu cầu tạo công việc mới, kiểm tra tiến độ liên tục, và nhận đường dẫn để tải kết quả.
 
@@ -20,7 +20,7 @@ File này có mục đích chia các lượt công việc và theo dõi tiến �
 
 [ ] Xử lý dữ liệu: Nhận thông tin, tải tệp nguồn từ MinIO, thực hiện tác vụ xử lý (nhận diện hình ảnh, chuyển mã video), và tải tệp kết quả ngược lại lên MinIO.
 
-[ ] Báo cáo tiến trình: Gửi các sự kiện cập nhật trạng thái về NATS JetStream để backend nắm bắt mà không cần kết nối trực tiếp vào PostgreSQL.
+[ ] Báo cáo tiến trình: Gửi các sự kiện cập nhật trạng thái về NATS JetStream để backend nắm bắt mà không cần kết nối trực tiếp vào PostgreSQL. Tối thiểu là sự kiện ACK hoàn thành job và sự kiện nhận job (có thể ko cần progress phần trăm). Khi job xong thì cung cấp URL public thẳng đến MinIO:/results/user-uuid/job-id/result để Backend lấy về.
 
 [ ] Xác nhận an toàn (Acknowledgement): Chỉ báo cáo hoàn tất (ACK) với NATS JetStream sau khi toàn bộ quá trình xử lý và tải kết quả lên MinIO đã thành công. Nếu xảy ra lỗi giữa chừng, NATS sẽ giao lại công việc đó.
 
@@ -32,16 +32,18 @@ File này có mục đích chia các lượt công việc và theo dõi tiến �
 [ ] Quản lý tài nguyên: Thiết lập giới hạn sử dụng CPU và RAM tối đa cho các Worker Deployment để đảm bảo hệ thống không bị quá tải trên phần cứng giới hạn (4-core / 12GB RAM).
 
 
-## Day 2 Features (nếu có thì tốt, không thì thôi) - Tháng 11 
-1. Web / Backend (Giao diện & API) - Anh Nguyễn Đức Huy
-[ ] Luồng xoá job đã hoàn thành, job đang chạy dở ngay tại Web (MVP thì là xoá tự động)
+## Day 2 Features (nếu có thì tốt, không thì thôi, lúc này rảnh thì làm chung cũng đc) - Tháng 11 
+1. Web / Backend (Giao diện & API)
+[ ] Luồng xoá ngay trên web job khi job đã hoàn thành hoặc job đang chạy dở (MVP thì là xoá tự động)
 
 [ ] User auth, lưu lịch sử các job đã tạo
 
-2. Engine / Workers (Động cơ xử lý) - Huy Đức
+[ ] Presigned URL cho MinIO
+
+2. Engine / Workers (Động cơ xử lý)
 [ ] Tối ưu hoá thời gian xử lý
 
 [ ] Thêm các loại job tiên tiến hơn
 
-3. Infrastructure - Đạt
+3. Infrastructure
 [ ] Triển khai và đánh giá các chiến thuật scaling và xử lý job khác nhau

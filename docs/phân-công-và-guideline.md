@@ -9,3 +9,8 @@ Project này giống 3 project gắn với nhau do nó tập trung vào cách tr
 - Ưu tiên trước hết một cái demo tối thiểu rồi làm gì thì làm
 - Những cái nào ảnh hưởng các thành phần khác như cấu trúc job, job status,... mà nếu có thay đổi gì thì phải báo với mọi người để còn thống nhất, ko để AI tự ý đổi docs/schemas. Cái gì không rõ về hướng giải quyết hiện tại thì hỏi chứ đừng tự ý làm hoặc để AI thay đổi. 
 - Phần docs với prompt agent cụ thể cho từng phần thì cho vào folder tương ứng phần đấy kiểu web/docs để tránh conflict.
+
+# Docker Image để test khi dev
+NATS: NATS: nats:2.14.6
+MinIo: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
+PostgreSQL: cái này dùng tag latest là được

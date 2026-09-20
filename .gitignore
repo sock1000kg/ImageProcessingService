@@ -1,0 +1,5 @@
+real-secret.yaml
+.env/
+.venv/
+.env
+/infra/**/charts/

@@ -1,0 +1,7 @@
+mode: standalone
+persistence:
+  enabled: true
+  size: 5Gi
+rootUser: admin
+rootPassword: password
+

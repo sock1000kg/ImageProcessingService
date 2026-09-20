@@ -1,0 +1,12 @@
+config:
+  cluster:
+    enabled: false
+  jetstream:
+    enabled: true
+    fileStore:
+      enabled: true
+      dir: /data
+      pvc:
+        enabled: true
+        size: 5Gi
+

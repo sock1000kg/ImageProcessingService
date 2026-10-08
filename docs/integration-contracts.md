@@ -24,50 +24,35 @@ NATS JetStream
 ```
 
 
-## 1. Message Subjects
+## 1. Message Subjects (Danh sách các kênh giao tiếp)
 
-### Job commands (Backend produces, Workers subcribe)
+Hệ thống sử dụng **NATS JetStream** để vận chuyển các thông điệp JSON giữa Backend và Worker qua 3 kênh chính:
 
-```text
-jobs.ai
-jobs.image
-```
-
-### Worker events (Workers produce, Backend subcribes)
-
-```text
-jobs.events
-```
-
-The exact subject hierarchy can be expanded later, for example:
-
-```text
-jobs.ai.object-detection
-jobs.image.transcode
-jobs.events.progress
-jobs.events.completed
-jobs.events.failed
-```
-
-For the initial implementation, keep the number of subjects small.
+| Kênh (Subject) | Người gửi (Publisher) | Người nhận (Subscriber) | Mục đích |
+| :--- | :--- | :--- | :--- |
+| **`jobs.ai`** | **Backend** | **AI Worker Pool** | Giao các tác vụ AI: Nhận diện vật thể, OCR, Tách nền. |
+| **`jobs.image`** | **Backend** | **Image Worker Pool** | Giao các tác vụ xử lý thông thường: Đổi đuôi ảnh, resize, nén. |
+| **`jobs.events`** | **Worker Pool** | **Backend** | Báo cáo tiến trình (`PROCESSING`), hoàn thành (`COMPLETED`), hoặc thất bại (`FAILED`). |
 
 ---
 
-## 2. Job Command Contract
+## 2. Cấu trúc JSON theo từng kênh giao việc (Job Commands)
 
-Published by the Backend.
+### A. Kênh `jobs.ai` (Backend gửi sang Worker AI)
 
+#### ① Job Nhận diện vật thể (`type: "object-detection"`)
+Dùng để phát hiện các đối tượng (người, xe, động vật...), vẽ bounding box và thống kê.
 ```json
 {
-  "jobId": "uuid-1234-5678",
+  "jobId": "c9bf9e57-1685-4c89-bafb-ff5af830be8a",
   "type": "object-detection",
   "input": {
     "bucket": "uploads",
-    "key": "jobs-1234-5678/input.jpg"
+    "key": "c9bf9e57-1685-4c89-bafb-ff5af830be8a/input.jpg"
   },
   "output": {
     "bucket": "results",
-    "key": "jobs-1234-5678/result.json"
+    "key": "c9bf9e57-1685-4c89-bafb-ff5af830be8a/result.jpg"
   },
   "params": {
     "confidenceThreshold": 0.45
@@ -75,97 +60,204 @@ Published by the Backend.
 }
 ```
 
-### Required fields
-
-- `jobId`
-- `type`
-- `input.bucket`
-- `input.key`
-- `output.bucket`
-- `output.key`
-
-### Optional fields
-
-- `params`
-
-The worker must treat the object references as authoritative locations for the job's input/output artifacts.
-
----
-
-## 3. Progress Event Contract
-
-Published by Workers and consumed by the Backend.
-
+#### ② Job Trích xuất chữ trong ảnh / OCR (`type: "text-recognition"`)
+Dùng để nhận diện và đọc văn bản (biển hiệu, hóa đơn, tài liệu...) trong ảnh.
 ```json
 {
-  "jobId": "uuid-1234-5678",
-  "status": "PROCESSING",
-  "progress": 30,
-  "stage": "DOWNLOADING_INPUT",
-  "timestamp": "2026-09-15T06:00:00Z"
+  "jobId": "d3e4f5a6-7890-12bc-defa-445566778899",
+  "type": "text-recognition",
+  "input": {
+    "bucket": "uploads",
+    "key": "d3e4f5a6-7890-12bc-defa-445566778899/input.jpg"
+  },
+  "output": {
+    "bucket": "results",
+    "key": "d3e4f5a6-7890-12bc-defa-445566778899/result.jpg"
+  },
+  "params": {
+    "languages": ["en", "vi"],
+    "drawBoxes": true
+  }
 }
 ```
 
-### Allowed statuses
-Workers have a set of statuses
-
-```text
-PROCESSING
-COMPLETED
-FAILED
+#### ③ Job Tách nền ảnh (`type: "background-removal"`)
+Dùng để xóa phông nền và xuất ảnh PNG trong suốt.
+```json
+{
+  "jobId": "f9e8d7c6-4321-ba09-fedc-998877665544",
+  "type": "background-removal",
+  "input": {
+    "bucket": "uploads",
+    "key": "f9e8d7c6-4321-ba09-fedc-998877665544/input.jpg"
+  },
+  "output": {
+    "bucket": "results",
+    "key": "f9e8d7c6-4321-ba09-fedc-998877665544/result.png"
+  },
+  "params": {
+    "alphaMatting": false
+  }
+}
 ```
-
-The backend may also maintain internal states such as:
-
-```text
-PENDING
-QUEUED
-DELETED (This helps check for deletes mid-job and job cleanups)
-```
-
-These states do not need to and shouldn't be emitted by the worker.
 
 ---
 
-## 4. Completion Event
+### B. Kênh `jobs.image` (Backend gửi sang Worker Xử lý ảnh thường)
 
+#### ① Job Đổi đuôi & Resize ảnh (`type: "image-convert"`)
+Dùng để chuyển đổi định dạng ảnh (JPEG, PNG, WEBP), co giãn kích thước hoặc nén dung lượng.
 ```json
 {
-  "jobId": "uuid-1234-5678",
+  "jobId": "a1b2c3d4-5678-90ab-cdef-112233445566",
+  "type": "image-convert",
+  "input": {
+    "bucket": "uploads",
+    "key": "a1b2c3d4-5678-90ab-cdef-112233445566/input.png"
+  },
+  "output": {
+    "bucket": "results",
+    "key": "a1b2c3d4-5678-90ab-cdef-112233445566/result.webp"
+  },
+  "params": {
+    "targetFormat": "WEBP",
+    "quality": 85,
+    "width": 1280,
+    "height": 720
+  }
+}
+```
+
+### Các trường quy chuẩn trong Job Command:
+* `jobId` *(string, UUID v4)*: Định danh duy nhất của tác vụ.
+* `type` *(string)*: Tên loại tác vụ xử lý (`object-detection`, `image-convert`, `text-recognition`, `background-removal`).
+* `input.bucket` *(string)*: Tên bucket MinIO chứa tệp nguồn (mặc định: `"uploads"`).
+* `input.key` *(string)*: Đường dẫn tệp nguồn trên MinIO (`<jobId>/input.<ext>`).
+* `output.bucket` *(string)*: Tên bucket MinIO lưu kết quả (mặc định: `"results"`).
+* `output.key` *(string)*: Đường dẫn tệp kết quả trên MinIO (`<jobId>/result.<ext>`).
+* `params` *(object)*: Tham số cấu hình đặc thù của từng loại job.
+
+---
+
+## 3. Cấu trúc JSON kênh báo cáo sự kiện: `jobs.events` (Worker gửi sang Backend)
+
+Worker phát các thông điệp JSON này lên kênh **`jobs.events`**. Backend tiêu thụ để cập nhật trạng thái vào cơ sở dữ liệu PostgreSQL.
+
+### A. Sự kiện Đang xử lý (`status: "PROCESSING"`)
+Phát ra khi Worker bắt đầu nhận việc và tải dữ liệu từ MinIO:
+```json
+{
+  "jobId": "c9bf9e57-1685-4c89-bafb-ff5af830be8a",
+  "status": "PROCESSING",
+  "progress": 30,
+  "stage": "PROCESSING",
+  "timestamp": "2026-10-08T07:00:01Z"
+}
+```
+*Các stage chuẩn:* `DOWNLOADING_INPUT`, `PROCESSING`, `UPLOADING_OUTPUT`.
+
+---
+
+### B. Sự kiện Hoàn thành (`status: "COMPLETED"`)
+Phát ra sau khi file kết quả đã được upload an toàn lên bucket `results` trên MinIO.
+
+#### Mẫu 1: Kết quả của Job `object-detection`
+```json
+{
+  "jobId": "c9bf9e57-1685-4c89-bafb-ff5af830be8a",
   "status": "COMPLETED",
   "progress": 100,
   "stage": "DONE",
   "result": {
     "bucket": "results",
-    "key": "uuid-1234-5678/job-id/result.json"
+    "key": "c9bf9e57-1685-4c89-bafb-ff5af830be8a/result.jpg"
   },
   "resultSummary": {
-    "objectsDetected": 4,
-    "processingTimeMs": 1830
+    "objectsDetected": 3,
+    "labels": ["person", "dog", "car"],
+    "details": [
+      {"label": "person", "confidence": 0.92, "box": [34, 12, 120, 250]},
+      {"label": "dog", "confidence": 0.85, "box": [130, 80, 200, 220]},
+      {"label": "car", "confidence": 0.78, "box": [220, 100, 380, 280]}
+    ],
+    "processingTimeMs": 215
   },
-  "timestamp": "2026-09-15T06:01:42Z"
+  "timestamp": "2026-10-08T07:00:03Z"
+}
+```
+
+#### Mẫu 2: Kết quả của Job `text-recognition` (OCR)
+```json
+{
+  "jobId": "d3e4f5a6-7890-12bc-defa-445566778899",
+  "status": "COMPLETED",
+  "progress": 100,
+  "stage": "DONE",
+  "result": {
+    "bucket": "results",
+    "key": "d3e4f5a6-7890-12bc-defa-445566778899/result.jpg"
+  },
+  "resultSummary": {
+    "detectedBlockCount": 2,
+    "fullText": "ĐẠI HỌC CÔNG NGHỆ - ĐHQGHN",
+    "blocks": [
+      {"text": "ĐẠI HỌC CÔNG NGHỆ", "confidence": 0.98, "box": [[45, 30], [350, 30], [350, 75], [45, 75]]},
+      {"text": "- ĐHQGHN", "confidence": 0.94, "box": [[360, 30], [480, 30], [480, 75], [360, 75]]}
+    ],
+    "processingTimeMs": 580
+  },
+  "timestamp": "2026-10-08T07:00:04Z"
+}
+```
+
+#### Mẫu 3: Kết quả của Job `image-convert`
+```json
+{
+  "jobId": "a1b2c3d4-5678-90ab-cdef-112233445566",
+  "status": "COMPLETED",
+  "progress": 100,
+  "stage": "DONE",
+  "result": {
+    "bucket": "results",
+    "key": "a1b2c3d4-5678-90ab-cdef-112233445566/result.webp"
+  },
+  "resultSummary": {
+    "originalFormat": "PNG",
+    "targetFormat": "WEBP",
+    "originalDimensions": [1920, 1080],
+    "outputDimensions": [1280, 720],
+    "originalSizeBytes": 2048500,
+    "outputSizeBytes": 320140,
+    "processingTimeMs": 35
+  },
+  "timestamp": "2026-10-08T07:00:02Z"
 }
 ```
 
 ---
 
-## 5. Failure Event
-
+### C. Sự kiện Thất bại (`status: "FAILED"`)
+Phát ra khi xảy ra lỗi trong quá trình xử lý (ảnh hỏng, không tìm thấy file...):
 ```json
 {
-  "jobId": "uuid-1234-5678",
+  "jobId": "c9bf9e57-1685-4c89-bafb-ff5af830be8a",
   "status": "FAILED",
   "progress": 0,
-  "stage": "INFERENCE",
+  "stage": "PROCESSING",
   "error": {
     "code": "MODEL_INFERENCE_ERROR",
-    "message": "Inference failed"
+    "message": "Corrupted image file or unsupported image channels"
   },
-  "timestamp": "2026-09-15T06:02:10Z"
+  "timestamp": "2026-10-08T07:00:02Z"
 }
 ```
 
-Avoid putting large stack traces into normal user-facing job state. Detailed logs belong in the worker logs/observability system.
+#### Danh mục mã lỗi chuẩn (`error.code`):
+* `STORAGE_DOWNLOAD_ERROR`: Lỗi không tải được file từ MinIO.
+* `INVALID_INPUT_FILE`: File không phải ảnh hợp lệ hoặc bị hỏng.
+* `UNSUPPORTED_JOB_TYPE`: Loại job không nằm trong danh sách hỗ trợ.
+* `MODEL_INFERENCE_ERROR`: Lỗi trong quá trình chạy mô hình AI hoặc xử lý ảnh.
+* `STORAGE_UPLOAD_ERROR`: Lỗi khi tải file kết quả lên MinIO.
 
 ---
 

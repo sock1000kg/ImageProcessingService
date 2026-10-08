@@ -1,0 +1,13 @@
+# Messaging & Storage
+nats-py>=2.8.0
+minio>=7.2.0
+
+# AI & Media Processing
+ultralytics>=8.3.0
+Pillow>=10.4.0
+opencv-python-headless>=4.10.0
+numpy>=1.26.0
+
+# Utilities
+python-dotenv>=1.0.1
+pydantic>=2.9.0

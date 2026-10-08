@@ -1,0 +1,71 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nats-stream-provisioner
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: "true"
+spec:
+  template:
+    spec:
+      containers:
+      - name: nats-box
+        image: natsio/nats-box:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Wait for NATS to be available
+          until nats --server nats:4222 rtt; do
+            echo "Waiting for NATS server..."
+            sleep 2
+          done
+          
+          # Delete the old JOBS stream if it exists (for clean slate)
+          nats --server nats:4222 stream delete JOBS -f || true
+          
+          setup_stream_and_consumer() {
+            local stream=$1
+            local subjects=$2
+            local consumer=$3
+
+            cat << JSON > stream_${stream}.json
+          {
+            "name": "${stream}",
+            "subjects": [${subjects}],
+            "retention": "workqueue",
+            "max_consumers": -1,
+            "max_msgs_per_subject": -1,
+            "max_msgs": -1,
+            "max_bytes": -1,
+            "max_age": 0,
+            "max_msg_size": -1,
+            "storage": "file",
+            "discard": "old",
+            "num_replicas": 1,
+            "duplicate_window": 120000000000
+          }
+          JSON
+
+            cat << JSON > consumer_${consumer}.json
+          {
+            "durable_name": "${consumer}",
+            "deliver_policy": "all",
+            "ack_policy": "explicit",
+            "ack_wait": 30000000000,
+            "max_deliver": -1,
+            "replay_policy": "instant",
+            "max_waiting": 512,
+            "max_ack_pending": 20000
+          }
+          JSON
+
+            nats --server nats:4222 stream add ${stream} --config stream_${stream}.json || true
+            nats --server nats:4222 consumer add ${stream} ${consumer} --config consumer_${consumer}.json || true
+          }
+
+          setup_stream_and_consumer "AI_JOBS" "\"jobs.ai\", \"jobs.ai.>\"" "ai-workers"
+          setup_stream_and_consumer "IMAGE_JOBS" "\"jobs.image\", \"jobs.image.>\"" "image-workers"
+          setup_stream_and_consumer "JOB_EVENTS" "\"jobs.events\", \"jobs.events.>\", \"jobs.progress\", \"jobs.completed\", \"jobs.failed\"" "backend-job-events"
+          
+          echo "NATS streams and consumers configured."
+      restartPolicy: OnFailure

@@ -33,6 +33,10 @@ function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [type, setType] = useState("object-detection");
+  const [targetFormat, setTargetFormat] = useState("WEBP");
+  const [quality, setQuality] = useState("85");
+  const [width, setWidth] = useState("");
+  const [height, setHeight] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -59,7 +63,15 @@ function App() {
     const form = new FormData();
     form.append("file", file);
     form.append("type", type);
-    if (type === "object-detection") form.append("params", JSON.stringify({ confidenceThreshold: 0.45 }));
+    const params = type === "object-detection"
+      ? { confidenceThreshold: 0.45 }
+      : {
+          targetFormat,
+          quality: Number(quality),
+          ...(width ? { width: Number(width) } : {}),
+          ...(height ? { height: Number(height) } : {}),
+        };
+    form.append("params", JSON.stringify(params));
     try {
       await request("/api/jobs", { method: "POST", body: form });
       setFile(null);
@@ -86,8 +98,14 @@ function App() {
       <section className="card">
         <h2>New processing job</h2>
         <form onSubmit={submit}>
-          <label>Media file<input type="file" accept="image/*,video/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>
+          <label>Image file<input type="file" accept="image/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>
           <label>Task<select value={type} onChange={(event) => setType(event.target.value)}><option value="object-detection">Object detection (AI)</option><option value="image-convert">Image convert</option></select></label>
+          {type === "image-convert" && <div className="options">
+            <label>Target format<select value={targetFormat} onChange={(event) => setTargetFormat(event.target.value)}><option>WEBP</option><option>JPEG</option><option>PNG</option></select></label>
+            <label>Quality (1-100)<input type="number" min="1" max="100" value={quality} onChange={(event) => setQuality(event.target.value)} /></label>
+            <label>Width (optional)<input type="number" min="1" value={width} onChange={(event) => setWidth(event.target.value)} /></label>
+            <label>Height (optional)<input type="number" min="1" value={height} onChange={(event) => setHeight(event.target.value)} /></label>
+          </div>}
           <button disabled={busy}>{busy ? "Submitting..." : "Start processing"}</button>
         </form>
         {message && <p className="message">{message}</p>}

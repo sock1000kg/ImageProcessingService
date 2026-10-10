@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   nats:
     image: nats:latest
@@ -10,7 +8,7 @@ services:
     command: ["-js", "-m", "8222"] # Bật tính năng JetStream (-js)
 
   minio:
-    image: minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
     container_name: local-minio
     ports:
       - "9000:9000"   # S3 API
@@ -21,7 +19,7 @@ services:
     command: server /data --console-address ":9001"
 
   minio-init:
-    image: minio/mc:latest
+    image: cgr.dev/chainguard/minio-client:latest-dev
     depends_on:
       - minio
     entrypoint: >

@@ -11,6 +11,6 @@ Project này giống 3 project gắn với nhau do nó tập trung vào cách tr
 - Phần docs với prompt agent cụ thể cho từng phần thì cho vào folder tương ứng phần đấy kiểu web/docs để tránh conflict.
 
 # Docker Image để test khi dev
-NATS: NATS: nats:2.14.6
-MinIo: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
-PostgreSQL: cái này dùng tag latest là được
+NATS: nats:2.14.6-alpine
+MinIO: socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z (image tự build: MinIO bản cuối build từ source + `mc`; image chính thức `quay.io/minio/minio` không còn pull được)
+PostgreSQL: postgres:18.1-alpine

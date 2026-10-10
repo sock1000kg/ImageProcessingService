@@ -3,3 +3,7 @@ real-secret.yaml
 .venv/
 .env
 /infra/**/charts/
+# real credentials for the overlays (real-secret.example.yaml stays tracked)
+/infra/**/real-secret.yaml
+# ai agent resources
+.relayer

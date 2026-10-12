@@ -4,7 +4,7 @@ import { z } from "zod";
 
 const configSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
-  DATABASE_URL: z.string().min(1).default("postgres://postgres:postgres@localhost:5432/image_processing"),
+  DATABASE_URL: z.string().min(1).default("postgresql://postgres:post%67res@localhost:5432/image_processing"),
   NATS_URL: z.string().min(1).default("nats://localhost:4222"),
   MINIO_ENDPOINT: z.string().min(1).default("localhost"),
   MINIO_PORT: z.coerce.number().int().positive().default(9000),

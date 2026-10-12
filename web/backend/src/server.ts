@@ -29,12 +29,12 @@ function parseParams(value: unknown): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-function outputExtension(type: JobType, params: Record<string, unknown>, originalName: string): string {
+function outputExtension(type: JobType, params: Record<string, unknown>): string {
   if (type === "image-convert") {
     const target = String(params.targetFormat ?? "JPEG").toLowerCase();
     return target === "jpeg" ? "jpg" : target;
   }
-  return path.extname(originalName).slice(1).toLowerCase() || "jpg";
+  return "jpg";
 }
 
 function serializeJob(job: Awaited<ReturnType<typeof getJob>>) {
@@ -66,7 +66,7 @@ app.post("/api/jobs", upload.single("file"), async (request, response, next) => 
     const params = parseParams(request.body.params);
     const jobId = randomUUID();
     const inputKey = `${jobId}/input${path.extname(request.file.originalname).toLowerCase() || ".bin"}`;
-    const outputKey = `${jobId}/result.${outputExtension(type as JobType, params, request.file.originalname)}`;
+    const outputKey = `${jobId}/result.${outputExtension(type as JobType, params)}`;
     await storage.putObject(UPLOADS_BUCKET, inputKey, request.file.buffer, request.file.size, {
       "Content-Type": request.file.mimetype,
     });

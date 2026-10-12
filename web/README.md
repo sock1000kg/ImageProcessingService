@@ -16,16 +16,15 @@ the command to `jobs.ai` or `jobs.image`, and consumes worker events from
 
 ### 1. Start infrastructure services
 
-From the `engine` directory, start NATS and MinIO (Silo):
+From the `engine` directory, start NATS and MinIO:
 
 ```powershell
 Set-Location engine
 docker compose -f docker-compose.local.yml up -d nats minio minio-init
 ```
 
-> **Note:** Official `minio/minio` and `minio/mc` images are no longer available on Docker Hub / Quay.
-> The local compose file uses the community images `pgsty/silo` and `pgsty/mc` instead.
-> You can also remove the obsolete `version:` key at the top of `docker-compose.local.yml`.
+> The local compose file currently uses `cgr.dev/chainguard/minio` and
+> `cgr.dev/chainguard/minio-client`.
 
 ### 2. Start PostgreSQL (separately)
 
@@ -83,7 +82,7 @@ For a production build, run `npm run build` and then `npm start`.
 Default `.env` values that match the containers above:
 
 ```env
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/image_processing
+DATABASE_URL=postgresql://postgres:post%67res@localhost:5432/image_processing
 NATS_URL=nats://localhost:4222
 MINIO_ENDPOINT=localhost
 MINIO_PORT=9000
@@ -101,7 +100,5 @@ provide `DATABASE_URL`, `NATS_URL`, `MINIO_ENDPOINT`, `MINIO_PORT`,
 `MINIO_ACCESS_KEY`, and `MINIO_SECRET_KEY` from the infrastructure-managed
 Secrets. `PUBLIC_RESULTS_BASE_URL` defaults to `/results`, matching the
 HTTPRoute that exposes the public MinIO `results` bucket.
-
-```
 
 ```

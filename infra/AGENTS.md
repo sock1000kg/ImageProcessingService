@@ -16,8 +16,19 @@ This document outlines the complete plan to deploy the foundational infrastructu
 > KEDA install, HTTPRoutes and the two setup Jobs. We never touch lab apps.
 > * Deploy: `infra/deploy.sh cluster|dev|prod` (`kubectl kustomize --enable-helm | kubectl apply`).
 > * Secrets: `infra/seal.sh dev|prod`; committed `sealed-secret.yaml` is a placeholder until then.
-> * Verify: `infra/smoke-test.sh dev|prod` (see `infra/docs/endpoints.md` for all endpoints).
 > * Anything below is only marked `[x]` when it actually passed on the lab.
+
+## Scripts
+
+| Script | What it does | Who runs it |
+|---|---|---|
+| `infra/deploy.sh` | Deploys cluster, dev, or prod overlay with pre/post checks | User (lab) |
+| `infra/seal.sh` | Seals dev or prod secrets using kubeseal | User (lab) / Developer |
+| `infra/smoke-test.sh` | End-to-end smoke test of cluster services and routes | User (lab) |
+| `infra/images/build-push.sh` | Builds custom MinIO+mc image and optionally pushes to registry | Maintainer / CI |
+| `infra/verify-render.sh` | Verifies rendered manifests, resource limits, and budgets | Coder / Reviewer / CI |
+| `infra/base/nats/setup-streams.sh` | Sets up NATS JetStream streams and durable consumers | Run automatically (Job / compose) |
+| `infra/base/minio/setup-buckets.sh` | Sets up MinIO buckets, access policy, and ILM lifecycle | Run automatically (Job / compose) |
 
 ## Milestone 1: Messaging and Event Bus Foundation
 **Goal:** Deploy NATS JetStream and configure the complete streaming topology exactly as defined in the integration contracts.
@@ -82,16 +93,15 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * `MINIO_PROMETHEUS_AUTH_TYPE=public` is emitted by the MinIO chart via `metrics.serviceMonitor.public: true` — never add it again under `environment:` in `values.yaml`, a duplicate env key breaks client-side re-apply. `verify-render.sh` fails on duplicate env names.
 * The MinIO chart defaults to a **16Gi** memory request — always keep the `resources` override in `infra/base/minio/values.yaml`. Memory limit: **dev 256Mi (base), prod 512Mi** (patched in `infra/overlays/prod/patch-prod-sizing.yaml`).
 * Bucket setup: anonymous policy is **GetObject only** (no ListBucket) and lifecycle is imported wholesale with `mc ilm import`, so re-running the Job is safe.
-* The setup scripts (`infra/base/nats/setup-streams.sh`, `infra/base/minio/setup-buckets.sh`) are shared verbatim with `infra/docker-compose.yaml`; `infra/verify-local-setup.sh` exercises them without a container runtime, and `infra/verify-smoke-test-offline.sh` checks `smoke-test.sh`'s pod specs and embedded scripts offline.
+* The setup scripts (`infra/base/nats/setup-streams.sh`, `infra/base/minio/setup-buckets.sh`) are shared verbatim with `infra/docker-compose.yaml`.
 * `kubectl run ... --command -- /bin/sh -c <script> sh <arg>`: `--command` is a boolean flag and the trailing `sh` becomes `$0`, so the real argument must come after it.
 * **MinIO image is ours, not upstream's.** MinIO is archived and its images can't be pulled any more, so `infra/images/minio/Dockerfile` builds the server from the release source and bundles the official sha256-verified `mc` client. Everything uses `socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z`. Rebuild with `infra/images/build-push.sh`; never re-pin to a MinIO registry. `verify-render.sh` fails if any rendered image points at `quay.io/minio`, `minio/mc` or `docker.io/minio/`.
 * The public `/results/` HTTPRoute matches **GET and HEAD only**; `verify-render.sh` asserts it.
-* `smoke-test.sh --print-pod-specs` is offline-only by construction: it never runs `kubectl` (kube_run is a no-op) and substitutes `PRINT_ONLY` for the credentials, so it can be used anywhere, including against the lab context.
 
 ## Operational notes (Round 1.2 — KEDA namespace fix)
 * **Never put `namespace:` at the top level of a kustomization that uses `helmCharts`.** The namespace transformer rewrites *every* namespaced resource, including the ones the chart deliberately creates in `kube-system`. KEDA's `RoleBinding/keda-operator-auth-reader` (Role `extension-apiserver-authentication-reader` → SA `keda/keda-metrics-server`) was dragged into `keda`, granted nothing, and crash-looped the metrics apiserver with `unable to load configmap based request-header` for `configmap/extension-apiserver-authentication` in `kube-system`.
 * Correct shape: no top-level `namespace`, `namespace: keda` **inside the `helmCharts` entry**. `namespace.yaml` stays in `resources`. Same pitfall applies to any future chart with cross-namespace RBAC.
-* `verify-render.sh` now allow-lists exactly `RoleBinding/keda-operator-auth-reader` in `kube-system`, asserts its roleRef and subject, asserts `APIService v1beta1.external.metrics.k8s.io → keda/keda-operator-metrics-apiserver`, asserts ClusterRoleBinding subjects point at ServiceAccounts in `keda` (except the chart's `keda-operator-hpa-controller-external-metrics` → `kube-system/horizontal-pod-autoscaler`), and fails on anything rendering into `default`. The old blanket "everything is in `keda`" assertion could not catch this class of bug.
+* `verify-render.sh` asserts `RoleBinding/keda-operator-auth-reader` stays in `kube-system` and fails on anything rendering into `default` (or without namespace).
 * `infra/deploy.sh cluster` deletes the stray `keda/keda-operator-auth-reader` (`--ignore-not-found -o name`) before applying, then — **before** any `rollout status` — restarts `deploy/keda-operator-metrics-apiserver` if that stray RoleBinding was actually deleted or if a pod is in `CrashLoopBackOff`. The restart must precede the waits: `rollout status` blocks until `ROLLOUT_TIMEOUT` on a crash-looping pod, so waiting first would never reach the restart. It then waits for all three KEDA deployments and finally for (default 180s, `APISERVICE_TIMEOUT`) `apiservice/v1beta1.external.metrics.k8s.io` to be `Available`, dumping the metrics apiserver logs if it isn't. Idempotent: on a clean run with nothing stray, no restart is issued.
 
 ## Operational notes (Round 1.3 — volume ownership on ACL'd local-path)
@@ -102,7 +112,6 @@ This document outlines the complete plan to deploy the foundational infrastructu
   * Postgres: the chart's own `volumePermissions.enabled: true` (`bitnamilegacy/os-shell:12-debian-12-r51`, pinned by digest — `bitnami/os-shell` only has a rolling `latest`), plus `infra/base/postgresql/patch-volume-permissions.yaml` to add `drop: ALL` + `CHOWN`/`FOWNER`, since the chart would otherwise give the init container the full default capability set (including `DAC_OVERRIDE`). `FOWNER` is needed because the chart's `chmod 700 .../data` runs *after* the chown.
   * NATS runs as root, which bypasses ACLs, so it needs no init container.
 * `verify-render.sh` enforces this: any PVC-mounted workload whose main container is non-root must have an init container that mounts the same volume, runs as uid 0 and has `CHOWN`. Init containers also need memory limits, and are excluded from the steady-state budget like setup Jobs.
-* `bash infra/verify-volume-acl.sh` reproduces the lab's ACL shape locally in docker (mask `m::r-x` + a matching default ACL) and proves (a) the bug without the init step and (b)–(e) the fix, using the command vector read out of the *rendered* manifests. It needs a running Docker daemon and network for `apk add acl`.
 * If Postgres still fails after this change, the earlier crash likely left a half-initialised data dir: delete PVC `data-postgresql-0` **in `imgproc-dev` only** (dev holds no data yet) and redeploy.
 
 ## Operational notes (Task 2, engine workers)

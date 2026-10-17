@@ -72,7 +72,7 @@ Streams use **workqueue** retention, file storage, 1 replica.
 |---|---|---|---|---|---|
 | `AI_JOBS` | `jobs.ai`, `jobs.ai.>` | `ai-workers` | 5m (300s) | 5 | 1000 |
 | `IMAGE_JOBS` | `jobs.image`, `jobs.image.>` | `image-workers` | 1m (60s) | 5 | 1000 |
-| `JOB_EVENTS` | `jobs.events`, `jobs.events.>`, `jobs.progress`, `jobs.completed`, `jobs.failed` | `backend-job-events` | 30s | 10 | 1000 |
+| `JOB_EVENTS` | `jobs.events`, `jobs.events.>` | `backend-job-events` | 30s | 10 | 1000 |
 
 All consumers use explicit ack. Provisioned idempotently by
 `infra/base/nats/setup-streams.sh` (Job `nats-setup`, also the compose service

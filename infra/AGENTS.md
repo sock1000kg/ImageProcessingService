@@ -29,6 +29,7 @@ This document outlines the complete plan to deploy the foundational infrastructu
 | `infra/verify-render.sh` | Verifies rendered manifests, resource limits, and budgets | Coder / Reviewer / CI |
 | `infra/base/nats/setup-streams.sh` | Sets up NATS JetStream streams and durable consumers | Run automatically (Job / compose) |
 | `infra/base/minio/setup-buckets.sh` | Sets up MinIO buckets, access policy, and ILM lifecycle | Run automatically (Job / compose) |
+| `infra/scaling-demo.sh` | Demonstrates independent autoscaling of AI and Image worker pools | User (lab) |
 
 ## Milestone 1: Messaging and Event Bus Foundation
 **Goal:** Deploy NATS JetStream and configure the complete streaming topology exactly as defined in the integration contracts.

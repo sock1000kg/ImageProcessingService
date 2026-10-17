@@ -548,20 +548,5 @@ The worker publishes progress events back to NATS.
 
 ### Infra can test without AI
 
-Inject dummy jobs into JetStream:
-
-```text
-test message
-    |
-    v
-NATS JetStream
-    |
-    v
-KEDA
-    |
-    v
-dummy worker Deployment
-```
-
-This isolates the autoscaling demonstration from AI inference time.
+Infra tests scaling with the real engine workers via `infra/scaling-demo.sh`. KEDA activation can be checked without processing by publishing a single message to observe the pool scale from 0 to 1.
 

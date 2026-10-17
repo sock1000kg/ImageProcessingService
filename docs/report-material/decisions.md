@@ -164,3 +164,10 @@ Mỗi mục theo format **Vấn đề → Lựa chọn → Quyết định → V
 - **Vì sao:** Khuyến mễn nhất và không đụng vào hạ tầng dùng chung. `CHOWN` là vận hành chỉ 5 giây ở đầu vòng đời
   pod; không cần `DAC_OVERRIDE`, và mask của ACL trở nên vô nghĩa với chúng ta vì ta dựa vào **owner**, không
   dựa vào group.
+
+## 14. Bỏ worker giả lập, dùng engine thật trong dev và tách ngân sách RAM worker
+- **Vấn đề:** Ban đầu dự kiến dùng worker giả lập để test KEDA autoscaling nhằm cô lập thời gian inference; worker engine thật lại có mức tiêu thụ RAM lớn (AI limit 1536Mi, Image 768Mi, peak 5376Mi).
+- **Lựa chọn:** (a) Viết worker giả lập riêng và tính RAM worker vào ngưỡng chặn cứng 2.5Gi; (b) Bỏ worker giả lập, dùng trực tiếp engine thật (`socknot1000kg/imgproc-engine:dev`) chỉ trong `imgproc-dev`, đồng thời tách riêng chỉ số RAM worker thành thông tin tham khảo.
+- **Quyết định:** (b) — Test scaling bằng `infra/scaling-demo.sh` với worker thật; ngưỡng chặn cứng 2560Mi chỉ áp dụng cho platform steady-state (NATS, Postgres, MinIO, KEDA), còn RAM peak 5376Mi của worker được báo cáo riêng.
+- **Vì sao:** Tránh viết thêm code giả không dùng trong sản phẩm; worker chỉ chạy trong dev và scale từ 0 nên không chiếm RAM thường trực; phản ánh đúng hành vi tích hợp end-to-end của hệ thống thật trên phần cứng lab.
+

@@ -1,0 +1,35 @@
+# KEDA (cluster-wide, installed once) — Lab-sock tenant.
+# The lab node is a single i5-7200U (2C/4T, 12GB), so every KEDA component is
+# pinned to home-server with a small memory limit.
+operator:
+  nodeSelector:
+    kubernetes.io/hostname: home-server
+metricsServer:
+  nodeSelector:
+    kubernetes.io/hostname: home-server
+webhooks:
+  nodeSelector:
+    kubernetes.io/hostname: home-server
+
+resources:
+  operator:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  metricServer:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  webhooks:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 64Mi

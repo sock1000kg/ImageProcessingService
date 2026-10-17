@@ -1,0 +1,68 @@
+# Ownership init container for the MinIO data volume.
+#
+# Why: the lab's local-path storage directory carries POSIX ACLs (`drwxrwsrwx+`
+# with a mask of `r-x`) that it may inherit from another app, and the mask caps
+# the group class — so MinIO (uid/gid 1000) cannot create /export/.minio.sys and
+# dies with `unable to create (/export/.minio.sys/tmp) file access denied`.
+# We must not change the shared ACL, so instead we make the volume *owned* by
+# the uid that writes to it: the owner class is not affected by the mask.
+#
+# chart 5.4.0 has no init-container value, hence this kustomize patch.
+# The init container only chowns; it runs as root with only CHOWN+FOWNER.
+# Chown is recursive only when the top-level owner is wrong, so a large bucket
+# directory is not walked on every restart.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: volume-permissions
+          image: socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            # overrides the pod-level runAsUser/fsGroup (1000) from
+            # securityContext.enabled in values.yaml
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - FOWNER
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              set -eu
+              # uid/gid come from the chart's securityContext (values.yaml):
+              # runAsUser 1000 / runAsGroup 1000
+              target=/export
+              want="1000:1000"
+              have="$(stat -c '%u:%g' "$target")"
+              if [ "$have" = "$want" ]; then
+                echo "volume-permissions: $target is already owned by $want, nothing to do"
+                exit 0
+              fi
+              echo "volume-permissions: $target is owned by $have, chown -R $want $target"
+              chown -R "$want" "$target"
+              echo "volume-permissions: $target is now owned by $(stat -c '%u:%g' "$target")"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          volumeMounts:
+            # same volume and mount path as the minio container
+            - name: export
+              mountPath: /export

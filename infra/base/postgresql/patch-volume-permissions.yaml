@@ -1,0 +1,30 @@
+# Least-privilege hardening for the chart's own volume-permissions init
+# container (`init-chmod-data`).
+#
+# The chart renders it as root with the container's *default* capability set
+# (which includes DAC_OVERRIDE). It needs to chown the data volume, mkdir the
+# data subdirectory, and chmod it. We drop everything and add back CHOWN,
+# FOWNER, and DAC_OVERRIDE. CHOWN makes the volume owned by 1001:1001 (the
+# owner class is not capped by the lab's ACL mask); FOWNER is needed because
+# the chart's `chmod 700 .../data` runs after that chown, on a directory root
+# no longer owns; DAC_OVERRIDE is required because the Bitnami script runs
+# `mkdir -p /bitnami/postgresql/data` after chowning /bitnami/postgresql to
+# 1001:1001: once root no longer owns the directory, it goes through normal
+# DAC checks, which are denied by the lab storage's ACL mask without DAC_OVERRIDE.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgresql
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: init-chmod-data
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - FOWNER
+                - DAC_OVERRIDE

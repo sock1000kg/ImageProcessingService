@@ -1,0 +1,58 @@
+# MinIO — Lab-sock tenant base.
+# Rendered with: kubectl kustomize --enable-helm infra/overlays/<env>
+mode: standalone
+
+# MinIO upstream is archived (anonymous pulls are refused, dl.min.io is 410), so
+# we build and own the image ourselves: server built from the release source,
+# official mc client bundled. Rebuild with infra/images/build-push.sh.
+image:
+  repository: socknot1000kg/minio
+  tag: RELEASE.2025-10-15T17-29-55Z
+  pullPolicy: IfNotPresent
+# the chart's own post-job is disabled (buckets/users/policies are empty), but
+# keep the reference pullable in case someone re-enables it
+mcImage:
+  repository: socknot1000kg/minio
+  tag: RELEASE.2025-10-15T17-29-55Z
+  pullPolicy: IfNotPresent
+
+# credentials live in the sealed secret imgproc-minio (keys rootUser, rootPassword)
+existingSecret: imgproc-minio
+
+persistence:
+  enabled: true
+  storageClass: local-path
+  size: 2Gi
+
+# the chart defaults to a 16Gi memory *request* — unusable on this 12GB node
+# dev ceiling is 256Mi; the prod overlay patches this to the plan's 512Mi
+# (prod takes the upload bursts and the benchmark runs)
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+nodeSelector:
+  kubernetes.io/hostname: home-server
+
+# our own setup Job owns buckets / anonymous policy / lifecycle:
+# disable every chart-managed bucket, user and policy resource
+buckets: []
+users: []
+policies: []
+
+# prom-agent on the lab scrapes annotated pods; make /minio/v2/metrics public.
+# MINIO_PROMETHEUS_AUTH_TYPE=public is emitted by the chart itself when
+# metrics.serviceMonitor.public is true (see templates/deployment.yaml) — do NOT
+# also add it under `environment:`, that would render a duplicate env key and
+# warn/break on client-side re-apply.
+metrics:
+  serviceMonitor:
+    public: true
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9000"
+  prometheus.io/path: /minio/v2/metrics/cluster

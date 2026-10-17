@@ -1,0 +1,60 @@
+# prod sizing: more disk and larger memory ceilings than base.
+# Helm values are rendered inside base/, so the overlay patches the rendered
+# objects (kustomize applies these patches after chart inflation).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgresql
+spec:
+  template:
+    spec:
+      containers:
+        - name: postgresql
+          resources:
+            limits:
+              # trimmed from the plan's 512Mi to fit the ~2.5Gi steady-state budget
+              memory: 384Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        resources:
+          requests:
+            storage: 5Gi
+---
+# prod takes the upload bursts and the benchmark runs, so MinIO gets the
+# plan's 512Mi ceiling here; base/dev stays at 256Mi
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+spec:
+  template:
+    spec:
+      containers:
+        - name: minio
+          resources:
+            limits:
+              memory: 512Mi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+spec:
+  volumeClaimTemplates:
+    - metadata:
+        name: nats-js
+      spec:
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio
+spec:
+  resources:
+    requests:
+      storage: 10Gi

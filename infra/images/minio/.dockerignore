@@ -1,0 +1,3 @@
+# keep the build context tiny: everything the Dockerfile needs is fetched or
+# copied inside the build, nothing from the working tree is used as input.
+*

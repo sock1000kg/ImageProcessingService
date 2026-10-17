@@ -26,10 +26,9 @@ Lỗ hổng cần xử lý trong Phase 1:
 | G4 | Chưa có `web/Dockerfile`; `npm start` chỉ chạy API, không serve frontend đã build. | — |
 | G5 | Chưa có mock worker và chưa có test, nên Web không tự test E2E được khi chưa có engine. | — |
 | G6 | Schema PG được tạo trong code (`CREATE TABLE IF NOT EXISTS`), `CHECK` cứng 2 loại job, không có migration. | `db.ts` |
-| G7 | Đường dẫn kết quả: `milestones.md` ghi `results/<user-uuid>/<job-id>/result`, contract + code dùng `<jobId>/result.<ext>`. | docs |
+| G7 | ~~Đường dẫn kết quả không thống nhất giữa các docs~~ (đã xử lý, xem bên dưới) | docs |
 
-**Quyết định cho G7:** Phase 1 dùng `<jobId>/result.<ext>` như contract hiện tại. Prefix theo user được xem lại ở Phase 2 (M7) khi có auth.
-Cập nhật `docs/milestones.md` cho khớp. **[Đổi contract]**: chỉ là sửa docs cho thống nhất, báo nhóm.
+**Quyết định cho G7 (đã ghi vào docs):** dùng `<jobId>/result.<ext>`, xem `docs/integration-contracts.md` §5 (`docs/milestones.md` đã khớp). Prefix theo user được xem lại ở Phase 2 (M7) khi có auth.
 
 ---
 
@@ -48,8 +47,6 @@ Người dùng upload ảnh → worker **thật** của engine xử lý → xem 
     - [ ] Sửa `.env.example` theo `infra/.env.example` + `infra/docs/endpoints.md`. Cập nhật `web/README.md`: dev local dùng `infra/docker-compose.yaml` (không còn `engine/docker-compose.local.yml` + PG riêng). (G3)
     - [ ] Tách schema sang file migration (ví dụ `backend/migrations/001_init.sql`, chạy lúc khởi động hoặc bằng `npm run migrate`). Bỏ `CHECK` cứng trên `type`, validate loại job ở tầng API. (G6)
     - [ ] Chốt danh sách loại job Phase 1. **[Cần Engine]**: hỏi Huy Đức loại AI nào (`object-detection`?) và loại ảnh thường nào (`image-convert`?) sẽ chạy được trước 28/10, và `params` nào worker thực sự đọc.
-    - [ ] Hỏi xác nhận: worker publish event lên đúng subject `jobs.events` (không phải `jobs.progress`/`jobs.completed`), và gửi `PROCESSING` ngay khi nhận job. **[Cần Engine]**
-    - [ ] Cập nhật `docs/milestones.md` cho khớp quyết định G7. **[Đổi contract]**
 * **Kiểm chứng:**
     - [ ] `docker compose -f infra/docker-compose.yaml up -d` + setup jobs → `npm run dev:backend` khởi động OK. Xoá một stream thì backend thoát với thông báo rõ ràng.
     - [ ] Publish tay một event sai schema bằng `nats pub jobs.events '{...}'` → bị `term`, không lặp lại trong log.
@@ -150,7 +147,7 @@ Hướng tham khảo: các dịch vụ media trên cloud (Cloudinary, AWS Rekogn
 
 | Khi nào | Với ai | Việc |
 |---|---|---|
-| M1 (trước 20/10) | Engine | Loại job Phase 1, `params` thực tế, subject event `jobs.events`, gửi `PROCESSING` khi nhận job |
+| M1 (trước 20/10) | Engine | Loại job Phase 1, `params` thực tế |
 | M3 (trước 26/10) | Infra | CI image `imgproc-web`, Deployment/Service/HTTPRoute, Secret + MinIO user riêng cho web, memory limit, giới hạn body upload |
 | M4 (28/10) | Engine + Infra | E2E worker thật, kịch bản burst cho demo KEDA |
 | M5 | Engine | Cơ chế huỷ job + trạng thái `CANCELLED` (đổi contract) |

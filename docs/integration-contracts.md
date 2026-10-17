@@ -155,7 +155,7 @@ Phát ra khi Worker bắt đầu nhận việc và tải dữ liệu từ MinIO:
   "timestamp": "2026-10-08T07:00:01Z"
 }
 ```
-*Các stage chuẩn:* `DOWNLOADING_INPUT`, `PROCESSING`, `UPLOADING_OUTPUT`.
+*`stage`* là chuỗi tự do do worker đặt, chỉ dùng để hiển thị. Backend lưu nguyên và **không** dựa vào nó để xử lý logic (logic chỉ dựa vào `status` và `progress`). Giá trị engine đang dùng: `DOWNLOADING_INPUT`, `PROCESSING`, `INFERENCE`, `UPLOADING_OUTPUT`, `DONE` (khi `COMPLETED`).
 
 ---
 

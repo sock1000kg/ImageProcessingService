@@ -43,13 +43,13 @@ This document outlines the complete plan to deploy the foundational infrastructu
         - [ ] Upload a test image to the `results` bucket and verify it is publicly accessible via the `/results/...` ingress route.
         - [ ] Verify the TTL policy is applied to the buckets.
 
-## Milestone 3: Dummy Worker Deployment & Resource Limits
-**Goal:** Deploy simulated worker pools to validate the message consumption patterns and enforce the constrained hardware limits (**2C/4T i5-7200U, 12GB RAM, HDD** node, shared with the rest of the lab; total dev + prod + KEDA memory limits are capped at ~2.5Gi).
+## Milestone 3: Engine Worker Deployments & Resource Limits (Dev)
+**Goal:** Deploy engine worker Deployments (`ai-worker`, `image-worker`) in dev to validate the message consumption patterns and enforce the constrained hardware limits (**2C/4T i5-7200U, 12GB RAM, HDD** node, shared with the rest of the lab; platform services dev + prod + KEDA memory limits are capped at ~2.5Gi).
 *   **Tasks:**
-        - [ ] Create a minimal script (e.g., Python/Go) that acts as a dummy worker. It should subscribe to a specified consumer, simulate processing (sleep), and ACK the message.
-        - [ ] Deploy an `ai-worker-dummy` Deployment consuming from `ai-workers` (simulating heavy AI tasks).
-        - [ ] Deploy an `image-worker-dummy` Deployment consuming from `image-workers` (simulating fast image tasks).
-        - [ ] Set strict CPU and Memory requests/limits on these deployments to represent the actual hardware constraints.
+        - [x] Configure engine worker manifests (`infra/base/engine-workers/`) using the real engine image `socknot1000kg/imgproc-engine:dev`. *(code only, not yet run on the lab)*
+        - [x] Deploy an `ai-worker` Deployment consuming from `ai-workers` on `AI_JOBS` (`jobs.ai`). *(code only, not yet run on the lab)*
+        - [x] Deploy an `image-worker` Deployment consuming from `image-workers` on `IMAGE_JOBS` (`jobs.image`). *(code only, not yet run on the lab)*
+        - [x] Set strict CPU and Memory requests/limits on these deployments (AI: 512Mi/1536Mi; Image: 256Mi/768Mi). *(code only, not yet run on the lab)*
 *   **Verification:**
         - [ ] Manually scale both deployments to 1.
         - [ ] Publish messages to both queues and verify independent processing and ACKing in the respective logs.
@@ -58,8 +58,8 @@ This document outlines the complete plan to deploy the foundational infrastructu
 **Goal:** Connect KEDA to NATS JetStream consumer lag to demonstrate that different worker pools can scale independently based on their specific queue depths.
 *   **Tasks:**
         - [ ] Install KEDA in the Kubernetes cluster. *(already installed by `infra/deploy.sh cluster` into ns `keda` — this item only becomes `[x]` once it is verified running on the lab)*
-        - [ ] Create a `ScaledObject` for `ai-worker-dummy` targeting the `AI_JOBS` stream and `ai-workers` consumer lag.
-        - [ ] Create a `ScaledObject` for `image-worker-dummy` targeting the `IMAGE_JOBS` stream and `image-workers` consumer lag.
+        - [ ] Create a `ScaledObject` for `ai-worker` targeting the `AI_JOBS` stream and `ai-workers` consumer lag.
+        - [ ] Create a `ScaledObject` for `image-worker` targeting the `IMAGE_JOBS` stream and `image-workers` consumer lag.
         - [ ] Set `minReplicaCount: 0`, and distinct `maxReplicaCount` values and scaling thresholds for each pool based on their simulated resource weight.
 *   **Verification:**
         - [ ] Verify that KEDA creates HorizontalPodAutoscalers for both deployments.
@@ -104,3 +104,11 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * `verify-render.sh` enforces this: any PVC-mounted workload whose main container is non-root must have an init container that mounts the same volume, runs as uid 0 and has `CHOWN`. Init containers also need memory limits, and are excluded from the steady-state budget like setup Jobs.
 * `bash infra/verify-volume-acl.sh` reproduces the lab's ACL shape locally in docker (mask `m::r-x` + a matching default ACL) and proves (a) the bug without the init step and (b)–(e) the fix, using the command vector read out of the *rendered* manifests. It needs a running Docker daemon and network for `apk add acl`.
 * If Postgres still fails after this change, the earlier crash likely left a half-initialised data dir: delete PVC `data-postgresql-0` **in `imgproc-dev` only** (dev holds no data yet) and redeploy.
+
+## Operational notes (Task 2, engine workers)
+* **Dev only:** Engine worker Deployments (`ai-worker`, `image-worker`) are included strictly in `imgproc-dev` via `infra/overlays/dev/kustomization.yaml` (`../../base/engine-workers`). `imgproc-prod` is untouched and contains no worker Deployments.
+* **Temporary `:dev` tag:** Deployments use `socknot1000kg/imgproc-engine:dev` with `imagePullPolicy: Always` as a temporary measure until CI publishes immutable digest/SHA tags.
+* **Worker label and steady-state budget:** Worker Deployments carry label `app.kubernetes.io/component: worker` and are excluded from the platform steady-state budget (which remains at **2560Mi**). Their sizing (AI: 1536Mi limit; Image: 768Mi limit) is reported informationally by `verify-render.sh`.
+* **MinIO credentials:** Workers mount MinIO credentials from the existing `imgproc-minio` Secret (`rootUser`/`rootPassword`). Root credentials are used temporarily for dev; a scoped MinIO service account user is a future improvement.
+* **Smoke test interaction:** When worker Deployments have ready replicas, `smoke-test.sh` skips the pool queue drain (`SKIP (workers running)`) to prevent racing with active engine workers, and asserts stream and consumer presence.
+

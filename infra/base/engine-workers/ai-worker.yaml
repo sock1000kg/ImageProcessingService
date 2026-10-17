@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/component: worker
     imgproc.io/pool: ai
 spec:
-  replicas: 1
+  # Replicas managed by KEDA ScaledObject (min 0, max 2)
   selector:
     matchLabels:
       app.kubernetes.io/name: ai-worker

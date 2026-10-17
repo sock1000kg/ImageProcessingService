@@ -69,9 +69,9 @@ This document outlines the complete plan to deploy the foundational infrastructu
 **Goal:** Connect KEDA to NATS JetStream consumer lag to demonstrate that different worker pools can scale independently based on their specific queue depths.
 *   **Tasks:**
         - [ ] Install KEDA in the Kubernetes cluster. *(already installed by `infra/deploy.sh cluster` into ns `keda` — this item only becomes `[x]` once it is verified running on the lab)*
-        - [ ] Create a `ScaledObject` for `ai-worker` targeting the `AI_JOBS` stream and `ai-workers` consumer lag.
-        - [ ] Create a `ScaledObject` for `image-worker` targeting the `IMAGE_JOBS` stream and `image-workers` consumer lag.
-        - [ ] Set `minReplicaCount: 0`, and distinct `maxReplicaCount` values and scaling thresholds for each pool based on their simulated resource weight.
+        - [x] Create a `ScaledObject` for `ai-worker` targeting the `AI_JOBS` stream and `ai-workers` consumer lag. *(code only, not yet run on the lab)*
+        - [x] Create a `ScaledObject` for `image-worker` targeting the `IMAGE_JOBS` stream and `image-workers` consumer lag. *(code only, not yet run on the lab)*
+        - [x] Set `minReplicaCount: 0`, and distinct `maxReplicaCount` values and scaling thresholds for each pool based on their simulated resource weight. *(code only, not yet run on the lab)*
 *   **Verification:**
         - [ ] Verify that KEDA creates HorizontalPodAutoscalers for both deployments.
         - [ ] Publish a burst of messages *only* to `jobs.ai` and verify only the AI workers scale up.
@@ -120,4 +120,9 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * **Worker label and steady-state budget:** Worker Deployments carry label `app.kubernetes.io/component: worker` and are excluded from the platform steady-state budget (which remains at **2560Mi**). Their sizing (AI: 1536Mi limit; Image: 768Mi limit) is reported informationally by `verify-render.sh`.
 * **MinIO credentials:** Workers mount MinIO credentials from the existing `imgproc-minio` Secret (`rootUser`/`rootPassword`). Root credentials are used temporarily for dev; a scoped MinIO service account user is a future improvement.
 * **Smoke test interaction:** When worker Deployments have ready replicas, `smoke-test.sh` skips the pool queue drain (`SKIP (workers running)`) to prevent racing with active engine workers, and asserts stream and consumer presence.
+
+## Operational notes (Task 3, KEDA ScaledObjects)
+* **Replicas owned by KEDA:** `ai-worker` and `image-worker` Deployments omit `replicas` so `kubectl apply` does not fight the KEDA HPA.
+* **Pool thresholds and peak RAM:** `ai-worker` scales with `lagThreshold: "1"` (1 heavy inference job per pod) up to 2 replicas (peak 3072Mi limit); `image-worker` scales with `lagThreshold: "5"` up to 3 replicas (peak 2304Mi limit). Total peak worker memory is **5376Mi**.
+* **Dev-only monitoring endpoint:** Trigger `natsServerMonitoringEndpoint: nats.imgproc-dev.svc.cluster.local:8222` explicitly targets the dev namespace because workers are dev-only.
 

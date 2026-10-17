@@ -464,9 +464,7 @@ Neither should replace the other.
 
 ## 11. KEDA Contract
 
-Infrastructure creates the KEDA `ScaledObject`.
-
-Example:
+Infrastructure creates the KEDA `ScaledObject`s:
 
 ```yaml
 apiVersion: keda.sh/v1alpha1
@@ -477,16 +475,42 @@ spec:
   scaleTargetRef:
     name: ai-worker
   minReplicaCount: 0
-  maxReplicaCount: 3
+  maxReplicaCount: 2
+  pollingInterval: 10
+  cooldownPeriod: 120
   triggers:
     - type: nats-jetstream
       metadata:
-        natsServerMonitoringEndpoint: "nats:8222"
+        # Dev-only endpoint by design (engine worker pools are dev-only)
+        natsServerMonitoringEndpoint: "nats.imgproc-dev.svc.cluster.local:8222"
         account: "$G"
-        stream: "AI_JOBS"        # IMAGE_JOBS cho pool ảnh thường
-        consumer: "ai-workers"   # image-workers
-        lagThreshold: "3"
-        activationLagThreshold: "1"
+        stream: "AI_JOBS"
+        consumer: "ai-workers"
+        lagThreshold: "1"
+        activationLagThreshold: "0"
+        useHttps: "false"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: image-worker
+spec:
+  scaleTargetRef:
+    name: image-worker
+  minReplicaCount: 0
+  maxReplicaCount: 3
+  pollingInterval: 10
+  cooldownPeriod: 120
+  triggers:
+    - type: nats-jetstream
+      metadata:
+        # Dev-only endpoint by design (engine worker pools are dev-only)
+        natsServerMonitoringEndpoint: "nats.imgproc-dev.svc.cluster.local:8222"
+        account: "$G"
+        stream: "IMAGE_JOBS"
+        consumer: "image-workers"
+        lagThreshold: "5"
+        activationLagThreshold: "0"
         useHttps: "false"
 ```
 

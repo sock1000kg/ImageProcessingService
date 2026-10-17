@@ -78,20 +78,23 @@ All consumers use explicit ack. Provisioned idempotently by
 `infra/base/nats/setup-streams.sh` (Job `nats-setup`, also the compose service
 `nats-setup`).
 
-## KEDA trigger values (round 3)
+## KEDA trigger values
 
 ```yaml
 triggers:
   - type: nats-jetstream
     metadata:
-      natsServerMonitoringEndpoint: nats.imgproc-<env>.svc.cluster.local:8222
+      # Dev-only endpoint by design (engine worker pools are dev-only)
+      natsServerMonitoringEndpoint: nats.imgproc-dev.svc.cluster.local:8222
       account: $G
       stream: AI_JOBS          # or IMAGE_JOBS
       consumer: ai-workers     # or image-workers
-      durableName: ai-workers
-      lagThreshold: "10"
+      lagThreshold: "1"        # AI_JOBS: "1", IMAGE_JOBS: "5"
+      activationLagThreshold: "0"
+      useHttps: "false"
 ```
 
+> ScaledObjects configure `pollingInterval: 10` and `cooldownPeriod: 120`. `durableName` is no longer used by KEDA's `nats-jetstream` scaler (legacy STAN parameter; JetStream scaler uses `consumer`).
 > Must match `docs/integration-contracts.md` §4 and §11 (per-pool `AI_JOBS` /
 > `IMAGE_JOBS` streams).
 
@@ -99,10 +102,13 @@ triggers:
 
 Engine worker pools deployed in `imgproc-dev` only (agreeing with `docs/integration-contracts.md` §4):
 
-| deployment | stream / consumer | CPU req / limit | memory req / limit | image |
-|---|---|---|---|---|
-| `ai-worker` | `AI_JOBS` / `ai-workers` | 250m / 1000m | 512Mi / 1536Mi | `socknot1000kg/imgproc-engine:dev` |
-| `image-worker` | `IMAGE_JOBS` / `image-workers` | 100m / 500m | 256Mi / 768Mi | `socknot1000kg/imgproc-engine:dev` |
+| deployment | stream / consumer | min / max replicas | lag / activation | CPU req / limit | memory req / limit | peak RAM | image |
+|---|---|---|---|---|---|---|---|
+| `ai-worker` | `AI_JOBS` / `ai-workers` | 0 / 2 | 1 / 0 | 250m / 1000m | 512Mi / 1536Mi | 3072Mi | `socknot1000kg/imgproc-engine:dev` |
+| `image-worker` | `IMAGE_JOBS` / `image-workers` | 0 / 3 | 5 / 0 | 100m / 500m | 256Mi / 768Mi | 2304Mi | `socknot1000kg/imgproc-engine:dev` |
+
+Total peak worker RAM: **5376Mi** (2×1536Mi + 3×768Mi). Replicas are managed dynamically by KEDA ScaledObjects (omitted from Deployments).
+
 
 ## Metrics
 

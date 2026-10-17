@@ -19,13 +19,6 @@ usage() {
 usage: smoke-test.sh <dev|prod> [--public]
 
   --public  additionally GET the result through the public Cloudflare hostname
-
-  --print-pod-specs  print the exact `kubectl run` argument vector of each
-                     throwaway pod and exit. This mode never contacts a
-                     cluster: kubectl is not invoked at all and credentials are
-                     replaced by the literal PRINT_ONLY. Used by
-                     infra/verify-smoke-test-offline.sh, which replays the
-                     printed vectors through `kubectl run --dry-run=client`.
 EOF
 }
 
@@ -61,7 +54,6 @@ fi
 
 ENV_NAME=""
 PUBLIC=0
-PRINT_POD_SPECS=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     dev|prod)
@@ -70,10 +62,6 @@ while [ "$#" -gt 0 ]; do
       ;;
     --public)
       PUBLIC=1
-      shift
-      ;;
-    --print-pod-specs)
-      PRINT_POD_SPECS=1
       shift
       ;;
     -h|--help)
@@ -105,70 +93,24 @@ TEST_BODY="hello imgproc $ENV_NAME $TEST_UUID"
 
 POD_OVERRIDES='{"spec":{"nodeSelector":{"kubernetes.io/hostname":"home-server"}}}'
 
-# Registered pod specs: a flat list of POD <name> <argc> <arg>... END records
-# holding exactly the `kubectl run` argument vector each check executes, so that
-# --print-pod-specs can replay it through `kubectl run --dry-run=client`.
-POD_SPECS=()
-
-register_pod() {
-  local name="$1"
-  shift
-  POD_SPECS+=("POD" "$name" "$#")
-  local arg
-  for arg in "$@"; do
-    POD_SPECS+=("$arg")
-  done
-  POD_SPECS+=("END")
-}
-
-# Arguments are base64-encoded so multi-line pod scripts survive the
-# line-oriented output (records are POD <name> <argc> then ARG <b64> per arg).
-print_pod_specs() {
-  local i n
-  i=0
-  while [ "$i" -lt "${#POD_SPECS[@]}" ]; do
-    n="${POD_SPECS[$((i + 2))]}"
-    echo "POD ${POD_SPECS[$((i + 1))]}"
-    i=$((i + 3))
-    while [ "$n" -gt 0 ]; do
-      printf 'ARG %s\n' "$(printf '%s' "${POD_SPECS[$i]}" | base64 -w0)"
-      i=$((i + 1))
-      n=$((n - 1))
-    done
-    echo "END"
-    i=$((i + 1))
-  done
-}
-
-# kube_run <name> [kubectl run args...]
-kube_run() {
-  local name="$1"
-  shift
-  if [ "$PRINT_POD_SPECS" -eq 1 ]; then
-    # print mode never talks to a cluster
-    return 0
-  fi
-  "${KUBECTL[@]}" -n "$NS" run "$name" --rm -i --restart=Never "$@"
-}
-
-# secret_value <secret> <key> — never contacts a cluster in print mode
 secret_value() {
   local secret="$1" key="$2"
-  if [ "$PRINT_POD_SPECS" -eq 1 ]; then
-    printf '%s' "PRINT_ONLY"
-    return 0
-  fi
   "${KUBECTL[@]}" -n "$NS" get secret "$secret" -o jsonpath="{.data.$key}" | base64 -d
 }
+
+POSTGRES_CHECK_SCRIPT=$(cat <<'EOS'
+set -e
+psql -h "${POSTGRES_HOST:-postgresql}" -p "${POSTGRES_PORT:-5432}" -tAc 'SELECT 1'
+EOS
+)
 
 check_postgres() {
   local pgpass out
   pgpass="$(secret_value imgproc-postgres password)"
-  local -a pod=(--image="$POSTGRES_IMAGE" --overrides="$POD_OVERRIDES" \
-    --env="PGPASSWORD=$pgpass" --env=PGUSER=imgproc --env=PGDATABASE=imgproc \
-    --command -- /bin/sh -c "$POSTGRES_CHECK_SCRIPT")
-  register_pod pg-smoke "${pod[@]}"
-  if out=$(kube_run pg-smoke "${pod[@]}" 2>&1); then
+  if out=$("${KUBECTL[@]}" -n "$NS" run pg-smoke --rm -i --restart=Never \
+      --image="$POSTGRES_IMAGE" --overrides="$POD_OVERRIDES" \
+      --env="PGPASSWORD=$pgpass" --env=PGUSER=imgproc --env=PGDATABASE=imgproc \
+      --command -- /bin/sh -c "$POSTGRES_CHECK_SCRIPT" 2>&1); then
     if [ "$(printf '%s' "$out" | tr -d '[:space:]')" = "1" ]; then
       pass "postgres: SELECT 1 on imgproc/postgresql returned 1"
     else
@@ -178,12 +120,6 @@ check_postgres() {
     fail "postgres: psql failed: $out"
   fi
 }
-
-POSTGRES_CHECK_SCRIPT=$(cat <<'EOS'
-set -e
-psql -h "${POSTGRES_HOST:-postgresql}" -p "${POSTGRES_PORT:-5432}" -tAc 'SELECT 1'
-EOS
-)
 
 NATS_CHECK_SCRIPT=$(cat <<'EOS'
 set -e
@@ -236,18 +172,16 @@ EOS
 check_nats() {
   local out
   local ai_active=0 image_active=0
-  if [ "$PRINT_POD_SPECS" -eq 0 ]; then
-    local ai_ready image_ready
-    ai_ready="$("${KUBECTL[@]}" -n "$NS" get deploy ai-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
-    image_ready="$("${KUBECTL[@]}" -n "$NS" get deploy image-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
-    [ "${ai_ready:-0}" -gt 0 ] 2>/dev/null && ai_active=1
-    [ "${image_ready:-0}" -gt 0 ] 2>/dev/null && image_active=1
-  fi
-  local -a pod=(--image="$NATS_BOX_IMAGE" --overrides="$POD_OVERRIDES" \
-    --env="AI_WORKERS_ACTIVE=$ai_active" --env="IMAGE_WORKERS_ACTIVE=$image_active" \
-    --command -- /bin/sh -c "$NATS_CHECK_SCRIPT" sh "$TEST_UUID")
-  register_pod nats-smoke "${pod[@]}"
-  if out=$(kube_run nats-smoke "${pod[@]}" 2>&1); then
+  local ai_ready image_ready
+  ai_ready="$("${KUBECTL[@]}" -n "$NS" get deploy ai-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+  image_ready="$("${KUBECTL[@]}" -n "$NS" get deploy image-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+  [ "${ai_ready:-0}" -gt 0 ] 2>/dev/null && ai_active=1
+  [ "${image_ready:-0}" -gt 0 ] 2>/dev/null && image_active=1
+
+  if out=$("${KUBECTL[@]}" -n "$NS" run nats-smoke --rm -i --restart=Never \
+      --image="$NATS_BOX_IMAGE" --overrides="$POD_OVERRIDES" \
+      --env="AI_WORKERS_ACTIVE=$ai_active" --env="IMAGE_WORKERS_ACTIVE=$image_active" \
+      --command -- /bin/sh -c "$NATS_CHECK_SCRIPT" sh "$TEST_UUID" 2>&1); then
     if echo "$out" | grep -q "NATS_OK"; then
       if [ "$ai_active" -eq 1 ] || [ "$image_active" -eq 1 ]; then
         pass "nats: stream/consumer exist (worker pools running)"
@@ -382,12 +316,11 @@ check_minio() {
   local minio_user minio_pass out
   minio_user="$(secret_value imgproc-minio rootUser)"
   minio_pass="$(secret_value imgproc-minio rootPassword)"
-  local -a pod=(--image="$MC_IMAGE" --overrides="$POD_OVERRIDES" \
-    --env="MINIO_ROOT_USER=$minio_user" --env="MINIO_ROOT_PASSWORD=$minio_pass" \
-    --env="BODY=$TEST_BODY" \
-    --command -- /bin/sh -c "$MINIO_CHECK_SCRIPT" sh "$TEST_KEY")
-  register_pod minio-smoke "${pod[@]}"
-  if out=$(kube_run minio-smoke "${pod[@]}" 2>&1); then
+  if out=$("${KUBECTL[@]}" -n "$NS" run minio-smoke --rm -i --restart=Never \
+      --image="$MC_IMAGE" --overrides="$POD_OVERRIDES" \
+      --env="MINIO_ROOT_USER=$minio_user" --env="MINIO_ROOT_PASSWORD=$minio_pass" \
+      --env="BODY=$TEST_BODY" \
+      --command -- /bin/sh -c "$MINIO_CHECK_SCRIPT" sh "$TEST_KEY" 2>&1); then
     if echo "$out" | grep -q "MINIO_OK"; then
       pass "minio: buckets exist, one enabled 1-day-TTL ILM rule each, test object uploaded"
     else
@@ -457,29 +390,16 @@ cleanup_object() {
   local minio_user minio_pass
   minio_user="$(secret_value imgproc-minio rootUser 2>/dev/null || true)"
   minio_pass="$(secret_value imgproc-minio rootPassword 2>/dev/null || true)"
-  local -a pod=(--image="$MC_IMAGE" --overrides="$POD_OVERRIDES" \
+  "${KUBECTL[@]}" -n "$NS" run minio-cleanup --rm -i --restart=Never \
+    --image="$MC_IMAGE" --overrides="$POD_OVERRIDES" \
     --env="MINIO_ROOT_USER=$minio_user" --env="MINIO_ROOT_PASSWORD=$minio_pass" \
-    --command -- /bin/sh -c "$MINIO_CLEANUP_SCRIPT" sh "$TEST_KEY")
-  register_pod minio-cleanup "${pod[@]}"
-  kube_run minio-cleanup "${pod[@]}" >/dev/null 2>&1
+    --command -- /bin/sh -c "$MINIO_CLEANUP_SCRIPT" sh "$TEST_KEY" >/dev/null 2>&1
   echo "-- cleaned up results/$TEST_KEY"
 }
 
 main() {
   command -v kubectl >/dev/null 2>&1 || die "kubectl not found in PATH"
   command -v curl >/dev/null 2>&1 || die "curl not found in PATH"
-
-  if [ "$PRINT_POD_SPECS" -eq 1 ]; then
-    # Build every pod spec WITHOUT touching the cluster: kube_run() is a no-op
-    # and secret_value() returns the literal PRINT_ONLY, so no kubectl call is
-    # issued (not even a read) and no real credential ends up in the output.
-    check_postgres >/dev/null 2>&1 || true
-    check_nats >/dev/null 2>&1 || true
-    check_minio >/dev/null 2>&1 || true
-    cleanup_object >/dev/null 2>&1 || true
-    print_pod_specs
-    exit 0
-  fi
 
   echo "== smoke test: $ENV_NAME (namespace $NS, host $HOST)"
   check_postgres

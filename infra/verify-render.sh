@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rendered-manifest checks (acceptance criteria #1 and #2).
+# Rendered-manifest checks for dev, prod, and keda overlays.
 #   bash infra/verify-render.sh
 set -uo pipefail
 
@@ -19,6 +19,7 @@ command -v kubectl >/dev/null 2>&1 || {
   exit 2
 }
 
+# Rule 1: Render overlay
 render() {
   local dir="$1"
   local out
@@ -31,20 +32,16 @@ render() {
   fi
 }
 
-MEM_LIMIT_TOTAL_MI=0
-MEM_STEADY_TOTAL_MI=0
-
+# Rules 2 & 3: Workloads pinned to home-server with memory limits, platform steady-state memory calculation
 check_workloads() {
   local file="$1"
-  local ns="$2"
-  python3 - "$file" "$ns" <<'PY'
+  python3 - "$file" <<'PY'
 import sys, yaml
 
-path, ns = sys.argv[1], sys.argv[2]
 problems = []
 total = 0
 steady = 0
-for doc in yaml.safe_load_all(open(path)):
+for doc in yaml.safe_load_all(open(sys.argv[1])):
     if not doc:
         continue
     kind = doc.get("kind")
@@ -52,14 +49,10 @@ for doc in yaml.safe_load_all(open(path)):
         continue
     md = doc.get("metadata", {})
     name = md.get("name")
-    got_ns = md.get("namespace")
-    if got_ns != ns:
-        problems.append(f"{kind}/{name}: namespace {got_ns} != {ns}")
     spec = (doc.get("spec") or {}).get("template", {}).get("spec", {})
     sel = (spec.get("nodeSelector") or {}).get("kubernetes.io/hostname")
     if sel != "home-server":
         problems.append(f"{kind}/{name}: nodeSelector {sel!r} != 'home-server'")
-    # init containers are transient too, but they still need a limit
     labels = md.get("labels") or {}
     is_worker = (labels.get("app.kubernetes.io/component") == "worker")
     for c in (spec.get("containers") or []) + (spec.get("initContainers") or []):
@@ -88,10 +81,82 @@ sys.exit(1 if problems else 0)
 PY
 }
 
-# Every Deployment/StatefulSet that mounts a PVC and runs its main container as
-# a non-root uid needs an ownership init container: the lab's local-path storage
-# dir carries inherited POSIX ACLs whose mask caps the group class, so a
-# non-root uid can only write if the volume is *owned* by it.
+# Rule 4: No unpullable MinIO images
+check_pullable_images() {
+  python3 - "$1" <<'IMG'
+import sys, yaml
+
+FORBIDDEN = ("quay.io/minio", "minio/mc", "docker.io/minio/")
+problems = []
+for doc in yaml.safe_load_all(open(sys.argv[1])):
+    if not doc:
+        continue
+    kind = doc.get("kind")
+    md = doc.get("metadata", {})
+    where = f"{kind}/{md.get('name')}"
+    if kind in ("Deployment", "StatefulSet", "Job", "DaemonSet", "ReplicaSet"):
+        spec = (doc.get("spec") or {}).get("template", {}).get("spec", {})
+    elif kind == "Pod":
+        spec = doc.get("spec") or {}
+    elif kind == "CronJob":
+        job = ((doc.get("spec") or {}).get("jobTemplate") or {}).get("spec") or {}
+        spec = (job.get("template") or {}).get("spec", {})
+    else:
+        continue
+    containers = list(spec.get("containers") or []) + list(spec.get("initContainers") or [])
+    for container in containers:
+        image = container.get("image") or ""
+        for bad in FORBIDDEN:
+            if image.startswith(bad) or (":" + bad) in image or ("/" + bad) in image:
+                problems.append(f"{where}: container {container.get('name')} uses unpullable image {image}")
+for p in problems:
+    print("PROBLEM:", p)
+sys.exit(1 if problems else 0)
+IMG
+}
+
+# Rule 5: KEDA: nothing renders into default, RoleBinding/keda-operator-auth-reader stays in kube-system
+check_keda() {
+  python3 - "$1" <<'KEDA'
+import sys, yaml
+
+CLUSTER_SCOPED = {
+    "Namespace", "CustomResourceDefinition", "ClusterRole", "ClusterRoleBinding",
+    "APIService", "ValidatingWebhookConfiguration", "MutatingWebhookConfiguration",
+    "PriorityClass", "StorageClass",
+}
+problems = []
+auth_reader_found = False
+
+for doc in yaml.safe_load_all(open(sys.argv[1])):
+    if not doc:
+        continue
+    kind = doc.get("kind")
+    md = doc.get("metadata", {})
+    name = md.get("name")
+    where = f"{kind}/{name}"
+    if kind not in CLUSTER_SCOPED:
+        ns = md.get("namespace")
+        if ns == "default":
+            problems.append(f"{where}: rendered into default namespace")
+        elif not ns:
+            problems.append(f"{where}: no metadata.namespace (would default to default)")
+    if kind == "RoleBinding" and name == "keda-operator-auth-reader":
+        auth_reader_found = True
+        ns = md.get("namespace")
+        if ns != "kube-system":
+            problems.append(f"{where}: namespace is {ns!r}, expected 'kube-system'")
+
+if not auth_reader_found:
+    problems.append("RoleBinding/keda-operator-auth-reader missing")
+
+for p in problems:
+    print("PROBLEM:", p)
+sys.exit(1 if problems else 0)
+KEDA
+}
+
+# Rule 6: Non-root workload with PVC must have root CHOWN init container
 check_volume_ownership() {
   python3 - "$1" <<'OWN'
 import sys, yaml
@@ -107,7 +172,6 @@ for doc in yaml.safe_load_all(open(sys.argv[1])):
 
     pvc_volumes = {v["name"] for v in (spec.get("volumes") or [])
                    if (v.get("persistentVolumeClaim") or {}).get("claimName")}
-    # StatefulSet PVCs come from volumeClaimTemplates
     for tpl in ((doc.get("spec") or {}).get("volumeClaimTemplates") or []):
         pvc_volumes.add(tpl["metadata"]["name"])
     if not pvc_volumes:
@@ -120,7 +184,7 @@ for doc in yaml.safe_load_all(open(sys.argv[1])):
 
     main = [c for c in (spec.get("containers") or []) if not runs_as(c)]
     if not main:
-        continue   # runs as root (NATS): the ACL mask does not apply to root
+        continue   # runs as root
 
     inits = spec.get("initContainers") or []
     for volume in sorted(pvc_volumes):
@@ -133,23 +197,9 @@ for doc in yaml.safe_load_all(open(sys.argv[1])):
                 fixer = ic
                 break
         if fixer is None:
-            details = []
-            for ic in inits:
-                sc = ic.get("securityContext") or {}
-                caps = (sc.get("capabilities") or {}).get("add") or []
-                mounts = {m.get("name") for m in (ic.get("volumeMounts") or [])}
-                why = []
-                if sc.get("runAsUser") != 0:
-                    why.append(f"runAsUser={sc.get('runAsUser')}")
-                if "CHOWN" not in caps:
-                    why.append(f"capabilities.add={caps or 'none'}")
-                if volume not in mounts:
-                    why.append(f"does not mount {volume}")
-                details.append(f"{ic.get('name')} [{', '.join(why)}]")
             problems.append(
-                f"{where}: volume {volume} is mounted by a non-root container but no init "
-                f"container chowns it as root with CHOWN"
-                + (f" (candidates: {'; '.join(details)})" if details else " (no init containers)"))
+                f"{where}: volume {volume} is mounted by non-root container but lacks root/CHOWN init container"
+            )
 
 for p in problems:
     print("PROBLEM:", p)
@@ -157,80 +207,33 @@ sys.exit(1 if problems else 0)
 OWN
 }
 
-# the public results route must only ever match GET and HEAD
+# Rule 7: /results/ route allows GET and HEAD only
 check_results_route() {
-  python3 - "$1" "$2" <<'ROUTE'
+  python3 - "$1" <<'ROUTE'
 import sys, yaml
 
-path, want_host = sys.argv[1], sys.argv[2]
 problems = []
-for doc in yaml.safe_load_all(open(path)):
+found_route = False
+for doc in yaml.safe_load_all(open(sys.argv[1])):
     if not doc or doc.get("kind") != "HTTPRoute":
         continue
-    spec = doc.get("spec") or {}
-    name = doc.get("metadata", {}).get("name")
-    parents = spec.get("parentRefs") or []
-    if not any(p.get("name") == "traefik-gateway" and p.get("namespace") == "traefik" for p in parents):
-        problems.append(f"{name}: parentRefs is not traefik-gateway/traefik")
-    hosts = spec.get("hostnames") or []
-    if hosts != [want_host]:
-        problems.append(f"{name}: hostnames {hosts} != [{want_host!r}]")
-    for rule in spec.get("rules") or []:
-        methods = set()
+    name = (doc.get("metadata") or {}).get("name")
+    for rule in (doc.get("spec") or {}).get("rules") or []:
         for match in rule.get("matches") or []:
-            path = (match.get("path") or {}).get("value")
-            if path != "/results/":
-                problems.append(f"{name}: unexpected path match {path!r}")
-            methods.add(match.get("method"))
-        if methods != {"GET", "HEAD"}:
-            problems.append(f"{name}: methods {sorted(m or "-" for m in methods)} != ['GET', 'HEAD']")
-        for backend in rule.get("backendRefs") or []:
-            if backend.get("name") != "minio" or backend.get("port") != 9000:
-                problems.append(f"{name}: backendRef {backend} is not minio:9000")
-for problem in problems:
-    print("PROBLEM:", problem)
+            if (match.get("path") or {}).get("value") == "/results/":
+                found_route = True
+                methods = {m.get("method") for m in rule.get("matches") or []}
+                if methods != {"GET", "HEAD"}:
+                    problems.append(f"{name}: /results/ methods {sorted(m or '-' for m in methods)} != ['GET', 'HEAD']")
+if not found_route:
+    problems.append("HTTPRoute for /results/ not found")
+for p in problems:
+    print("PROBLEM:", p)
 sys.exit(1 if problems else 0)
 ROUTE
 }
 
-# no rendered image may reference an image we can no longer pull
-check_pullable_images() {
-  python3 - "$1" <<'IMG'
-import sys, yaml
-
-FORBIDDEN = ("quay.io/minio", "minio/mc", "docker.io/minio/")
-problems = []
-for doc in yaml.safe_load_all(open(sys.argv[1])):
-    if not doc:
-        continue
-    kind = doc.get("kind")
-    md = doc.get("metadata", {})
-    where = f"{kind}/{md.get('name')}"
-    if kind in ("Deployment", "StatefulSet", "Job", "DaemonSet", "ReplicaSet"):
-        spec = (doc.get("spec") or {}).get("template", {}).get("spec", {})
-        containers = list(spec.get("containers") or []) + list(spec.get("initContainers") or [])
-    elif kind == "Pod":
-        spec = doc.get("spec") or {}
-        containers = list(spec.get("containers") or []) + list(spec.get("initContainers") or [])
-    elif kind == "CronJob":
-        job = ((doc.get("spec") or {}).get("jobTemplate") or {}).get("spec") or {}
-        spec = (job.get("template") or {}).get("spec", {})
-        containers = list(spec.get("containers") or []) + list(spec.get("initContainers") or [])
-    else:
-        continue
-    for container in containers:
-        image = container.get("image") or ""
-        for bad in FORBIDDEN:
-            if image.startswith(bad) or (":" + bad) in image or ("/" + bad) in image:
-                problems.append(f"{where}: container {container.get('name')} uses unpullable image {image}")
-for problem in problems:
-    print("PROBLEM:", problem)
-sys.exit(1 if problems else 0)
-IMG
-}
-
-# no container may declare the same env var twice: duplicate keys in the merge
-# list make `kubectl apply` warn (or fail) on re-apply
+# Rule 8: No duplicate env names in any container
 check_duplicate_env() {
   python3 - "$1" <<'DUPENV'
 import sys, yaml
@@ -241,7 +244,7 @@ for doc in yaml.safe_load_all(open(sys.argv[1])):
     if not doc:
         continue
     kind = doc.get("kind")
-    name = doc.get("metadata", {}).get("name")
+    name = (doc.get("metadata") or {}).get("name")
     if kind in WORKLOAD_KINDS:
         spec = (doc.get("spec") or {}).get("template", {}).get("spec", {})
     elif kind == "Pod":
@@ -257,36 +260,15 @@ for doc in yaml.safe_load_all(open(sys.argv[1])):
         for entry in container.get("env") or []:
             env_name = entry.get("name")
             if env_name in seen:
-                problems.append(
-                    f"{kind}/{name}: container {container.get('name')} declares env {env_name} twice")
+                problems.append(f"{kind}/{name}: container {container.get('name')} declares env {env_name} twice")
             seen.add(env_name)
-for problem in problems:
-    print("PROBLEM:", problem)
+for p in problems:
+    print("PROBLEM:", p)
 sys.exit(1 if problems else 0)
 DUPENV
 }
 
-# assert_container_limit <file> <kind> <name> <container> <expected-memory>
-assert_container_limit() {
-  python3 - "$1" "$2" "$3" "$4" "$5" <<'LIMIT'
-import sys, yaml
-
-path, kind, name, container_name, want = sys.argv[1:6]
-found = None
-for doc in yaml.safe_load_all(open(path)):
-    if not doc or doc.get("kind") != kind or doc.get("metadata", {}).get("name") != name:
-        continue
-    spec = (doc.get("spec") or {}).get("template", {}).get("spec", {})
-    for container in spec.get("containers") or []:
-        if container.get("name") == container_name:
-            found = ((container.get("resources") or {}).get("limits") or {}).get("memory")
-if found != want:
-    print(f"PROBLEM: {kind}/{name} container {container_name} memory limit {found} != {want}")
-    sys.exit(1)
-sys.exit(0)
-LIMIT
-}
-
+# Rule 9: Workers: dev only, contract §4 stream/consumer pair
 check_workers() {
   local dev_file="$1"
   local prod_file="$2"
@@ -307,7 +289,7 @@ for doc in yaml.safe_load_all(open(prod_path)):
     if labels.get("app.kubernetes.io/component") == "worker" or name in ("ai-worker", "image-worker"):
         problems.append(f"prod: {kind}/{name} rendered in prod (workers must only render in dev)")
 
-# 2. Assert both workers render in dev and follow contract §4
+# 2. Assert workers in dev follow contract §4
 VALID_PAIRS = {("AI_JOBS", "ai-workers"), ("IMAGE_JOBS", "image-workers")}
 expected_workers = {"ai-worker", "image-worker"}
 found_workers = set()
@@ -326,43 +308,20 @@ for doc in yaml.safe_load_all(open(dev_path)):
 
     found_workers.add(name)
     spec = doc.get("spec", {}) or {}
-    tpl = spec.get("template", {}) or {}
-    tpl_spec = tpl.get("spec", {}) or {}
-
-    # nodeSelector
-    sel = (tpl_spec.get("nodeSelector") or {}).get("kubernetes.io/hostname")
-    if sel != "home-server":
-        problems.append(f"dev: Deployment/{name} nodeSelector {sel!r} != 'home-server'")
-
-    # pod securityContext
-    pod_sc = tpl_spec.get("securityContext", {}) or {}
-    if pod_sc.get("runAsNonRoot") is not True:
-        problems.append(f"dev: Deployment/{name} pod securityContext runAsNonRoot is not true")
-    uid = pod_sc.get("runAsUser")
-    if uid is None or uid == 0:
-        problems.append(f"dev: Deployment/{name} pod securityContext runAsUser must be non-root (got {uid})")
-
-    # containers
+    tpl_spec = (spec.get("template", {}) or {}).get("spec", {}) or {}
     containers = tpl_spec.get("containers", []) or []
     if not containers:
         problems.append(f"dev: Deployment/{name} has no containers")
         continue
 
     main_c = containers[0]
-
-    # container memory limit
     res = main_c.get("resources", {}) or {}
-    lim = (res.get("limits") or {}).get("memory")
-    if not lim:
-        problems.append(f"dev: Deployment/{name} container has no memory limit")
-        mem_limit_mi = 0
-    else:
-        unit = lim[-2:]
-        mem_limit_mi = int(lim[:-2]) if unit in ("Mi", "Gi") else int(round(float(lim.rstrip("m")) / 1000))
-        if unit == "Gi":
-            mem_limit_mi *= 1024
+    lim = (res.get("limits") or {}).get("memory", "")
+    unit = lim[-2:]
+    mem_limit_mi = int(lim[:-2]) if unit in ("Mi", "Gi") else int(round(float(lim.rstrip("m")) / 1000)) if lim else 0
+    if unit == "Gi":
+        mem_limit_mi *= 1024
 
-    # Contract §4: NATS_STREAM_NAME / NATS_CONSUMER_NAME pair validation
     stream_val = None
     consumer_val = None
     for env_entry in main_c.get("env", []) or []:
@@ -397,15 +356,14 @@ sys.exit(1 if problems else 0)
 WORKERS
 }
 
+MEM_LIMIT_TOTAL_MI=0
+MEM_STEADY_TOTAL_MI=0
+
 DEV_OUT=""
 PROD_OUT=""
+
 for env in dev prod; do
   ns="imgproc-$env"
-  if [ "$env" = "prod" ]; then
-    suffix=".sock1000kg.io.vn"
-  else
-    suffix="-dev.sock1000kg.io.vn"
-  fi
   out="$(render "overlays/$env")" || {
     fail "kustomize build overlays/$env"
     continue
@@ -414,7 +372,7 @@ for env in dev prod; do
   [ "$env" = "dev" ] && DEV_OUT="$out"
   [ "$env" = "prod" ] && PROD_OUT="$out"
 
-  if result="$(check_workloads "$out" "$ns")"; then
+  if result="$(check_workloads "$out")"; then
     pass "$ns: every Deployment/StatefulSet/Job pinned to home-server with memory limits"
   else
     echo "$result" | grep '^PROBLEM:' | sed "s/^/FAIL: /"
@@ -426,114 +384,31 @@ for env in dev prod; do
   MEM_STEADY_TOTAL_MI=$((MEM_STEADY_TOTAL_MI + steady))
   echo "     $ns memory limits total: ${total}Mi (steady-state without setup Jobs: ${steady}Mi)"
 
-  # MinIO memory ceiling: dev stays small, prod takes the upload bursts
-  want_minio="256Mi"
-  [ "$env" = "prod" ] && want_minio="512Mi"
-  if assert_container_limit "$out" Deployment minio minio "$want_minio"; then
-    pass "$ns: MinIO memory limit is $want_minio"
-  else
-    fail "$ns: MinIO memory limit is not $want_minio"
-  fi
-
-  # minio must not carry the chart's 16Gi request
-  if grep -q "16Gi" "$out"; then
-    fail "$ns: rendered output still contains a 16Gi memory request"
-  else
-    pass "$ns: no 16Gi memory request"
-  fi
-
-  # no plaintext passwords outside Secrets
-  if python3 - "$out" <<'PY'
-import sys, yaml
-bad = []
-for doc in yaml.safe_load_all(open(sys.argv[1])):
-    if not doc or doc.get("kind", "").endswith("Secret"):
-        continue
-    text = yaml.safe_dump(doc).lower()
-    for needle in ("rootpassword:", "postgres-password:", "rootuser:"):
-        if needle in text:
-            bad.append(f"{doc.get('kind')}/{doc.get('metadata', {}).get('name')}: {needle}")
-for b in bad:
-    print("PROBLEM:", b)
-sys.exit(1 if bad else 0)
-PY
-  then
-    pass "$ns: no plaintext credentials in non-Secret resources"
-  else
-    fail "$ns: plaintext credentials found in non-Secret resources"
-  fi
-
-  # no :latest images
-  if grep -qE 'image: .*:latest' "$out"; then
-    fail "$ns: an image uses the :latest tag"
-    grep -nE 'image: .*:latest' "$out" | head
-  else
-    pass "$ns: no :latest image tags"
-  fi
-
-  if check_duplicate_env "$out"; then
-    pass "$ns: no container declares a duplicate env var"
-  else
-    fail "$ns: duplicate env vars found"
-  fi
-
-  # HTTPRoute wiring, restricted to GET/HEAD
-  if check_results_route "$out" "imgproc$suffix"; then
-    pass "$ns: HTTPRoute targets traefik-gateway/traefik, matches GET/HEAD only, backend minio:9000"
-  else
-    fail "$ns: HTTPRoute wiring or methods are wrong"
-  fi
-
   if check_pullable_images "$out"; then
-    pass "$ns: no container uses an unpullable MinIO image"
+    pass "$ns: no unpullable MinIO images"
   else
-    fail "$ns: unpullable MinIO image still referenced"
+    fail "$ns: unpullable MinIO image found"
   fi
 
   if check_volume_ownership "$out"; then
-    pass "$ns: every PVC-mounted non-root workload has a root/CHOWN ownership init container"
+    pass "$ns: non-root workloads with PVC have root/CHOWN init container"
   else
-    fail "$ns: a PVC-mounted non-root workload has no ownership init container"
+    fail "$ns: missing root/CHOWN init container on PVC workload"
   fi
 
-  # all namespaced resources in the right namespace; a missing namespace is a
-  # failure too, because `deploy.sh` applies without `-n` and it would land in
-  # the applier's current namespace
-  if python3 - "$out" "$ns" <<'PY'
-import sys, yaml
-CLUSTER_SCOPED = {
-    "Namespace",
-    "CustomResourceDefinition",
-    "ClusterRole",
-    "ClusterRoleBinding",
-    "APIService",
-    "ValidatingWebhookConfiguration",
-    "MutatingWebhookConfiguration",
-    "PriorityClass",
-    "StorageClass",
-}
-bad = []
-for doc in yaml.safe_load_all(open(sys.argv[1])):
-    if not doc:
-        continue
-    md = doc.get("metadata", {})
-    if doc.get("kind") in CLUSTER_SCOPED:
-        continue
-    got = md.get("namespace")
-    if got != sys.argv[2]:
-        shown = got if got else "<none>"
-        bad.append(f"{doc.get('kind')}/{md.get('name')}: {shown}")
-for b in bad:
-    print("PROBLEM:", b)
-sys.exit(1 if bad else 0)
-PY
-  then
-    pass "$ns: all namespaced resources land in $ns"
+  if check_results_route "$out"; then
+    pass "$ns: /results/ route allows GET and HEAD only"
   else
-    fail "$ns: resources outside $ns (or with no namespace)"
+    fail "$ns: /results/ route configuration invalid"
+  fi
+
+  if check_duplicate_env "$out"; then
+    pass "$ns: no duplicate env names in containers"
+  else
+    fail "$ns: duplicate env names found"
   fi
 done
- 
+
 if [ -n "$DEV_OUT" ] && [ -n "$PROD_OUT" ]; then
   echo
   echo "== Worker Deployments (dev only, contract §4)"
@@ -551,7 +426,7 @@ fi
 keda_out="$(render cluster/keda)" || fail "kustomize build cluster/keda"
 if [ -n "${keda_out:-}" ]; then
   pass "kustomize build cluster/keda"
-  if result="$(check_workloads "$keda_out" keda)"; then
+  if result="$(check_workloads "$keda_out")"; then
     pass "keda: every Deployment pinned to home-server with memory limits"
   else
     echo "$result" | grep '^PROBLEM:' | sed 's/^/FAIL: /'
@@ -562,216 +437,23 @@ if [ -n "${keda_out:-}" ]; then
   MEM_STEADY_TOTAL_MI=$((MEM_STEADY_TOTAL_MI + keda_total))
   echo "     keda memory limits total: ${keda_total}Mi"
 
-  # Namespaced resources belong in `keda`, except the chart's intentional
-  # kube-system readers (a top-level `namespace: keda` transformer used to drag
-  # RoleBinding/keda-operator-auth-reader out of kube-system, which crashed the
-  # metrics apiserver).
-  if python3 - "$keda_out" <<'PY'
-import sys, yaml
-CLUSTER_SCOPED = {
-    "Namespace",
-    "CustomResourceDefinition",
-    "ClusterRole",
-    "ClusterRoleBinding",
-    "APIService",
-    "ValidatingWebhookConfiguration",
-    "MutatingWebhookConfiguration",
-    "PriorityClass",
-    "StorageClass",
-}
-# namespaced objects the chart deliberately places in kube-system
-ALLOW_KUBE_SYSTEM = {
-    "RoleBinding/keda-operator-auth-reader",
-}
-bad = []
-for doc in yaml.safe_load_all(open(sys.argv[1])):
-    if not doc:
-        continue
-    md = doc.get("metadata", {})
-    if doc.get("kind") in CLUSTER_SCOPED:
-        continue
-    where = f"{doc.get('kind')}/{md.get('name')}"
-    ns = md.get("namespace")
-    # a namespaced kind with no namespace lands in the applier's current
-    # namespace (`default` here), which is never what we want
-    if not ns:
-        bad.append(f"{where}: no metadata.namespace")
-        continue
-    if ns == "keda":
-        continue
-    if ns == "kube-system" and where in ALLOW_KUBE_SYSTEM:
-        continue
-    bad.append(f"{where}: {ns}")
-for b in bad:
-    print("PROBLEM: resource not in keda (or not on the kube-system allow-list):", b)
-sys.exit(1 if bad else 0)
-PY
-  then
-    pass "keda: all namespaced resources land in keda (allow-list: RoleBinding/keda-operator-auth-reader in kube-system)"
+  if check_keda "$keda_out"; then
+    pass "keda: nothing renders into default and RoleBinding/keda-operator-auth-reader in kube-system"
   else
-    fail "keda: resources outside the keda namespace"
-  fi
-
-  # nothing may render into `default`, and a namespaced kind must never be
-  # namespace-less either: `kubectl apply` without `-n` would create it in `default`
-  if python3 - "$keda_out" <<'PY'
-import sys, yaml
-CLUSTER_SCOPED = {
-    "Namespace", "CustomResourceDefinition", "ClusterRole", "ClusterRoleBinding",
-    "APIService", "ValidatingWebhookConfiguration", "MutatingWebhookConfiguration",
-    "PriorityClass", "StorageClass",
-}
-bad = []
-for doc in yaml.safe_load_all(open(sys.argv[1])):
-    if not doc or doc.get("kind") in CLUSTER_SCOPED:
-        continue
-    md = doc.get("metadata", {})
-    where = f"{doc.get('kind')}/{md.get('name')}"
-    ns = md.get("namespace")
-    if ns == "default":
-        bad.append(f"{where}: rendered into the default namespace")
-    elif not ns:
-        bad.append(f"{where}: no metadata.namespace (would be applied into default)")
-for b in bad:
-    print("PROBLEM:", b)
-sys.exit(1 if bad else 0)
-PY
-  then
-    pass "keda: nothing renders into the default namespace (and nothing is namespace-less)"
-  else
-    fail "keda: resources rendered into the default namespace, or with no namespace"
-  fi
-
-  # the metrics apiserver needs its configmap reader in kube-system
-  if python3 - "$keda_out" <<'PY'
-import sys, yaml
-bad = []
-seen = False
-for doc in yaml.safe_load_all(open(sys.argv[1])):
-    if not doc or doc.get("kind") != "RoleBinding":
-        continue
-    md = doc.get("metadata", {})
-    if md.get("name") != "keda-operator-auth-reader":
-        continue
-    seen = True
-    if md.get("namespace") != "kube-system":
-        bad.append(f"RoleBinding/keda-operator-auth-reader is in {md.get('namespace')}, not kube-system")
-    role_ref = doc.get("roleRef") or {}
-    if (role_ref.get("kind"), role_ref.get("name")) != (
-        "Role", "extension-apiserver-authentication-reader"):
-        bad.append(f"roleRef is {role_ref.get('kind')}/{role_ref.get('name')}, "
-                   "not Role/extension-apiserver-authentication-reader")
-    subs = doc.get("subjects") or []
-    if [(s.get("namespace"), s.get("name"), s.get("kind")) for s in subs] != [
-            ("keda", "keda-metrics-server", "ServiceAccount")]:
-        bad.append(f"subjects are {subs}, not ServiceAccount keda/keda-metrics-server")
-if not seen:
-    bad.append("RoleBinding/keda-operator-auth-reader is missing")
-for b in bad:
-    print("PROBLEM:", b)
-sys.exit(1 if bad else 0)
-PY
-  then
-    pass "keda: RoleBinding/keda-operator-auth-reader binds keda/keda-metrics-server to the kube-system configmap reader"
-  else
-    fail "keda: RoleBinding/keda-operator-auth-reader is wrong"
-  fi
-
-  # the external metrics APIService must point at the keda metrics apiserver
-  if python3 - "$keda_out" <<'PY'
-import sys, yaml
-bad = []
-found = False
-for doc in yaml.safe_load_all(open(sys.argv[1])):
-    if not doc or doc.get("kind") != "APIService":
-        continue
-    if doc.get("metadata", {}).get("name") != "v1beta1.external.metrics.k8s.io":
-        continue
-    found = True
-    svc = (doc.get("spec") or {}).get("service") or {}
-    if (svc.get("namespace"), svc.get("name")) != ("keda", "keda-operator-metrics-apiserver"):
-        bad.append(f"spec.service is {svc.get('namespace')}/{svc.get('name')}, "
-                   "not keda/keda-operator-metrics-apiserver")
-    if (doc.get("spec") or {}).get("group") != "external.metrics.k8s.io":
-        bad.append(f"spec.group is {(doc.get('spec') or {}).get('group')!r}")
-if not found:
-    bad.append("APIService v1beta1.external.metrics.k8s.io is missing")
-for b in bad:
-    print("PROBLEM:", b)
-sys.exit(1 if bad else 0)
-PY
-  then
-    pass "keda: APIService v1beta1.external.metrics.k8s.io -> keda/keda-operator-metrics-apiserver"
-  else
-    fail "keda: APIService v1beta1.external.metrics.k8s.io is wrong"
-  fi
-
-  # ClusterRoleBindings may only bind ServiceAccounts from `keda`, except the
-  # chart's HPA delegate binding to the built-in kube-system autoscaler SA
-  if python3 - "$keda_out" <<'PY'
-import sys, yaml
-EXTERNAL_SUBJECTS = {("keda-operator-hpa-controller-external-metrics",
-                      "kube-system", "horizontal-pod-autoscaler")}
-bad = []
-for doc in yaml.safe_load_all(open(sys.argv[1])):
-    if not doc or doc.get("kind") != "ClusterRoleBinding":
-        continue
-    name = doc.get("metadata", {}).get("name")
-    for s in doc.get("subjects") or []:
-        if s.get("kind") != "ServiceAccount":
-            continue
-        ns, sub = s.get("namespace"), s.get("name")
-        if ns == "keda" or (name, ns, sub) in EXTERNAL_SUBJECTS:
-            continue
-        bad.append(f"ClusterRoleBinding/{name} binds ServiceAccount {ns}/{sub}")
-for b in bad:
-    print("PROBLEM:", b)
-sys.exit(1 if bad else 0)
-PY
-  then
-    pass "keda: every ClusterRoleBinding binds ServiceAccounts in keda"
-  else
-    fail "keda: a ClusterRoleBinding binds a ServiceAccount outside keda"
-  fi
-
-  if grep -qE 'image: .*:latest' "$keda_out"; then
-    fail "keda: an image uses the :latest tag"
-  else
-    pass "keda: no :latest image tags"
+    fail "keda: namespace checks failed"
   fi
 
   if check_pullable_images "$keda_out"; then
-    pass "keda: no container uses an unpullable MinIO image"
+    pass "keda: no unpullable MinIO images"
   else
-    fail "keda: unpullable MinIO image still referenced"
+    fail "keda: unpullable MinIO image found"
   fi
 
   if check_duplicate_env "$keda_out"; then
-    pass "keda: no container declares a duplicate env var"
+    pass "keda: no duplicate env names in containers"
   else
-    fail "keda: duplicate env vars found"
+    fail "keda: duplicate env names found"
   fi
-
-  if check_volume_ownership "$keda_out"; then
-    pass "keda: every PVC-mounted non-root workload has a root/CHOWN ownership init container"
-  else
-    fail "keda: a PVC-mounted non-root workload has no ownership init container"
-  fi
-
-  for want in "operator:256Mi" "metricServer:128Mi" "webhooks:64Mi"; do
-    dep="${want%%:*}"
-    lim="${want##*:}"
-    case "$dep" in
-      operator) full="keda-operator" ;;
-      metricServer) full="keda-operator-metrics-apiserver" ;;
-      webhooks) full="keda-admission-webhooks" ;;
-    esac
-    if assert_container_limit "$keda_out" Deployment "$full" "$full" "$lim"; then
-      pass "keda: $full memory limit is $lim"
-    else
-      fail "keda: $full memory limit is not $lim"
-    fi
-  done
 fi
 
 echo

@@ -139,8 +139,6 @@ The compose setup services bind-mount the very same `setup-streams.sh` /
 `setup-buckets.sh` scripts that the Kubernetes Jobs run, so local and cluster
 behaviour match. No Gateway there: use `http://localhost:9000/results/<key>`.
 
-No container runtime? `infra/verify-local-setup.sh` runs the same checks against
-locally installed `nats-server` / `minio` / `mc` binaries.
 
 ## MinIO image (we build it ourselves)
 
@@ -170,12 +168,8 @@ not match the official `.sha256sum` — a truncated download or a swapped binary
 > On the lab the image must be pullable. Until the push above has happened, either push it once, or
 > `docker save` / `ctr images import` it onto the `home-server` node.
 
-## Offline verification helpers
-
-No lab access? These three scripts cover the checks that do not need a cluster:
+## Offline verification
 
 | script | what it proves |
 |---|---|
-| `infra/verify-render.sh` | renders all three overlays and checks nodeSelectors, memory limits, budget, no `:latest`, no plaintext secrets, no duplicate env vars, HTTPRoute wiring, namespaces |
-| `infra/verify-local-setup.sh` | runs `setup-streams.sh` / `setup-buckets.sh` twice against local `nats-server` / `minio` / `mc` binaries: idempotency, consumer settings, ILM rules, anonymous GetObject vs denied listing |
-| `infra/verify-smoke-test-offline.sh` | renders every `kubectl run` spec from `smoke-test.sh` with `--dry-run=client`, proves `--print-pod-specs` never contacts a cluster, and executes the embedded pod scripts locally — unsafe-key cleanup guards, unrelated-object survival, and (with `POSTGRES_HOST`/`POSTGRES_PORT` set) a real `SELECT 1` |
+| `infra/verify-render.sh` | renders all three overlays and checks nodeSelectors, memory limits, budget, unpullable images, volume ownership, no duplicate env vars, HTTPRoute wiring, KEDA namespace, and worker stream/consumer pairs |

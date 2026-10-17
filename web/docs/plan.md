@@ -24,7 +24,7 @@ Lỗ hổng cần xử lý trong Phase 1:
 | G2 | Event không hợp lệ không bao giờ được ack → bị giao lại tới `max_deliver` (10 lần) và chặn log. Event chưa được validate bằng schema. | `messaging.ts`, `db.ts` |
 | G3 | `.env.example` (`postgres/image_processing`, `minioadmin`) không khớp `infra/docker-compose.yaml` (db/user `imgproc`). | `web/.env.example` |
 | G4 | Chưa có `web/Dockerfile`; `npm start` chỉ chạy API, không serve frontend đã build. | — |
-| G5 | Chưa có mock worker và chưa có test, nên Web không tự test E2E được khi chưa có engine. | — |
+| G5 | Chưa rõ UI/API Phase 1 gồm những tính năng gì. | — |
 | G6 | Schema PG được tạo trong code (`CREATE TABLE IF NOT EXISTS`), `CHECK` cứng 2 loại job, không có migration. | `db.ts` |
 | G7 | ~~Đường dẫn kết quả không thống nhất giữa các docs~~ (đã xử lý, xem bên dưới) | docs |
 
@@ -43,26 +43,42 @@ Người dùng upload ảnh → worker **thật** của engine xử lý → xem 
     - [ ] Bỏ `ensureStream` / `ensureBuckets`. Thay bằng **kiểm tra lúc khởi động**: stream `AI_JOBS`, `IMAGE_JOBS`, `JOB_EVENTS`, consumer `backend-job-events` và bucket `uploads`, `results` phải tồn tại. Nếu thiếu thì log lỗi rõ ràng và thoát (fail fast). Log chỉ nêu cái gì thiếu và ở đâu (ví dụ `stream JOB_EVENTS not found on nats://...`), không chứa hướng dẫn sửa riêng cho môi trường nào. (G1)
     - [ ] `web/README.md` link tới mục "Dev hằng ngày" trong `docs/phân-công-và-guideline.md` (cách dựng môi trường local và chạy lại setup), không chép lại nội dung. Trên cluster mà thiếu stream/bucket thì báo Infra.
     - [ ] Validate mọi event `jobs.events` bằng `zod` theo đúng contract mục 3 (`status`, `progress`, `stage`, `result`, `resultSummary`, `error.code`). Event sai schema hoặc `jobId` không tồn tại thì log + `term()` (không giao lại). Lỗi tạm thời (mất kết nối PG) thì `nak()` có delay. (G2)
-    - [ ] Giữ idempotency theo contract mục 8: progress chỉ tăng, trạng thái kết thúc (`COMPLETED`/`FAILED`) không bị ghi đè, event `PROCESSING` cũ bị bỏ qua. Viết unit test cho `applyJobEvent`.
+    - [ ] Giữ idempotency theo contract mục 8. NATS giao **ít nhất một lần**, nên cùng một event có thể đến 2 lần hoặc đến trễ, sai thứ tự (ví dụ backend crash trước khi ack). Backend phải luôn ra đúng kết quả: progress chỉ tăng (`80%` rồi `40%` đến trễ thì giữ `80%`), job đã `COMPLETED`/`FAILED` thì không event nào ghi đè được nữa, và event `PROCESSING` đến sau trạng thái kết thúc thì bỏ qua. `applyJobEvent` hiện đã làm gần đủ. Viết vài unit test cho các trường hợp trùng, đến trễ và sau trạng thái kết thúc để giữ đúng như vậy.
     - [ ] Sửa `.env.example` theo `infra/.env.example` + `infra/docs/endpoints.md`. Cập nhật `web/README.md`: dev local dùng `infra/docker-compose.yaml` (không còn `engine/docker-compose.local.yml` + PG riêng). (G3)
-    - [ ] Tách schema sang file migration (ví dụ `backend/migrations/001_init.sql`, chạy lúc khởi động hoặc bằng `npm run migrate`). Bỏ `CHECK` cứng trên `type`, validate loại job ở tầng API. (G6)
-    - [ ] Chốt danh sách loại job Phase 1. **[Cần Engine]**: hỏi Huy Đức loại AI nào (`object-detection`?) và loại ảnh thường nào (`image-convert`?) sẽ chạy được trước 28/10, và `params` nào worker thực sự đọc.
+    - [ ] Quản lý schema bằng migration thay vì `CREATE TABLE` trong code. Dùng ORM/query builder nếu quen tay (Prisma, Drizzle, TypeORM, Knex... đều được, miễn có migration chạy lặp lại an toàn), hoặc file SQL thuần (`backend/migrations/001_init.sql` + `npm run migrate`). Bỏ `CHECK` cứng trên `type`, validate loại job ở tầng API. (G6)
+    - [ ] Chốt danh sách loại job Phase 1. Contract có 4 loại, nhưng Phase 1 chỉ cần 1 loại AI + 1 loại ảnh thường. Không làm form cho loại engine chưa chạy được. **[Cần Engine]**: hỏi Huy Đức loại nào sẽ chạy được trước 28/10 (engine hiện chỉ có `yolo_detector.py` và `image_converter.py`, nên nhiều khả năng là `object-detection` + `image-convert`), và `params` nào worker thực sự đọc (ví dụ `image-convert` có dùng `width`/`height`/`quality` không), để UI chỉ hiện các trường có tác dụng.
 * **Kiểm chứng:**
     - [ ] `docker compose -f infra/docker-compose.yaml up -d` + setup jobs → `npm run dev:backend` khởi động OK. Xoá một stream thì backend thoát với thông báo rõ ràng.
     - [ ] Publish tay một event sai schema bằng `nats pub jobs.events '{...}'` → bị `term`, không lặp lại trong log.
     - [ ] Unit test `applyJobEvent` pass (trùng `COMPLETED`, `PROCESSING` đến sau `COMPLETED`, progress giảm).
 
-## Milestone 2: E2E local với mock worker (20/10 → 24/10)
-**Mục tiêu:** Web tự chứng minh toàn bộ luồng chạy đúng mà không cần engine (contract mục 12).
-* **Tasks:**
-    - [ ] Viết `web/scripts/mock-worker.ts`: pull từ `ai-workers` và `image-workers`, gửi `PROCESSING` (stage `DOWNLOADING_INPUT` → `PROCESSING` → `UPLOADING_OUTPUT`), copy input sang `output.key` trong `results`, gửi `COMPLETED` kèm `resultSummary` mẫu theo đúng contract. Có cờ để giả lập `FAILED` và độ trễ, rồi ack sau khi upload xong.
-    - [ ] Script E2E `npm run test:e2e`: upload file → poll `GET /api/jobs/:id` tới `COMPLETED` → `GET` được `resultUrl`. Chạy với compose + mock worker.
-    - [ ] Phục vụ `/results/...` khi dev local: thêm proxy trong Vite (`/results` → `localhost:9000`), để URL kết quả giống hệt môi trường lab (same-origin).
-    - [ ] UI tối thiểu: form upload (chọn loại job + params tương ứng), danh sách job với trạng thái/progress/stage, hiển thị lỗi (`error.code` + message), ảnh kết quả + nút tải. Đóng gói lại `main.tsx` thành vài component.
-    - [ ] Validate upload: giới hạn MIME ảnh (`image/jpeg`, `image/png`, `image/webp`), kích thước tối đa (`UPLOAD_MAX_BYTES`). Trả lỗi 4xx với message rõ ràng.
-* **Kiểm chứng:**
-    - [ ] `npm run test:e2e` pass cho cả 2 loại job và cho kịch bản `FAILED`.
-    - [ ] Tắt backend giữa chừng rồi bật lại → event vẫn được xử lý (durable consumer), UI hiển thị đúng sau khi refresh.
+## Milestone 2: Tính năng Web Phase 1 (20/10 → 24/10)
+**Mục tiêu:** Có đủ tính năng tối thiểu cho demo. Bám đúng contract (`docs/integration-contracts.md`) thì khi ghép với engine sẽ chạy, nên không cần dựng mock worker hay bộ test E2E tự động.
+
+* **Giao diện (frontend):**
+    - [ ] **Form tạo job:** chọn file ảnh, chọn loại job (chỉ các loại đã chốt ở M1), các trường `params` tương ứng với từng loại (ví dụ `image-convert`: định dạng đích + quality, `object-detection`: ngưỡng confidence). Có preview ảnh đã chọn, kiểm tra loại/kích thước file ngay trên trình duyệt, và nút gửi bị khoá trong lúc upload.
+    - [ ] **Danh sách job:** mới nhất ở trên. Mỗi job hiện tên file, loại job, trạng thái (badge màu theo `QUEUED`/`PROCESSING`/`COMPLETED`/`FAILED`), thanh progress, `stage` và thời gian tạo. Tự cập nhật (polling vài giây là đủ cho Phase 1).
+    - [ ] **Xem kết quả:** job `COMPLETED` hiện ảnh kết quả (`resultUrl`), nút tải về, và `resultSummary` dạng dễ đọc (`object-detection`: danh sách label + confidence, `image-convert`: kích thước/dung lượng trước và sau).
+    - [ ] **Lỗi:** job `FAILED` hiện `error.code` + message. Lỗi API (file quá lớn, sai định dạng, hàng đợi không sẵn sàng) hiện thông báo rõ ràng trên form, không chỉ log console.
+    - [ ] Refresh trang không mất gì: mọi trạng thái đều lấy từ API (PostgreSQL), không giữ trong state trình duyệt.
+    - [ ] Dev local: proxy `/results` → `localhost:9000` trong Vite (cạnh proxy `/api`), để URL kết quả giống hệt trên lab (same-origin).
+
+* **Backend / API:**
+    - [ ] `POST /api/jobs`: nhận multipart `file` + `type` + `params`. Validate MIME ảnh (`image/jpeg`, `image/png`, `image/webp`), kích thước tối đa (`UPLOAD_MAX_BYTES`), `type` thuộc danh sách Phase 1, `params` đúng kiểu cho từng loại (`zod`). Sai thì trả 4xx với message rõ ràng (`{ "error": "..." }`). Đúng thì lưu MinIO → PG `PENDING` → publish → `QUEUED`, và trả `202` kèm job.
+    - [ ] `GET /api/jobs` (mới nhất, có giới hạn số lượng) và `GET /api/jobs/:id` (404 nếu không có). Response dùng camelCase, không lộ tên cột DB.
+    - [ ] `GET /api/system/stats`: số job theo trạng thái (dùng cho demo).
+    - [ ] Consumer `jobs.events` cập nhật trạng thái theo contract §3 + idempotency (M1). `resultUrl` = `/results/<output.key>` (contract §5).
+    - [ ] Format lỗi thống nhất cho mọi endpoint. Log mỗi job tạo ra/đổi trạng thái kèm `jobId`.
+
+* **Cấu trúc code (gợi ý, không bắt buộc):**
+    - Backend tách theo trách nhiệm: `routes/` (HTTP), `services/` (tạo job, áp dụng event), `db/` (truy vấn hoặc ORM + migration), `messaging/` (NATS), `storage/` (MinIO), `config.ts` (đọc env, validate bằng `zod`). Không để logic nghiệp vụ trong route handler.
+    - Frontend tách `main.tsx` thành component (`UploadForm`, `JobList`, `JobCard`, `ResultView`) và một file `api.ts` gom các lời gọi API + type dùng chung.
+    - Type của message (job command, event) đặt một chỗ và khớp đúng contract §2/§3.
+
+* **Kiểm chứng (thủ công, trên `infra/docker-compose.yaml`):**
+    - [ ] Upload ảnh hợp lệ → job hiện `QUEUED`. Upload file sai định dạng/quá lớn → thông báo lỗi rõ ràng.
+    - [ ] Chưa có engine thì giả lập worker bằng tay, publish event theo contract §3: `nats pub jobs.events '{"jobId":"<id>","status":"COMPLETED","progress":100,"stage":"DONE","result":{"bucket":"results","key":"<id>/result.jpg"}}'`. UI phải chuyển `COMPLETED` (ảnh kết quả 404 là bình thường vì chưa có file thật). Làm tương tự với `FAILED`.
+    - [ ] Gửi lại cùng event `COMPLETED` 2 lần, rồi một event `PROCESSING` → trạng thái vẫn `COMPLETED`.
 
 ## Milestone 3: Đóng gói và deploy lên `imgproc` (24/10 → 28/10)
 **Mục tiêu:** Image Web chạy trên lab, truy cập được qua hostname public.
@@ -74,9 +90,9 @@ Người dùng upload ảnh → worker **thật** của engine xử lý → xem 
     - [ ] **[Cần Infra]** Đạt: CI build/push `socknot1000kg/imgproc-web` (tag SHA + `main`). Tạo Deployment + Service `web` trong `imgproc`. Tạo Secret cho web (`DATABASE_URL` user `imgproc`, MinIO credentials — **nên là user MinIO riêng** chỉ có quyền `uploads` RW + `results` RW, không dùng root). HTTPRoute `/api` và `/` → `web`, giữ nguyên `/results/` → MinIO. Đặt memory limit cho web trong budget (gợi ý: 256Mi, Web đo thực tế rồi báo lại).
     - [ ] Đặt `UPLOAD_MAX_BYTES` khớp giới hạn body của Traefik/Cloudflare (Cloudflare free giới hạn 100MB). **[Cần Infra]**: xác nhận giới hạn trên Gateway.
 * **Kiểm chứng:**
-    - [ ] `docker build` + chạy container với compose local → `npm run test:e2e` pass trên image.
+    - [ ] `docker build web/` + chạy container với compose local → làm lại các bước kiểm chứng M2 trên image.
     - [ ] Trên lab: `https://imgproc.sock1000kg.io.vn` mở được UI, `/api/system/stats` trả JSON, pod `web` Ready.
-    - [ ] Upload trên lab + mock worker chạy tay (`kubectl run` hoặc Job tạm, nhờ Đạt) → kết quả xem được qua `/results/...`.
+    - [ ] Upload trên lab → job vào `QUEUED`, worker engine nhận và xử lý (nếu engine đã sẵn sàng), kết quả xem được qua `/results/...`.
 
 ## Milestone 4: Tích hợp engine thật và demo (28/10 → 31/10)
 **Mục tiêu:** Luồng E2E với worker thật trên `imgproc`, sẵn sàng demo trên lớp.

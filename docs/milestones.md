@@ -9,7 +9,7 @@ File này có mục đích chia các lượt công việc và theo dõi tiến �
 
 [ ] Phân phối tác vụ: Đẩy lệnh xử lý (chứa định danh jobId và đường dẫn tệp trong MinIO) vào các chủ đề (subject) tương ứng trên NATS JetStream (ví dụ: jobs.ai hoặc jobs.image) -> Update trạng thái thành QUEUED trong PostgreSQL.
 
-[ ] Đồng bộ trạng thái: Lắng nghe các sự kiện tiến độ từ NATS (chủ đề jobs.events) để cập nhật trạng thái thực tế (PROCESSING, COMPLETED, FAILED là tối thiểu, hiện phần trăm thì tuỳ 2 Huy có thích làm ko) vào PostgreSQL. Khi job xong thì cung cấp URL public thẳng đến MinIO:/results/user-uuid/job-id/result cho user xem/tải (MinIO sẽ expose ra cho public bởi Infra để tiết kiệm tgian).
+[ ] Đồng bộ trạng thái: Lắng nghe các sự kiện tiến độ từ NATS (chủ đề jobs.events) để cập nhật trạng thái thực tế (PROCESSING, COMPLETED, FAILED là tối thiểu, hiện phần trăm thì tuỳ 2 Huy có thích làm ko) vào PostgreSQL. Khi job xong thì cung cấp URL public thẳng đến `/results/<jobId>/result.<ext>` (xem `docs/integration-contracts.md` §5) cho user xem/tải (MinIO sẽ expose ra cho public bởi Infra để tiết kiệm tgian).
 
 [ ] Cung cấp REST API: Cho phép frontend gửi yêu cầu tạo công việc mới, kiểm tra tiến độ liên tục, và nhận đường dẫn để tải kết quả.
 
@@ -20,7 +20,7 @@ File này có mục đích chia các lượt công việc và theo dõi tiến �
 
 [ ] Xử lý dữ liệu: Nhận thông tin, tải tệp nguồn từ MinIO, thực hiện tác vụ xử lý (nhận diện hình ảnh, chuyển mã video), và tải tệp kết quả ngược lại lên MinIO.
 
-[ ] Báo cáo tiến trình: Gửi các sự kiện cập nhật trạng thái về NATS JetStream để backend nắm bắt mà không cần kết nối trực tiếp vào PostgreSQL. Tối thiểu là sự kiện ACK hoàn thành job và sự kiện nhận job (có thể ko cần progress phần trăm). Khi job xong thì cung cấp URL public thẳng đến MinIO:/results/user-uuid/job-id/result để Backend lấy về.
+[ ] Báo cáo tiến trình: Gửi các sự kiện cập nhật trạng thái về NATS JetStream để backend nắm bắt mà không cần kết nối trực tiếp vào PostgreSQL. Tối thiểu là sự kiện ACK hoàn thành job và sự kiện nhận job (có thể ko cần progress phần trăm). Khi job xong thì cung cấp URL public thẳng đến `/results/<jobId>/result.<ext>` (xem `docs/integration-contracts.md` §5) để Backend lấy về.
 
 [ ] Xác nhận an toàn (Acknowledgement): Chỉ báo cáo hoàn tất (ACK) với NATS JetStream sau khi toàn bộ quá trình xử lý và tải kết quả lên MinIO đã thành công. Nếu xảy ra lỗi giữa chừng, NATS sẽ giao lại công việc đó.
 

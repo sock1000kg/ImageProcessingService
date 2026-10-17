@@ -1,9 +1,12 @@
 # ImageProcessing endpoints and topology
 
-Authoritative values for the Lab-sock k3s tenant (`infra/`) and for the local
-docker-compose environment. If this file and `docs/integration-contracts.md`
-disagree, this file is correct — the contract doc still carries the old
-`stream: JOBS` KEDA example (see the note at the bottom).
+Infra's operational reference for the Lab-sock k3s tenant (`infra/`) and the
+local docker-compose environment: DNS names, secrets, routes, metrics.
+**`docs/` is the source of truth for anything the teams agree on.** The
+stream/consumer/bucket topology and who provisions it are defined in
+`docs/integration-contracts.md` §4. Local dev is described in
+`docs/phân-công-và-guideline.md` §1. If this file disagrees with `docs/`, `docs/`
+wins: change `docs/` first (with the team), then this file.
 
 ## Environments
 
@@ -89,9 +92,8 @@ triggers:
       lagThreshold: "10"
 ```
 
-> The KEDA example in `docs/integration-contracts.md` still points at a single
-> `stream: JOBS`. That stream no longer exists — use the per-pool
-> `AI_JOBS` / `IMAGE_JOBS` streams above.
+> Must match `docs/integration-contracts.md` §4 and §11 (per-pool `AI_JOBS` /
+> `IMAGE_JOBS` streams).
 
 ## Metrics
 

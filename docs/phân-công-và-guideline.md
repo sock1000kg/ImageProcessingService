@@ -9,6 +9,7 @@ Project này giống 3 project gắn với nhau do nó tập trung vào cách tr
 - Ưu tiên trước hết một cái demo tối thiểu rồi làm gì thì làm
 - Những cái nào ảnh hưởng các thành phần khác như cấu trúc job, job status,... mà nếu có thay đổi gì thì phải báo với mọi người để còn thống nhất, ko để AI tự ý đổi docs/schemas. Cái gì không rõ về hướng giải quyết hiện tại thì hỏi chứ đừng tự ý làm hoặc để AI thay đổi. 
 - Phần docs với prompt agent cụ thể cho từng phần thì cho vào folder tương ứng phần đấy kiểu web/docs để tránh conflict.
+- **`docs/` là nguồn sự thật chung.** Cái gì cả nhóm đã thống nhất (contract message, stream/consumer/bucket, đường dẫn object, cách dev local) phải nằm trong `docs/`. Docs riêng của từng team (`web/docs`, `engine/docs`, `infra/docs`) chỉ được chi tiết hoá, không được mâu thuẫn. Nếu thấy mâu thuẫn thì `docs/` đúng, và báo team kia sửa.
 
 # Docker Image để test khi dev
 NATS: nats:2.14.6-alpine
@@ -20,7 +21,7 @@ PostgreSQL: postgres:18.1-alpine
 - Mỗi người code và test trên máy mình bằng `infra/docker-compose.yaml`. File này dựng NATS (đã có sẵn stream/consumer), PostgreSQL và MinIO (đã có bucket `uploads`/`results`, link public và TTL 24h) giống hệt cấu hình trên cluster, nên code chạy được local thì lên cluster cũng chạy được.
 - Cách chạy:
   - `cp infra/.env.example infra/.env`
-  - `docker compose -f infra/docker-compose.yaml up -d`: lệnh này tự chạy `nats-setup` và `minio-setup` một lần (cùng script với Job trên cluster) để tạo stream/consumer và bucket. App không tự tạo stream/bucket.
+  - `docker compose -f infra/docker-compose.yaml up -d`: lệnh này tự chạy `nats-setup` và `minio-setup` một lần (cùng script với Job trên cluster) để tạo stream/consumer và bucket. App không tự tạo stream/consumer/bucket (quy tắc và bảng cấu hình: `docs/integration-contracts.md` §4).
   - Nếu app báo thiếu stream/bucket (ví dụ sau khi xoá volume) thì chạy lại `docker compose -f infra/docker-compose.yaml run --rm nats-setup` hoặc `minio-setup`. Chạy lại nhiều lần không sao.
   - Endpoint: NATS `localhost:4222`, PostgreSQL `localhost:5432` (db/user `imgproc`), MinIO `localhost:9000` (console `localhost:9001`). Chi tiết xem `infra/docs/endpoints.md`.
   - Nếu cổng 5432 trên máy đã bị chiếm thì tắt PostgreSQL đang chạy sẵn hoặc đổi cổng trong một file override riêng. Không sửa file chung.

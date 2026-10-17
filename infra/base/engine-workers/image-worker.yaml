@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: image-worker
+  labels:
+    app.kubernetes.io/name: image-worker
+    app.kubernetes.io/component: worker
+    imgproc.io/pool: image
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: image-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: image-worker
+        app.kubernetes.io/component: worker
+        imgproc.io/pool: image
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: home-server
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: image-worker
+          # socknot1000kg/imgproc-engine:dev is temporary until CI publishes immutable SHA tags
+          image: socknot1000kg/imgproc-engine:dev
+          imagePullPolicy: Always
+          env:
+            - name: NATS_URL
+              value: nats://nats:4222
+            - name: NATS_STREAM_NAME
+              value: IMAGE_JOBS
+            - name: NATS_CONSUMER_NAME
+              value: image-workers
+            - name: NATS_SUBJECTS
+              value: jobs.image
+            - name: NATS_EVENTS_SUBJECT
+              value: jobs.events
+            - name: MINIO_ENDPOINT
+              value: minio:9000
+            - name: MINIO_SECURE
+              value: "false"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: imgproc-minio
+                  key: rootUser
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: imgproc-minio
+                  key: rootPassword
+            - name: YOLO_CONFIG_DIR
+              value: /tmp/Ultralytics
+            - name: HOME
+              value: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -343,6 +343,36 @@ else
   no "MINIO_CHECK_SCRIPT.sh was not extracted from smoke-test.sh"
 fi
 
+# ---- M3 item: NATS_CHECK_SCRIPT must be worker-aware, skipping pool drains
+# when worker Deployments are running to avoid race conditions.
+echo "== NATS_CHECK_SCRIPT covers workers-running branch"
+if [ -f "$WORK/NATS_CHECK_SCRIPT.sh" ]; then
+  if sh -n "$WORK/NATS_CHECK_SCRIPT.sh" 2>"$WORK/nats-shn.log"; then
+    ok "sh -n NATS_CHECK_SCRIPT: syntax OK"
+  else
+    no "sh -n NATS_CHECK_SCRIPT: $(cat "$WORK/nats-shn.log")"
+  fi
+  if grep -qF 'AI_WORKERS_ACTIVE' "$WORK/NATS_CHECK_SCRIPT.sh" \
+      && grep -qF 'IMAGE_WORKERS_ACTIVE' "$WORK/NATS_CHECK_SCRIPT.sh" \
+      && grep -qF 'SKIP: ai-workers running, pool drain skipped' "$WORK/NATS_CHECK_SCRIPT.sh" \
+      && grep -qF 'SKIP: image-workers running, pool drain skipped' "$WORK/NATS_CHECK_SCRIPT.sh"; then
+    ok "NATS_CHECK_SCRIPT contains worker-active branches skipping pool drains"
+  else
+    no "NATS_CHECK_SCRIPT does not properly handle worker-active branches"
+  fi
+else
+  no "NATS_CHECK_SCRIPT.sh was not extracted from smoke-test.sh"
+fi
+
+# ---- M3 item: check_nats must call skip() so skipped pool drains are visible in summary
+echo "== check_nats reports worker pool drain skips"
+if grep -qF 'skip "nats: ai-worker pool drain (workers running)"' "$SMOKE" \
+    && grep -qF 'skip "nats: image-worker pool drain (workers running)"' "$SMOKE"; then
+  ok "check_nats reports worker pool drain skips with skip helper"
+else
+  no "check_nats does not call skip helper for worker pool drains"
+fi
+
 # --------------------------------------- execute the embedded scripts locally
 NATS_URL="${NATS_URL:-nats://127.0.0.1:4222}"
 MINIO_URL="${MINIO_URL:-http://127.0.0.1:9000}"
@@ -361,6 +391,16 @@ if command -v nats >/dev/null 2>&1; then
     ok "NATS_CHECK_SCRIPT ran and printed NATS_OK (streams left empty again)"
   else
     no "NATS_CHECK_SCRIPT output: $out"
+  fi
+
+  out2="$(AI_WORKERS_ACTIVE=1 IMAGE_WORKERS_ACTIVE=1 NATS_URL="$NATS_URL" sh -c "$(cat "$WORK/NATS_CHECK_SCRIPT.sh")" sh "$TEST_UUID" 2>&1)"
+  rc2=$?
+  if [ "$rc2" -ne 0 ]; then
+    no "NATS_CHECK_SCRIPT with workers active failed (exit $rc2): $out2"
+  elif echo "$out2" | grep -q NATS_OK; then
+    ok "NATS_CHECK_SCRIPT with workers active ran and printed NATS_OK (drain skipped)"
+  else
+    no "NATS_CHECK_SCRIPT with workers active output: $out2"
   fi
 else
   echo "SKIP: nats CLI not in PATH, cannot execute NATS_CHECK_SCRIPT"

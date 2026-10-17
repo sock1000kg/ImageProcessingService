@@ -60,6 +60,8 @@ for doc in yaml.safe_load_all(open(path)):
     if sel != "home-server":
         problems.append(f"{kind}/{name}: nodeSelector {sel!r} != 'home-server'")
     # init containers are transient too, but they still need a limit
+    labels = md.get("labels") or {}
+    is_worker = (labels.get("app.kubernetes.io/component") == "worker")
     for c in (spec.get("containers") or []) + (spec.get("initContainers") or []):
         res = c.get("resources") or {}
         lim = (res.get("limits") or {}).get("memory")
@@ -70,12 +72,14 @@ for doc in yaml.safe_load_all(open(path)):
             val = int(lim[:-2]) if unit in ("Mi", "Gi") else int(round(float(lim.rstrip("m")) / 1000))
             if unit == "Gi":
                 val *= 1024
-            total += val
-            # setup Jobs are one-shot (ttlSecondsAfterFinished: 600) and init
-            # containers only run before the pod goes Ready, so the steady-state
-            # footprint excludes them
-            if kind != "Job" and c in (spec.get("containers") or []):
-                steady += val
+            # Worker pools are dev-only and reported separately from platform services
+            if not is_worker:
+                total += val
+                # setup Jobs are one-shot (ttlSecondsAfterFinished: 600) and init
+                # containers only run before the pod goes Ready, so the steady-state
+                # footprint excludes them
+                if kind != "Job" and c in (spec.get("containers") or []):
+                    steady += val
 for p in problems:
     print("PROBLEM:", p)
 print("TOTAL_MI:", total)
@@ -283,6 +287,118 @@ sys.exit(0)
 LIMIT
 }
 
+check_workers() {
+  local dev_file="$1"
+  local prod_file="$2"
+  python3 - "$dev_file" "$prod_file" <<'WORKERS'
+import sys, yaml
+
+dev_path, prod_path = sys.argv[1], sys.argv[2]
+problems = []
+
+# 1. Assert no worker workloads render in prod
+for doc in yaml.safe_load_all(open(prod_path)):
+    if not doc:
+        continue
+    kind = doc.get("kind")
+    md = doc.get("metadata", {}) or {}
+    name = md.get("name", "")
+    labels = md.get("labels", {}) or {}
+    if labels.get("app.kubernetes.io/component") == "worker" or name in ("ai-worker", "image-worker"):
+        problems.append(f"prod: {kind}/{name} rendered in prod (workers must only render in dev)")
+
+# 2. Assert both workers render in dev and follow contract §4
+VALID_PAIRS = {("AI_JOBS", "ai-workers"), ("IMAGE_JOBS", "image-workers")}
+expected_workers = {"ai-worker", "image-worker"}
+found_workers = set()
+workers = {}
+
+for doc in yaml.safe_load_all(open(dev_path)):
+    if not doc or doc.get("kind") != "Deployment":
+        continue
+    md = doc.get("metadata", {}) or {}
+    name = md.get("name", "")
+    labels = md.get("labels", {}) or {}
+    if labels.get("app.kubernetes.io/component") != "worker":
+        if name in expected_workers:
+            problems.append(f"dev: Deployment/{name} is missing 'app.kubernetes.io/component: worker' label")
+        continue
+
+    found_workers.add(name)
+    spec = doc.get("spec", {}) or {}
+    tpl = spec.get("template", {}) or {}
+    tpl_spec = tpl.get("spec", {}) or {}
+
+    # nodeSelector
+    sel = (tpl_spec.get("nodeSelector") or {}).get("kubernetes.io/hostname")
+    if sel != "home-server":
+        problems.append(f"dev: Deployment/{name} nodeSelector {sel!r} != 'home-server'")
+
+    # pod securityContext
+    pod_sc = tpl_spec.get("securityContext", {}) or {}
+    if pod_sc.get("runAsNonRoot") is not True:
+        problems.append(f"dev: Deployment/{name} pod securityContext runAsNonRoot is not true")
+    uid = pod_sc.get("runAsUser")
+    if uid is None or uid == 0:
+        problems.append(f"dev: Deployment/{name} pod securityContext runAsUser must be non-root (got {uid})")
+
+    # containers
+    containers = tpl_spec.get("containers", []) or []
+    if not containers:
+        problems.append(f"dev: Deployment/{name} has no containers")
+        continue
+
+    main_c = containers[0]
+
+    # container memory limit
+    res = main_c.get("resources", {}) or {}
+    lim = (res.get("limits") or {}).get("memory")
+    if not lim:
+        problems.append(f"dev: Deployment/{name} container has no memory limit")
+        mem_limit_mi = 0
+    else:
+        unit = lim[-2:]
+        mem_limit_mi = int(lim[:-2]) if unit in ("Mi", "Gi") else int(round(float(lim.rstrip("m")) / 1000))
+        if unit == "Gi":
+            mem_limit_mi *= 1024
+
+    # Contract §4: NATS_STREAM_NAME / NATS_CONSUMER_NAME pair validation
+    stream_val = None
+    consumer_val = None
+    for env_entry in main_c.get("env", []) or []:
+        if env_entry.get("name") == "NATS_STREAM_NAME":
+            stream_val = env_entry.get("value")
+        elif env_entry.get("name") == "NATS_CONSUMER_NAME":
+            consumer_val = env_entry.get("value")
+
+    if (stream_val, consumer_val) not in VALID_PAIRS:
+        problems.append(
+            f"dev: Deployment/{name} has invalid NATS_STREAM_NAME/NATS_CONSUMER_NAME pair: "
+            f"({stream_val!r}, {consumer_val!r}) not in contract §4 {sorted(VALID_PAIRS)}"
+        )
+
+    replicas = spec.get("replicas", 1) or 1
+    total_pool_mem = replicas * mem_limit_mi
+    workers[name] = (replicas, mem_limit_mi, total_pool_mem)
+
+missing = expected_workers - found_workers
+if missing:
+    problems.append(f"dev: missing expected worker deployments: {sorted(missing)}")
+
+for p in problems:
+    print("PROBLEM:", p)
+
+for name, (reps, lim, tot) in sorted(workers.items()):
+    print(f"WORKER: {name}: {reps} replica(s) x {lim}Mi limit = {tot}Mi")
+total_worker_mem = sum(w[2] for w in workers.values())
+print("TOTAL_WORKER_MI:", total_worker_mem)
+
+sys.exit(1 if problems else 0)
+WORKERS
+}
+
+DEV_OUT=""
+PROD_OUT=""
 for env in dev prod; do
   ns="imgproc-$env"
   if [ "$env" = "prod" ]; then
@@ -295,6 +411,8 @@ for env in dev prod; do
     continue
   }
   pass "kustomize build overlays/$env"
+  [ "$env" = "dev" ] && DEV_OUT="$out"
+  [ "$env" = "prod" ] && PROD_OUT="$out"
 
   if result="$(check_workloads "$out" "$ns")"; then
     pass "$ns: every Deployment/StatefulSet/Job pinned to home-server with memory limits"
@@ -415,6 +533,20 @@ PY
     fail "$ns: resources outside $ns (or with no namespace)"
   fi
 done
+ 
+if [ -n "$DEV_OUT" ] && [ -n "$PROD_OUT" ]; then
+  echo
+  echo "== Worker Deployments (dev only, contract §4)"
+  if worker_result="$(check_workers "$DEV_OUT" "$PROD_OUT")"; then
+    pass "workers render in dev only with valid contract stream/consumer pairs"
+  else
+    echo "$worker_result" | grep '^PROBLEM:' | sed "s/^/FAIL: /"
+    FAILURES=$((FAILURES + 1))
+  fi
+  echo "$worker_result" | grep '^WORKER:' | sed 's/^WORKER: /     /'
+  worker_total="$(echo "$worker_result" | awk '/TOTAL_WORKER_MI/ {print $2}')"
+  echo "     Total worker memory limits (informational, dev only): ${worker_total:-0}Mi"
+fi
 
 keda_out="$(render cluster/keda)" || fail "kustomize build cluster/keda"
 if [ -n "${keda_out:-}" ]; then

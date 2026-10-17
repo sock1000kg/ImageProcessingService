@@ -189,6 +189,9 @@ NATS_CHECK_SCRIPT=$(cat <<'EOS'
 set -e
 [ -n "${1:-}" ] || { echo "missing arg (expected the smoke test id)" >&2; exit 2; }
 NATS_URL="${NATS_URL:-nats://nats:4222}"
+AI_WORKERS_ACTIVE="${AI_WORKERS_ACTIVE:-0}"
+IMAGE_WORKERS_ACTIVE="${IMAGE_WORKERS_ACTIVE:-0}"
+
 for s in AI_JOBS IMAGE_JOBS JOB_EVENTS; do
   nats --server "$NATS_URL" stream info "$s" >/dev/null || exit 10
 done
@@ -196,32 +199,63 @@ nats --server "$NATS_URL" consumer info AI_JOBS ai-workers >/dev/null || exit 11
 nats --server "$NATS_URL" consumer info IMAGE_JOBS image-workers >/dev/null || exit 12
 nats --server "$NATS_URL" consumer info JOB_EVENTS backend-job-events >/dev/null || exit 13
 
-# publish one message per pool, then drain it with the matching durable consumer
-nats --server "$NATS_URL" pub jobs.ai "{\"smoke\":\"$1\"}" >/dev/null || exit 14
-nats --server "$NATS_URL" pub jobs.image "{\"smoke\":\"$1\"}" >/dev/null || exit 15
-nats --server "$NATS_URL" pub jobs.events "{\"smoke\":\"$1\"}" >/dev/null || exit 16
+# When workers are active, draining via the same durable consumer races with workers.
+# In that case, verifying stream and consumer existence above is sufficient.
+if [ "$AI_WORKERS_ACTIVE" = "0" ]; then
+  nats --server "$NATS_URL" pub jobs.ai "{\"smoke\":\"$1\"}" >/dev/null || exit 14
+  nats --server "$NATS_URL" consumer next AI_JOBS ai-workers --count 1 --ack >/dev/null || exit 17
+  left_ai=$(nats --server "$NATS_URL" stream info AI_JOBS -j | sed -n 's/^ *"messages": *\([0-9]*\),*$/\1/p')
+  [ "$left_ai" = "0" ] || exit 20
+else
+  echo "SKIP: ai-workers running, pool drain skipped"
+fi
 
-nats --server "$NATS_URL" consumer next AI_JOBS ai-workers --count 1 --ack >/dev/null || exit 17
-nats --server "$NATS_URL" consumer next IMAGE_JOBS image-workers --count 1 --ack >/dev/null || exit 18
+if [ "$IMAGE_WORKERS_ACTIVE" = "0" ]; then
+  nats --server "$NATS_URL" pub jobs.image "{\"smoke\":\"$1\"}" >/dev/null || exit 15
+  nats --server "$NATS_URL" consumer next IMAGE_JOBS image-workers --count 1 --ack >/dev/null || exit 18
+  left_img=$(nats --server "$NATS_URL" stream info IMAGE_JOBS -j | sed -n 's/^ *"messages": *\([0-9]*\),*$/\1/p')
+  [ "$left_img" = "0" ] || exit 21
+else
+  echo "SKIP: image-workers running, pool drain skipped"
+fi
+
+# JOB_EVENTS check: publish and drain one message
+nats --server "$NATS_URL" pub jobs.events "{\"smoke\":\"$1\"}" >/dev/null || exit 16
 nats --server "$NATS_URL" consumer next JOB_EVENTS backend-job-events --count 1 --ack >/dev/null || exit 19
 
-# the streams must be empty again
-for s in AI_JOBS IMAGE_JOBS JOB_EVENTS; do
-  left=$(nats --server "$NATS_URL" stream info "$s" -j | sed -n 's/^ *"messages": *\([0-9]*\),*$/\1/p')
-  [ "$left" = "0" ] || exit 20
-done
+# When no workers are running, verify JOB_EVENTS stream is completely drained
+if [ "$AI_WORKERS_ACTIVE" = "0" ] && [ "$IMAGE_WORKERS_ACTIVE" = "0" ]; then
+  left_evt=$(nats --server "$NATS_URL" stream info JOB_EVENTS -j | sed -n 's/^ *"messages": *\([0-9]*\),*$/\1/p')
+  [ "$left_evt" = "0" ] || exit 22
+fi
+
 echo NATS_OK
 EOS
 )
 
 check_nats() {
   local out
+  local ai_active=0 image_active=0
+  if [ "$PRINT_POD_SPECS" -eq 0 ]; then
+    local ai_ready image_ready
+    ai_ready="$("${KUBECTL[@]}" -n "$NS" get deploy ai-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+    image_ready="$("${KUBECTL[@]}" -n "$NS" get deploy image-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+    [ "${ai_ready:-0}" -gt 0 ] 2>/dev/null && ai_active=1
+    [ "${image_ready:-0}" -gt 0 ] 2>/dev/null && image_active=1
+  fi
   local -a pod=(--image="$NATS_BOX_IMAGE" --overrides="$POD_OVERRIDES" \
+    --env="AI_WORKERS_ACTIVE=$ai_active" --env="IMAGE_WORKERS_ACTIVE=$image_active" \
     --command -- /bin/sh -c "$NATS_CHECK_SCRIPT" sh "$TEST_UUID")
   register_pod nats-smoke "${pod[@]}"
   if out=$(kube_run nats-smoke "${pod[@]}" 2>&1); then
     if echo "$out" | grep -q "NATS_OK"; then
-      pass "nats: streams/consumers present, publish+ack round-trip, streams empty"
+      if [ "$ai_active" -eq 1 ] || [ "$image_active" -eq 1 ]; then
+        pass "nats: stream/consumer exist (worker pools running)"
+        [ "$ai_active" -eq 1 ] && skip "nats: ai-worker pool drain (workers running)"
+        [ "$image_active" -eq 1 ] && skip "nats: image-worker pool drain (workers running)"
+      else
+        pass "nats: streams/consumers present, publish+ack round-trip, streams empty"
+      fi
     else
       fail "nats: unexpected output: $out"
     fi

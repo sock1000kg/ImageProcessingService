@@ -95,6 +95,15 @@ triggers:
 > Must match `docs/integration-contracts.md` §4 and §11 (per-pool `AI_JOBS` /
 > `IMAGE_JOBS` streams).
 
+## Workers (dev)
+
+Engine worker pools deployed in `imgproc-dev` only (agreeing with `docs/integration-contracts.md` §4):
+
+| deployment | stream / consumer | CPU req / limit | memory req / limit | image |
+|---|---|---|---|---|
+| `ai-worker` | `AI_JOBS` / `ai-workers` | 250m / 1000m | 512Mi / 1536Mi | `socknot1000kg/imgproc-engine:dev` |
+| `image-worker` | `IMAGE_JOBS` / `image-workers` | 100m / 500m | 256Mi / 768Mi | `socknot1000kg/imgproc-engine:dev` |
+
 ## Metrics
 
 Pod/prometheus annotations only; the lab observability node scrapes them

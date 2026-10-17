@@ -176,7 +176,7 @@ project-root/
 * Worker resource limits and scaling tests.
 * Monitoring, observability, and Helm/Kustomize manifests.
 
-Each component can be developed and tested independently using mock events, test jobs, and dummy workers. See `integration-contracts.md` for the development integration procedures.
+Each component can be developed and tested independently using mock events and test jobs. See `integration-contracts.md` for the development integration procedures.
 
 ---
 

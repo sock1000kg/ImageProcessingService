@@ -128,7 +128,7 @@ main() {
     '"jobs.image", "jobs.image.>"' "workqueue"
   # Fan-out events to the backend
   write_stream_config "$workdir/job_events.json" "JOB_EVENTS" \
-    '"jobs.events", "jobs.events.>", "jobs.progress", "jobs.completed", "jobs.failed"' "workqueue"
+    '"jobs.events", "jobs.events.>"' "workqueue"
 
   # ack_wait: AI 5m (slow models), image 1m, events 30s
   write_consumer_config "$workdir/ai_workers.json" "ai-workers" \

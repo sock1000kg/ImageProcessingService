@@ -1,0 +1,91 @@
+# NATS with JetStream (file store) — Lab-sock tenant base.
+# Rendered with: kubectl kustomize --enable-helm infra/overlays/<env>
+config:
+  cluster:
+    enabled: false
+
+  jetstream:
+    enabled: true
+    fileStore:
+      enabled: true
+      dir: /data
+      pvc:
+        enabled: true
+        size: 2Gi
+        storageClassName: local-path
+    # we only use the file store; keep the in-memory store tiny
+    memoryStore:
+      enabled: false
+      maxSize: 64Mi
+
+  # 8222 must stay enabled: KEDA reads lag from the monitoring endpoint (round 3)
+  monitor:
+    enabled: true
+    port: 8222
+
+  merge:
+    # chart renders max_memory_store: 0 when memoryStore is disabled;
+    # pin a small cap so a misconfigured stream cannot eat the RAM budget
+    jetstream:
+      max_memory_store: "<< 64Mi >>"
+
+# expose the monitoring port through the Service (KEDA endpoint: nats.<ns>.svc:8222)
+service:
+  ports:
+    monitor:
+      enabled: true
+
+# the chart's nats-box deployment is disabled: our own setup job provisions
+# the streams/consumers and brings its own CLI
+natsBox:
+  enabled: false
+
+# prometheus-nats-exporter sidecar, scraped via pod annotations (lab prom-agent)
+# config hot reload sidecar: keep it, but give it a memory limit so the
+# workload check can account for it
+reloader:
+  enabled: true
+  patch:
+    - op: add
+      path: /resources
+      value:
+        requests:
+          cpu: 5m
+          memory: 16Mi
+        limits:
+          cpu: 50m
+          memory: 32Mi
+
+promExporter:
+  enabled: true
+  port: 7777
+  monitorDomain: localhost
+  patch:
+    - op: add
+      path: /resources
+      value:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 32Mi
+
+container:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+podTemplate:
+  merge:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "7777"
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: home-server

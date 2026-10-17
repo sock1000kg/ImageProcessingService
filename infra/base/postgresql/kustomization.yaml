@@ -1,8 +1,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+
 helmCharts:
   - name: postgresql
     repo: https://charts.bitnami.com/bitnami
     version: 18.11.5
     releaseName: postgresql
     valuesFile: values.yaml
+
+# the chart's volume-permissions init container gets only CHOWN+FOWNER
+patches:
+  - path: patch-volume-permissions.yaml

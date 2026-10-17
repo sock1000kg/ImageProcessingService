@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+helmCharts:
+  - name: minio
+    repo: https://charts.min.io/
+    version: 5.4.0
+    releaseName: minio
+    valuesFile: values.yaml
+
+configMapGenerator:
+  - name: minio-setup-scripts
+    files:
+      - setup-buckets.sh
+      - results-policy.json
+      - ilm.json
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+resources:
+  - setup-job.yaml
+  - route.yaml
+
+# chart 5.4.0 cannot render an init container; this patch gives the `export`
+# volume an owner (uid 1000) so the lab's ACL mask on local-path can't block it
+patches:
+  - path: patch-volume-permissions.yaml

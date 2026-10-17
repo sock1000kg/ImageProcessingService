@@ -1,0 +1,96 @@
+# Local parity environment for teammates (no Kubernetes needed).
+#
+#   cp infra/.env.example infra/.env     # then edit if you like
+#   docker compose -f infra/docker-compose.yaml up -d
+#   docker compose -f infra/docker-compose.yaml run --rm nats-setup    # idempotent re-run
+#   docker compose -f infra/docker-compose.yaml run --rm minio-setup
+#   docker compose -f infra/docker-compose.yaml down -v
+#
+# The setup services run exactly the same scripts as the Kubernetes Jobs
+# (infra/base/nats/setup-streams.sh, infra/base/minio/setup-buckets.sh).
+name: imgproc-local
+
+services:
+  nats:
+    image: nats:2.14.6-alpine
+    command: ["-js", "-m", "8222", "-sd", "/data"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  nats-setup:
+    image: natsio/nats-box:0.20.0
+    depends_on:
+      nats:
+        condition: service_healthy
+    environment:
+      NATS_URL: nats://nats:4222
+      WAIT_TIMEOUT_SECONDS: "120"
+    volumes:
+      - ./base/nats/setup-streams.sh:/scripts/setup-streams.sh:ro
+    entrypoint: ["/bin/sh", "/scripts/setup-streams.sh"]
+    restart: "no"
+
+  postgres:
+    image: postgres:18.1-alpine
+    environment:
+      POSTGRES_DB: imgproc
+      POSTGRES_USER: imgproc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/.env}
+    ports:
+      - "5432:5432"
+    volumes:
+      # postgres:18 stores its data under /var/lib/postgresql/<major>
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U imgproc -d imgproc"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in infra/.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in infra/.env}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio-setup:
+    image: socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_URL: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in infra/.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in infra/.env}
+      WAIT_TIMEOUT_SECONDS: "120"
+    volumes:
+      - ./base/minio/setup-buckets.sh:/scripts/setup-buckets.sh:ro
+      - ./base/minio/results-policy.json:/scripts/results-policy.json:ro
+      - ./base/minio/ilm.json:/scripts/ilm.json:ro
+    entrypoint: ["/bin/sh", "/scripts/setup-buckets.sh"]
+    restart: "no"
+
+volumes:
+  nats-data:
+  postgres-data:
+  minio-data:

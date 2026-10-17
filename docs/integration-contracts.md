@@ -18,10 +18,11 @@ NATS JetStream
 │       └── Durable Consumer: image-workers
 │
 └── Stream: JOB_EVENTS
-    ├── Subject: jobs.progress
-    └── Subject: jobs.completed / jobs.failed
+    └── Subject: jobs.events
         └── Durable Consumer: backend-job-events
 ```
+
+Tất cả stream, consumer và bucket do **Infra tạo sẵn** (xem mục 4). App chỉ bind vào, không tự tạo.
 
 
 ## 1. Message Subjects (Danh sách các kênh giao tiếp)
@@ -261,6 +262,46 @@ Phát ra khi xảy ra lỗi trong quá trình xử lý (ảnh hỏng, không tì
 
 ---
 
+## 4. Hạ tầng dùng chung: stream, consumer, bucket
+
+Infra tạo và cấu hình toàn bộ tài nguyên dưới đây bằng `infra/base/nats/setup-streams.sh` và `infra/base/minio/setup-buckets.sh`.
+Cùng hai script đó chạy ở **cả local lẫn cluster**, nên code chạy được local thì lên cluster cũng chạy được.
+
+| Stream | Subjects | Durable consumer | Ai dùng | ack_wait | max_deliver |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `AI_JOBS` | `jobs.ai`, `jobs.ai.>` | `ai-workers` | Worker AI | 5m | 5 |
+| `IMAGE_JOBS` | `jobs.image`, `jobs.image.>` | `image-workers` | Worker ảnh thường | 1m | 5 |
+| `JOB_EVENTS` | `jobs.events`, `jobs.events.>` | `backend-job-events` | Backend | 30s | 10 |
+
+- Stream dùng retention **workqueue**: mỗi message chỉ được một consumer nhận. Vì vậy **không được tạo thêm consumer** trên các stream này (NATS sẽ từ chối, và KEDA chỉ theo dõi lag của đúng các consumer trên).
+- Mọi consumer dùng explicit ack. Worker ack sau khi upload kết quả xong. Job xử lý lâu hơn `ack_wait` phải gửi `in_progress()` định kỳ.
+- Bucket MinIO: `uploads` (private), `results` (public chỉ đọc qua `/results/<key>`). Cả hai tự xoá object sau **24 giờ**.
+- Mỗi worker Deployment chỉ phục vụ **một pool** (một stream + một consumer, cấu hình qua env), để KEDA scale từng pool độc lập.
+
+**Quy tắc:**
+- **Backend và Worker không được tự tạo, sửa hay xoá stream/consumer/bucket** (không `add_stream`, không `ensureStream`/`ensureBuckets`, không tạo durable mới). Chỉ bind vào consumer có sẵn (ví dụ Python: `js.pull_subscribe_bind(durable="ai-workers", stream="AI_JOBS")`). Nếu thiếu thì log lỗi và thoát.
+- Muốn đổi stream/consumer/bucket thì báo Infra và cập nhật bảng trên trước khi code.
+
+**Dev local** (chi tiết: `docs/phân-công-và-guideline.md` §1):
+```bash
+cp infra/.env.example infra/.env
+docker compose -f infra/docker-compose.yaml up -d      # tự chạy nats-setup + minio-setup
+# chạy lại setup nếu cần (an toàn khi chạy nhiều lần):
+docker compose -f infra/docker-compose.yaml run --rm nats-setup
+docker compose -f infra/docker-compose.yaml run --rm minio-setup
+```
+Không dùng file compose riêng của từng team cho NATS/MinIO, vì chúng không có stream/consumer đúng cấu hình.
+
+---
+
+## 5. Đường dẫn object
+
+- Input: `uploads/<jobId>/input.<ext>`
+- Kết quả: `results/<jobId>/result.<ext>`, URL public `/results/<jobId>/result.<ext>`
+- `jobId` là UUID v4, khó đoán, và đó là cơ chế bảo vệ duy nhất của link public trong Phase 1. Prefix theo user (`<userId>/...`) sẽ được xem xét khi có auth (Phase 2).
+
+---
+
 ## 6. Ownership Rules
 
 ### Backend owns
@@ -278,6 +319,12 @@ Phát ra khi xảy ra lỗi trong quá trình xử lý (ảnh hỏng, không tì
 - MinIO input/output
 - Progress reporting
 - Processing errors
+
+### Infrastructure owns
+
+- Streams, consumers, buckets and their settings (mục 4)
+- MinIO lifecycle (TTL 24h) and the public `/results/` route
+- KEDA ScaledObjects, worker Deployments, resource limits
 
 ### NATS owns
 
@@ -436,14 +483,16 @@ spec:
       metadata:
         natsServerMonitoringEndpoint: "nats:8222"
         account: "$G"
-        stream: "JOBS"
-        consumer: "ai-workers"
+        stream: "AI_JOBS"        # IMAGE_JOBS cho pool ảnh thường
+        consumer: "ai-workers"   # image-workers
         lagThreshold: "3"
         activationLagThreshold: "1"
         useHttps: "false"
 ```
 
 The exact target and replica values must be tuned through testing on the project's hardware.
+
+KEDA reads the lag of the consumers in section 4 (`ai-workers`, `image-workers`). A worker that consumes through any other durable is invisible to KEDA and is never scaled.
 
 ---
 

@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/component: worker
     imgproc.io/pool: image
 spec:
-  replicas: 1
+  # Replicas managed by KEDA ScaledObject (min 0, max 3)
   selector:
     matchLabels:
       app.kubernetes.io/name: image-worker

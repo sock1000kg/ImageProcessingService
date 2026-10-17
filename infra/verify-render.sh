@@ -268,7 +268,7 @@ sys.exit(1 if problems else 0)
 DUPENV
 }
 
-# Rule 9: Workers: dev only, contract §4 stream/consumer pair
+# Rule 9: Workers: dev only, contract §4 stream/consumer pair, KEDA ScaledObjects
 check_workers() {
   local dev_file="$1"
   local prod_file="$2"
@@ -278,7 +278,7 @@ import sys, yaml
 dev_path, prod_path = sys.argv[1], sys.argv[2]
 problems = []
 
-# 1. Assert no worker workloads render in prod
+# 1. Assert no worker workloads or ScaledObjects render in prod
 for doc in yaml.safe_load_all(open(prod_path)):
     if not doc:
         continue
@@ -286,16 +286,28 @@ for doc in yaml.safe_load_all(open(prod_path)):
     md = doc.get("metadata", {}) or {}
     name = md.get("name", "")
     labels = md.get("labels", {}) or {}
-    if labels.get("app.kubernetes.io/component") == "worker" or name in ("ai-worker", "image-worker"):
+    if kind == "ScaledObject":
+        problems.append(f"prod: ScaledObject/{name} rendered in prod (ScaledObjects must only render in dev)")
+    elif labels.get("app.kubernetes.io/component") == "worker" or name in ("ai-worker", "image-worker"):
         problems.append(f"prod: {kind}/{name} rendered in prod (workers must only render in dev)")
 
-# 2. Assert workers in dev follow contract §4
+# 2. Collect ScaledObjects in dev
+dev_docs = list(yaml.safe_load_all(open(dev_path)))
+scaled_objects = {}  # target_name -> list of ScaledObject docs
+for doc in dev_docs:
+    if not doc:
+        continue
+    if doc.get("kind") == "ScaledObject":
+        target = (doc.get("spec") or {}).get("scaleTargetRef", {}).get("name")
+        scaled_objects.setdefault(target, []).append(doc)
+
+# 3. Assert workers in dev follow contract §4 and KEDA ScaledObject assertions
 VALID_PAIRS = {("AI_JOBS", "ai-workers"), ("IMAGE_JOBS", "image-workers")}
 expected_workers = {"ai-worker", "image-worker"}
 found_workers = set()
 workers = {}
 
-for doc in yaml.safe_load_all(open(dev_path)):
+for doc in dev_docs:
     if not doc or doc.get("kind") != "Deployment":
         continue
     md = doc.get("metadata", {}) or {}
@@ -308,6 +320,11 @@ for doc in yaml.safe_load_all(open(dev_path)):
 
     found_workers.add(name)
     spec = doc.get("spec", {}) or {}
+
+    # Worker Deployments must have no replicas field
+    if "replicas" in spec:
+        problems.append(f"dev: Deployment/{name} has explicit 'replicas' field (replicas must be managed by KEDA)")
+
     tpl_spec = (spec.get("template", {}) or {}).get("spec", {}) or {}
     containers = tpl_spec.get("containers", []) or []
     if not containers:
@@ -336,19 +353,55 @@ for doc in yaml.safe_load_all(open(dev_path)):
             f"({stream_val!r}, {consumer_val!r}) not in contract §4 {sorted(VALID_PAIRS)}"
         )
 
-    replicas = spec.get("replicas", 1) or 1
-    total_pool_mem = replicas * mem_limit_mi
-    workers[name] = (replicas, mem_limit_mi, total_pool_mem)
+    # ScaledObject targeting this Deployment
+    target_sos = scaled_objects.get(name, [])
+    if len(target_sos) != 1:
+        problems.append(f"dev: Deployment/{name} has {len(target_sos)} ScaledObjects targeting it (expected exactly 1)")
+        continue
+
+    so = target_sos[0]
+    so_name = (so.get("metadata", {}) or {}).get("name")
+    so_spec = so.get("spec", {}) or {}
+    min_replicas = so_spec.get("minReplicaCount")
+    if min_replicas != 0:
+        problems.append(f"dev: ScaledObject/{so_name} minReplicaCount is {min_replicas!r} (expected 0)")
+
+    max_replicas = so_spec.get("maxReplicaCount")
+    if not isinstance(max_replicas, int) or max_replicas <= 0:
+        problems.append(f"dev: ScaledObject/{so_name} maxReplicaCount is {max_replicas!r} (expected positive int)")
+        max_replicas = 1
+
+    triggers = so_spec.get("triggers", []) or []
+    nats_triggers = [t for t in triggers if t.get("type") == "nats-jetstream"]
+    if not nats_triggers:
+        problems.append(f"dev: ScaledObject/{so_name} has no nats-jetstream trigger")
+    else:
+        t_meta = nats_triggers[0].get("metadata", {}) or {}
+        t_stream = t_meta.get("stream")
+        t_consumer = t_meta.get("consumer")
+        if t_stream != stream_val or t_consumer != consumer_val:
+            problems.append(
+                f"dev: ScaledObject/{so_name} trigger stream/consumer ({t_stream!r}, {t_consumer!r}) "
+                f"does not match Deployment/{name} ({stream_val!r}, {consumer_val!r})"
+            )
+
+    total_pool_mem = max_replicas * mem_limit_mi
+    workers[name] = (max_replicas, mem_limit_mi, total_pool_mem)
 
 missing = expected_workers - found_workers
 if missing:
     problems.append(f"dev: missing expected worker deployments: {sorted(missing)}")
 
+# ScaledObjects targeting non-worker or unknown workloads
+for target, sos in scaled_objects.items():
+    if target not in found_workers:
+        problems.append(f"dev: ScaledObject targets non-worker or unknown Deployment {target!r}")
+
 for p in problems:
     print("PROBLEM:", p)
 
 for name, (reps, lim, tot) in sorted(workers.items()):
-    print(f"WORKER: {name}: {reps} replica(s) x {lim}Mi limit = {tot}Mi")
+    print(f"WORKER: {name}: max {reps} replica(s) x {lim}Mi limit = {tot}Mi")
 total_worker_mem = sum(w[2] for w in workers.values())
 print("TOTAL_WORKER_MI:", total_worker_mem)
 
@@ -420,7 +473,7 @@ if [ -n "$DEV_OUT" ] && [ -n "$PROD_OUT" ]; then
   fi
   echo "$worker_result" | grep '^WORKER:' | sed 's/^WORKER: /     /'
   worker_total="$(echo "$worker_result" | awk '/TOTAL_WORKER_MI/ {print $2}')"
-  echo "     Total worker memory limits (informational, dev only): ${worker_total:-0}Mi"
+  echo "     Total worker peak memory limits (informational, dev only): ${worker_total:-0}Mi"
 fi
 
 keda_out="$(render cluster/keda)" || fail "kustomize build cluster/keda"

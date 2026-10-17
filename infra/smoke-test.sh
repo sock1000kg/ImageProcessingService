@@ -19,6 +19,8 @@ usage() {
 usage: smoke-test.sh <dev|prod> [--public]
 
   --public  additionally GET the result through the public Cloudflare hostname
+
+Note: in dev, the smoke message may briefly wake a pool via KEDA, and that's harmless.
 EOF
 }
 

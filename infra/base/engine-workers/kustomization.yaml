@@ -4,3 +4,5 @@ kind: Kustomization
 resources:
   - ai-worker.yaml
   - image-worker.yaml
+  - scaledobjects.yaml
+

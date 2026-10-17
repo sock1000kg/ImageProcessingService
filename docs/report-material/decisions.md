@@ -129,3 +129,38 @@ Mỗi mục theo format **Vấn đề → Lựa chọn → Quyết định → V
 - **Bổ sung (defence in depth):** HTTPRoute `/results/` chỉ nhận **GET và HEAD**. Bucket `results`
   vốn đã chỉ cho phép `s3:GetObject`, nhưng chặn thêm ngay ở Gateway để một object store không còn
   được bảo trì không bao giờ nhận được yêu cầu ghi.
+
+## 12. `namespace:` của kustomize phải nằm trên `helmCharts`, không phải top-level
+- **Vấn đề:** `infra/cluster/keda/kustomization.yaml` đặt `namespace: keda` ở top-level. Transformer
+  của kustomize ghi đè namespace cho **mọi** resource namespaced, kể cả
+  `RoleBinding/keda-operator-auth-reader` mà chart cố tình đặt ở `kube-system` (Role
+  `extension-apiserver-authentication-reader` cho SA `keda/keda-metrics-server`). Bị kéo sang `keda`,
+  binding đó không cấp quyền gì và metrics apiserver crash-loop với
+  `unable to load configmap based request-header`.
+- **Quyết định:** bỏ `namespace:` top-level, đặt `namespace: keda` trong entry `helmCharts`; Helm
+  render release vào `keda` còn resource cố ý của chart vẫn ở `kube-system`.
+  `infra/deploy.sh cluster` xoá RoleBinding thừa trong `keda`, restart metrics apiserver **trước** khi
+  chờ rollout (pod crash-loop sẽ chặn `rollout status` tới hết timeout), rồi chờ
+  `apiservice/v1beta1.external.metrics.k8s.io` `Available`.
+- **Vì sao:** `verify-render.sh` trước đây chỉ assert "mọi thứ rơi vào `keda`" nên không bắt được
+  lỗi này; giờ có allow-list `kube-system`, assert cụ thể RoleBinding/APIService/ClusterRoleBinding, và
+  resource namespaced mà **thiếu** `metadata.namespace` cũng bị coi là lỗi (nó sẽ rơi vào `default` khi
+  `kubectl apply` không có `-n`).
+
+## 13. Init container `chown` thay vì `setfacl` trên lab
+- **Vấn đề:** thư mục `/var/lib/rancher/k3s/storage/` của lab hiện `drwxrwsrwx+ root <fsGroup>` — dấu `+`
+  là POSIX ACL kế thừa từ default ACL, và **mask chặn lớp group**. Non-root đi qua group/ACL nên không ghi được:
+  MinIO chết với `unable to create (/export/.minio.sys/tmp) file access denied`, Postgres với
+  `mkdir: cannot create directory '/bitnami/postgresql'`. Root (NATS) bypass ACL nên vẫn chạy; app `media-dev`
+  chạy được vì thư mục dữ liệu **được sở hữu** bởi uid của nó (lớp owner không bị mask chặn).
+- **Lựa chọn:** (a) `setfacl -k` toàn lab; (b) chạy MinIO/Postgres bằng root; (c) thêm init container chỉ `chown`.
+- **Quyết định:** (c). Lab **không** bị sửa ACL — user nói ACL có thể là dependency của app khác. Mỗi workload
+  mount PVC và chạy non-root có một init container chạy uid 0 với `drop: ALL` + `CHOWN` + `FOWNER`, `chown`
+  volume về đúng uid/gid đang ghi vào nó. MinIO dùng patch kustomize (`chart 5.4.0` không sinh init container) và
+  chỉ `chown -R` khi owner cấp cao nhất sai, nên không phải duyệt bucket mỗi lần restart. Postgres dùng
+  `volumePermissions` sẵn có của chart, ghim image `bitnamilegacy/os-shell` theo digest.
+  `verify-render.sh` chặn trường hợp quay lại: workload non-root mount PVC mà không có init container
+  `root` + `CHOWN` là lỗi build.
+- **Vì sao:** Khuyến mễn nhất và không đụng vào hạ tầng dùng chung. `CHOWN` là vận hành chỉ 5 giây ở đầu vòng đời
+  pod; không cần `DAC_OVERRIDE`, và mask của ACL trở nên vô nghĩa với chúng ta vì ta dựa vào **owner**, không
+  dựa vào group.

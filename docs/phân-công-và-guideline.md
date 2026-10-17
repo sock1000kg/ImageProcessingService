@@ -14,3 +14,26 @@ Project này giống 3 project gắn với nhau do nó tập trung vào cách tr
 NATS: nats:2.14.6-alpine
 MinIO: socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z (image tự build: MinIO bản cuối build từ source + `mc`; image chính thức `quay.io/minio/minio` không còn pull được)
 PostgreSQL: postgres:18.1-alpine
+
+# Quy trình dev và tích hợp
+## 1. Dev hằng ngày: chạy local
+- Mỗi người code và test trên máy mình bằng `infra/docker-compose.yaml`. File này dựng NATS (đã có sẵn stream/consumer), PostgreSQL và MinIO (đã có bucket `uploads`/`results`, link public và TTL 24h) giống hệt cấu hình trên cluster, nên code chạy được local thì lên cluster cũng chạy được.
+- Cách chạy:
+  - `cp infra/.env.example infra/.env`
+  - `docker compose -f infra/docker-compose.yaml up -d`: lệnh này tự chạy `nats-setup` và `minio-setup` một lần (cùng script với Job trên cluster) để tạo stream/consumer và bucket. App không tự tạo stream/bucket.
+  - Nếu app báo thiếu stream/bucket (ví dụ sau khi xoá volume) thì chạy lại `docker compose -f infra/docker-compose.yaml run --rm nats-setup` hoặc `minio-setup`. Chạy lại nhiều lần không sao.
+  - Endpoint: NATS `localhost:4222`, PostgreSQL `localhost:5432` (db/user `imgproc`), MinIO `localhost:9000` (console `localhost:9001`). Chi tiết xem `infra/docs/endpoints.md`.
+  - Nếu cổng 5432 trên máy đã bị chiếm thì tắt PostgreSQL đang chạy sẵn hoặc đổi cổng trong một file override riêng. Không sửa file chung.
+- Không cần quyền truy cập lab để dev.
+
+## 2. Tích hợp: chạy trên môi trường dev của cluster
+- Mỗi team giữ một `Dockerfile` chạy được trong folder của mình (`web/Dockerfile`, `engine/Dockerfile`).
+- CI (GitHub Actions, Đạt sẽ set up) tự build và push image lên Docker Hub mỗi khi có commit lên `main` thay đổi `web/` hoặc `engine/`:
+  - `socknot1000kg/imgproc-web`
+  - `socknot1000kg/imgproc-engine`
+  - Tag là commit SHA, kèm tag `main`.
+- Infra (Đạt) giữ phần manifest Kubernetes và deploy các image đó lên namespace `imgproc-dev`. Muốn deploy bản mới thì báo Đạt (sau này có thể tự động).
+- Trong cluster, app kết nối tới `nats:4222`, `postgresql:5432`, `minio:9000`. Thông tin đăng nhập lấy từ Secret do Infra cấp, không hardcode.
+- Web dev public tại `https://imgproc-dev.sock1000kg.io.vn` (`/results/...` là link tải kết quả, `/api` và UI sẽ có khi web được deploy).
+- Khi cần debug code local với NATS/PostgreSQL/MinIO thật của môi trường dev, các service này sẽ được mở qua Tailscale với tên miền dạng `*.internal.sock1000kg.io.vn` (chỉ môi trường dev). Đạt sẽ gửi tên miền cụ thể và mời vào Tailscale.
+- Môi trường prod chỉ dùng cho demo và benchmark, Infra quản lý. Không dùng prod để test.

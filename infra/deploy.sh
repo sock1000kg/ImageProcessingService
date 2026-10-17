@@ -2,8 +2,7 @@
 # Deploy the ImageProcessing tenant to the Lab-sock k3s cluster.
 #
 #   infra/deploy.sh cluster   # KEDA, namespace keda (once per cluster)
-#   infra/deploy.sh dev
-#   infra/deploy.sh prod
+#   infra/deploy.sh app       # namespace imgproc (default if no argument)
 #
 # KUBE_CONTEXT overrides the kubectl context (default: current context).
 set -euo pipefail
@@ -12,11 +11,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'EOF'
-usage: deploy.sh <cluster|dev|prod>
+usage: deploy.sh [cluster|app]
 
   cluster  install KEDA into namespace keda (--server-side, CRDs are large)
-  dev      deploy namespace imgproc-dev
-  prod     deploy namespace imgproc-prod
+  app      deploy namespace imgproc (default)
 EOF
 }
 
@@ -39,22 +37,13 @@ ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-300s}"
 JOB_TIMEOUT="${JOB_TIMEOUT:-300s}"
 APISERVICE_TIMEOUT="${APISERVICE_TIMEOUT:-180s}"
 
-namespace_of() {
-  case "$1" in
-    dev) echo "imgproc-dev" ;;
-    prod) echo "imgproc-prod" ;;
-    *) die "unknown environment: $1" ;;
-  esac
-}
-
 require_sealed_secret() {
-  env_name="$1"
-  sealed="$SCRIPT_DIR/overlays/$env_name/sealed-secret.yaml"
+  sealed="$SCRIPT_DIR/app/sealed-secret.yaml"
   [ -f "$sealed" ] || die "missing $sealed
-run: infra/seal.sh $env_name"
+run: infra/seal.sh"
   if grep -q "PLACEHOLDER" "$sealed"; then
     die "$sealed is still the committed placeholder
-create $SCRIPT_DIR/overlays/$env_name/real-secret.yaml and run: infra/seal.sh $env_name"
+create $SCRIPT_DIR/app/real-secret.yaml and run: infra/seal.sh"
   fi
 }
 
@@ -130,34 +119,29 @@ deploy_cluster() {
   log "cluster components ready"
 }
 
-deploy_env() {
-  env_name="$1"
-  ns="$(namespace_of "$env_name")"
-  require_sealed_secret "$env_name"
+deploy_app() {
+  ns="imgproc"
+  require_sealed_secret
 
   # Job specs are immutable, so the previous run's jobs must go first
   log "removing previous setup jobs in $ns"
   "${KUBECTL[@]}" delete job -n "$ns" -l app.kubernetes.io/part-of=imgproc-setup --ignore-not-found=true
 
-  log "applying $SCRIPT_DIR/overlays/$env_name"
-  kubectl kustomize --enable-helm "$SCRIPT_DIR/overlays/$env_name" |
+  log "applying $SCRIPT_DIR/app"
+  kubectl kustomize --enable-helm "$SCRIPT_DIR/app" |
     "${KUBECTL[@]}" apply -f -
 
   wait_for_workloads "$ns"
   wait_for_setup_jobs "$ns"
-  log "$env_name is ready"
+  log "app ($ns) is ready"
 }
 
 main() {
   command -v kubectl >/dev/null 2>&1 || die "kubectl not found in PATH"
-  [ "$#" -eq 1 ] || {
-    usage >&2
-    exit 1
-  }
-  case "$1" in
+  target="${1:-app}"
+  case "$target" in
     cluster) deploy_cluster ;;
-    dev) deploy_env dev ;;
-    prod) deploy_env prod ;;
+    app) deploy_app ;;
     -h|--help)
       usage
       ;;

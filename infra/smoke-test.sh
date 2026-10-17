@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Smoke-test one ImageProcessing environment on the Lab-sock cluster.
+# Smoke-test ImageProcessing environment on the Lab-sock cluster.
 #
-#   infra/smoke-test.sh dev
-#   infra/smoke-test.sh prod --public    # also checks the Cloudflare hostname
+#   infra/smoke-test.sh
+#   infra/smoke-test.sh --public    # also checks the Cloudflare hostname
 #
 # Prints PASS/FAIL per check and exits non-zero if anything failed.
 set -uo pipefail
@@ -16,11 +16,11 @@ SKIPPED=0
 
 usage() {
   cat <<'EOF'
-usage: smoke-test.sh <dev|prod> [--public]
+usage: smoke-test.sh [--public]
 
   --public  additionally GET the result through the public Cloudflare hostname
 
-Note: in dev, the smoke message may briefly wake a pool via KEDA, and that's harmless.
+Note: the smoke message may briefly wake a pool via KEDA, and that's harmless.
 EOF
 }
 
@@ -54,14 +54,9 @@ if [ -n "$KUBE_CONTEXT" ]; then
   KUBECTL+=(--context "$KUBE_CONTEXT")
 fi
 
-ENV_NAME=""
 PUBLIC=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    dev|prod)
-      ENV_NAME="$1"
-      shift
-      ;;
     --public)
       PUBLIC=1
       shift
@@ -76,22 +71,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-[ -n "$ENV_NAME" ] || usage_die "environment must be dev or prod"
-
-case "$ENV_NAME" in
-  dev)
-    NS="imgproc-dev"
-    HOST="imgproc-dev.sock1000kg.io.vn"
-    ;;
-  prod)
-    NS="imgproc-prod"
-    HOST="imgproc.sock1000kg.io.vn"
-    ;;
-esac
+NS="imgproc"
+HOST="imgproc.sock1000kg.io.vn"
 
 TEST_UUID="$(date +%s)-$$"
 TEST_KEY="smoke-$TEST_UUID/hello.txt"
-TEST_BODY="hello imgproc $ENV_NAME $TEST_UUID"
+TEST_BODY="hello imgproc $TEST_UUID"
 
 POD_OVERRIDES='{"spec":{"nodeSelector":{"kubernetes.io/hostname":"home-server"}}}'
 
@@ -403,7 +388,7 @@ main() {
   command -v kubectl >/dev/null 2>&1 || die "kubectl not found in PATH"
   command -v curl >/dev/null 2>&1 || die "curl not found in PATH"
 
-  echo "== smoke test: $ENV_NAME (namespace $NS, host $HOST)"
+  echo "== smoke test: namespace $NS, host $HOST"
   check_postgres
   check_nats
   check_minio

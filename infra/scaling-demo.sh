@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Demonstration of independent autoscaling of AI and Image worker pools in imgproc-dev.
+# Demonstration of independent autoscaling of AI and Image worker pools in imgproc.
 #
 # Usage:
-#   infra/scaling-demo.sh dev [--ai N] [--image N] [--image-file PATH] [--csv PATH] [--timeout SECONDS]
+#   infra/scaling-demo.sh [--ai N] [--image N] [--image-file PATH] [--csv PATH] [--timeout SECONDS]
 #
 # What "PASS" means:
 #   1. Preflight: ScaledObjects exist and READY; both pools start at 0 replicas.
@@ -19,12 +19,9 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: scaling-demo.sh <dev> [--ai N] [--image N] [--image-file PATH] [--csv PATH] [--timeout SECONDS]
+usage: scaling-demo.sh [--ai N] [--image N] [--image-file PATH] [--csv PATH] [--timeout SECONDS]
 
-Demonstrates independent autoscaling of AI and Image worker pools in imgproc-dev.
-
-Arguments:
-  dev                   Environment name (dev only; worker pools exist in dev)
+Demonstrates independent autoscaling of AI and Image worker pools in imgproc.
 
 Options:
   --ai N                Number of AI jobs to publish (default: 6)
@@ -46,24 +43,6 @@ EOF
 # -----------------------------------------------------------------------------
 # 1. Argument parsing & environment validation
 # -----------------------------------------------------------------------------
-if [ "$#" -eq 0 ]; then
-  usage >&2
-  exit 1
-fi
-
-case "$1" in
-  -h|--help)
-    usage
-    exit 0
-    ;;
-  dev)
-    shift
-    ;;
-  *)
-    echo "scaling-demo.sh: error: environment '$1' not supported; only 'dev' is supported (worker pools exist in dev only)" >&2
-    exit 1
-    ;;
-esac
 
 AI_COUNT=6
 IMAGE_COUNT=15
@@ -115,7 +94,7 @@ done
 # -----------------------------------------------------------------------------
 KUBE_CONTEXT="${KUBE_CONTEXT:-default}"
 KUBECTL=(kubectl --context "$KUBE_CONTEXT")
-NS="imgproc-dev"
+NS="imgproc"
 
 NATS_BOX_IMAGE="natsio/nats-box:0.20.0"
 MC_IMAGE="socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z"

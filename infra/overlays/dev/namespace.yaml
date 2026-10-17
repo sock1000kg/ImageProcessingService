@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: imgproc-dev
-  labels:
-    app.kubernetes.io/part-of: imgproc
-    app.kubernetes.io/instance: imgproc-dev

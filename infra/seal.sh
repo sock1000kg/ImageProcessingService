@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Seal the real (gitignored) secrets of an overlay into a SealedSecret.
+# Seal the real (gitignored) secrets into a SealedSecret.
 #
-#   infra/seal.sh dev
-#   infra/seal.sh prod --cert /path/to/lab-cert.pem
+#   infra/seal.sh
+#   infra/seal.sh --cert /path/to/lab-cert.pem
 #
-# Reads infra/overlays/<env>/real-secret.yaml and writes
-# infra/overlays/<env>/sealed-secret.yaml.
+# Reads infra/app/real-secret.yaml and writes
+# infra/app/sealed-secret.yaml.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'EOF'
-usage: seal.sh <dev|prod> [--cert <path>]
+usage: seal.sh [--cert <path>]
 
   --cert <path>  seal offline against the sealed-secrets controller certificate
                  instead of calling the controller in kube-system
@@ -24,14 +24,9 @@ die() {
   exit 1
 }
 
-ENV_NAME=""
 CERT=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    dev|prod)
-      ENV_NAME="$1"
-      shift
-      ;;
     --cert)
       [ "$#" -ge 2 ] || die "--cert needs a path"
       CERT="$2"
@@ -48,17 +43,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-[ -n "$ENV_NAME" ] || {
-  usage >&2
-  die "environment must be dev or prod"
-}
-
 command -v kubeseal >/dev/null 2>&1 || die "kubeseal not found in PATH (https://github.com/bitnami-labs/sealed-secrets)"
 
-OVERLAY_DIR="$SCRIPT_DIR/overlays/$ENV_NAME"
-REAL_SECRET="$OVERLAY_DIR/real-secret.yaml"
-SEALED_SECRET="$OVERLAY_DIR/sealed-secret.yaml"
-EXAMPLE="$OVERLAY_DIR/real-secret.example.yaml"
+APP_DIR="$SCRIPT_DIR/app"
+REAL_SECRET="$APP_DIR/real-secret.yaml"
+SEALED_SECRET="$APP_DIR/sealed-secret.yaml"
+EXAMPLE="$APP_DIR/real-secret.example.yaml"
 
 [ -f "$REAL_SECRET" ] || die "missing $REAL_SECRET
 copy $EXAMPLE to $REAL_SECRET, fill in the real values, then re-run"

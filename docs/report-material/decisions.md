@@ -171,3 +171,9 @@ Mỗi mục theo format **Vấn đề → Lựa chọn → Quyết định → V
 - **Quyết định:** (b) — Test scaling bằng `infra/scaling-demo.sh` với worker thật; ngưỡng chặn cứng 2560Mi chỉ áp dụng cho platform steady-state (NATS, Postgres, MinIO, KEDA), còn RAM peak 5376Mi của worker được báo cáo riêng.
 - **Vì sao:** Tránh viết thêm code giả không dùng trong sản phẩm; worker chỉ chạy trong dev và scale từ 0 nên không chiếm RAM thường trực; phản ánh đúng hành vi tích hợp end-to-end của hệ thống thật trên phần cứng lab.
 
+## 15. Hợp nhất hai môi trường dev và prod thành một môi trường duy nhất `imgproc`
+- **Vấn đề:** Dự án môn học chạy trên một lab node duy nhất với 12GB RAM. Việc duy trì song song 2 môi trường (`imgproc-dev` và `imgproc-prod`) làm tăng gấp đôi tài nguyên nền tảng và khi burst đồng thời có thể chiếm ~10.7Gi RAM trên node dùng chung, trong khi không mang lại lợi ích thiết thực cho một nhóm làm đồ án.
+- **Lựa chọn:** (a) Giữ 2 môi trường riêng biệt, thu hẹp tài nguyên hơn nữa; (b) Hợp nhất dev và prod thành một môi trường duy nhất `imgproc` dùng cấu hình prod sizing, cả nhóm tích hợp và test trực tiếp trên môi trường này.
+- **Quyết định:** (b) — Gom toàn bộ manifests ứng dụng vào `infra/app` chạy trên namespace `imgproc`, hostname công khai duy nhất `imgproc.sock1000kg.io.vn`. Áp dụng cấu hình prod sizing (MinIO 512Mi, Postgres 384Mi), giữ nguyên các worker pools và KEDA ScaledObjects. Xóa bỏ 2 namespace cũ `imgproc-dev` và `imgproc-prod`.
+- **Vì sao:** Tiết kiệm tài nguyên cho node lab dùng chung, đơn giản hóa quy trình vận hành và kiểm thử E2E; loại bỏ sự phức tạp không cần thiết của cấu hình mạng nội bộ Tailscale.
+

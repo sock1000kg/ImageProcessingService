@@ -1,5 +1,5 @@
-# prod sizing: more disk and larger memory ceilings than base.
-# Helm values are rendered inside base/, so the overlay patches the rendered
+# app sizing: more disk and larger memory ceilings than base.
+# Helm values are rendered inside base/, so the app kustomization patches the rendered
 # objects (kustomize applies these patches after chart inflation).
 apiVersion: apps/v1
 kind: StatefulSet
@@ -22,8 +22,6 @@ spec:
           requests:
             storage: 5Gi
 ---
-# prod takes the upload bursts and the benchmark runs, so MinIO gets the
-# plan's 512Mi ceiling here; base/dev stays at 256Mi
 apiVersion: apps/v1
 kind: Deployment
 metadata:

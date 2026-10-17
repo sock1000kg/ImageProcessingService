@@ -5,8 +5,8 @@ This document outlines the complete plan to deploy the foundational infrastructu
 > **Round 1 – tenant migration (done in code, NOT yet verified on the lab).**
 > `infra/` is now a tenant of the existing **Lab-sock** k3s cluster instead of a
 > standalone kind setup. Layout: `infra/base/{nats,postgresql,minio}`,
-> `infra/overlays/{dev,prod}`, `infra/cluster/keda`, plus `deploy.sh`,
-> `seal.sh`, `smoke-test.sh`, `docker-compose.yaml`.
+> `infra/base/engine-workers`, `infra/app`, `infra/cluster/keda`, plus `deploy.sh`,
+> `seal.sh`, `smoke-test.sh`, `scaling-demo.sh`, `docker-compose.yaml`.
 > The lab provides k3s, node `home-server` (**i5-7200U, 2C/4T, 12GB RAM, HDD**),
 > Traefik Gateway API (`Gateway/traefik-gateway` in ns `traefik`, listener 8000,
 > `allowedRoutes: All`), a token-based `cloudflared` tunnel, the
@@ -14,16 +14,16 @@ This document outlines the complete plan to deploy the foundational infrastructu
 > prom-agent → VictoriaMetrics → Grafana, and StorageClass `local-path`.
 > We only ship project-specific pieces: NATS JetStream, PostgreSQL, MinIO, the
 > KEDA install, HTTPRoutes and the two setup Jobs. We never touch lab apps.
-> * Deploy: `infra/deploy.sh cluster|dev|prod` (`kubectl kustomize --enable-helm | kubectl apply`).
-> * Secrets: `infra/seal.sh dev|prod`; committed `sealed-secret.yaml` is a placeholder until then.
+> * Deploy: `infra/deploy.sh [cluster|app]` (`kubectl kustomize --enable-helm | kubectl apply`).
+> * Secrets: `infra/seal.sh`; committed `sealed-secret.yaml` is a placeholder until then.
 > * Anything below is only marked `[x]` when it actually passed on the lab.
 
 ## Scripts
 
 | Script | What it does | Who runs it |
 |---|---|---|
-| `infra/deploy.sh` | Deploys cluster, dev, or prod overlay with pre/post checks | User (lab) |
-| `infra/seal.sh` | Seals dev or prod secrets using kubeseal | User (lab) / Developer |
+| `infra/deploy.sh` | Deploys cluster (KEDA) or app (`imgproc`) with pre/post checks | User (lab) |
+| `infra/seal.sh` | Seals `infra/app/real-secret.yaml` using kubeseal | User (lab) / Developer |
 | `infra/smoke-test.sh` | End-to-end smoke test of cluster services and routes | User (lab) |
 | `infra/images/build-push.sh` | Builds custom MinIO+mc image and optionally pushes to registry | Maintainer / CI |
 | `infra/verify-render.sh` | Verifies rendered manifests, resource limits, and budgets | Coder / Reviewer / CI |
@@ -48,15 +48,15 @@ This document outlines the complete plan to deploy the foundational infrastructu
         - [x] Deploy PostgreSQL via Helm/Kustomize to serve as the application state backend.
         - [x] Deploy MinIO for object storage (buckets: `uploads` and `results`).
         - [x] Configure the MinIO `results` bucket for public read-only access.
-        - [x] Set up an HTTPRoute `minio-results` on the lab's `traefik-gateway` (ns `traefik`) routing `/results/` directly to MinIO `minio:9000` without path rewrite (Same-Origin Routing). Public hostnames (`imgproc-dev.sock1000kg.io.vn`, `imgproc.sock1000kg.io.vn`) are configured by the user in the Cloudflare dashboard pointing at `http://traefik.traefik.svc.cluster.local:80`.
+        - [x] Set up an HTTPRoute `minio-results` on the lab's `traefik-gateway` (ns `traefik`) routing `/results/` directly to MinIO `minio:9000` without path rewrite (Same-Origin Routing). Public hostname (`imgproc.sock1000kg.io.vn`) is configured by the user in the Cloudflare dashboard pointing at `http://traefik.traefik.svc.cluster.local:80`.
         - [x] Configure MinIO lifecycle policies (TTL) to automatically delete objects in `uploads` and `results` sau 24 giờ (MVP data deletion).
 *   **Verification:**
         - [ ] Verify PostgreSQL connectivity from a temporary client pod.
         - [ ] Upload a test image to the `results` bucket and verify it is publicly accessible via the `/results/...` ingress route.
         - [ ] Verify the TTL policy is applied to the buckets.
 
-## Milestone 3: Engine Worker Deployments & Resource Limits (Dev)
-**Goal:** Deploy engine worker Deployments (`ai-worker`, `image-worker`) in dev to validate the message consumption patterns and enforce the constrained hardware limits (**2C/4T i5-7200U, 12GB RAM, HDD** node, shared with the rest of the lab; platform services dev + prod + KEDA memory limits are capped at ~2.5Gi).
+## Milestone 3: Engine Worker Deployments & Resource Limits
+**Goal:** Deploy engine worker Deployments (`ai-worker`, `image-worker`) to validate the message consumption patterns and enforce the constrained hardware limits (**2C/4T i5-7200U, 12GB RAM, HDD** node, shared with the rest of the lab; platform services app + KEDA steady-state memory limits are capped at ~2.5Gi).
 *   **Tasks:**
         - [x] Configure engine worker manifests (`infra/base/engine-workers/`) using the real engine image `socknot1000kg/imgproc-engine:dev`. *(code only, not yet run on the lab)*
         - [x] Deploy an `ai-worker` Deployment consuming from `ai-workers` on `AI_JOBS` (`jobs.ai`). *(code only, not yet run on the lab)*
@@ -89,10 +89,10 @@ This document outlines the complete plan to deploy the foundational infrastructu
         - [ ] The Engine team can connect to NATS and MinIO, consume jobs, and publish events.
 
 ## Operational notes (Round 1)
-* Namespaces: `imgproc-dev`, `imgproc-prod`; KEDA lives in `keda` and is installed once.
-* Every Deployment/StatefulSet/Job is pinned with `nodeSelector: kubernetes.io/hostname: home-server` and has an explicit memory limit. `infra/verify-render.sh` renders all three overlays and prints both totals: steady-state (setup Jobs excluded — the budget gate, currently **2560Mi**) and including the transient setup Jobs (**2816Mi**, informational only). The gate is the steady-state total, which must stay ≤ ~2.5Gi.
+* Namespace: `imgproc`; KEDA lives in `keda` and is installed once.
+* Every Deployment/StatefulSet/Job is pinned with `nodeSelector: kubernetes.io/hostname: home-server` and has an explicit memory limit. `infra/verify-render.sh` renders `app` and `cluster/keda` overlays and prints both totals: steady-state (setup Jobs excluded — the budget gate, currently **1696Mi**, capped at **2560Mi**) and including the transient setup Jobs (**1888Mi**, informational only). The gate is the steady-state total, which must stay ≤ ~2.5Gi.
 * `MINIO_PROMETHEUS_AUTH_TYPE=public` is emitted by the MinIO chart via `metrics.serviceMonitor.public: true` — never add it again under `environment:` in `values.yaml`, a duplicate env key breaks client-side re-apply. `verify-render.sh` fails on duplicate env names.
-* The MinIO chart defaults to a **16Gi** memory request — always keep the `resources` override in `infra/base/minio/values.yaml`. Memory limit: **dev 256Mi (base), prod 512Mi** (patched in `infra/overlays/prod/patch-prod-sizing.yaml`).
+* The MinIO chart defaults to a **16Gi** memory request — always keep the `resources` override in `infra/base/minio/values.yaml`. Memory limit: **MinIO 512Mi** (patched in `infra/app/patch-sizing.yaml`).
 * Bucket setup: anonymous policy is **GetObject only** (no ListBucket) and lifecycle is imported wholesale with `mc ilm import`, so re-running the Job is safe.
 * The setup scripts (`infra/base/nats/setup-streams.sh`, `infra/base/minio/setup-buckets.sh`) are shared verbatim with `infra/docker-compose.yaml`.
 * `kubectl run ... --command -- /bin/sh -c <script> sh <arg>`: `--command` is a boolean flag and the trailing `sh` becomes `$0`, so the real argument must come after it.
@@ -113,10 +113,10 @@ This document outlines the complete plan to deploy the foundational infrastructu
   * Postgres: the chart's own `volumePermissions.enabled: true` (`bitnamilegacy/os-shell:12-debian-12-r51`, pinned by digest — `bitnami/os-shell` only has a rolling `latest`), plus `infra/base/postgresql/patch-volume-permissions.yaml` to add `drop: ALL` + `CHOWN`/`FOWNER`, since the chart would otherwise give the init container the full default capability set (including `DAC_OVERRIDE`). `FOWNER` is needed because the chart's `chmod 700 .../data` runs *after* the chown.
   * NATS runs as root, which bypasses ACLs, so it needs no init container.
 * `verify-render.sh` enforces this: any PVC-mounted workload whose main container is non-root must have an init container that mounts the same volume, runs as uid 0 and has `CHOWN`. Init containers also need memory limits, and are excluded from the steady-state budget like setup Jobs.
-* If Postgres still fails after this change, the earlier crash likely left a half-initialised data dir: delete PVC `data-postgresql-0` **in `imgproc-dev` only** (dev holds no data yet) and redeploy.
+* If Postgres still fails after this change, the earlier crash likely left a half-initialised data dir: delete PVC `data-postgresql-0` **in `imgproc`** (holds no persistent data yet) and redeploy.
 
 ## Operational notes (Task 2, engine workers)
-* **Dev only:** Engine worker Deployments (`ai-worker`, `image-worker`) are included strictly in `imgproc-dev` via `infra/overlays/dev/kustomization.yaml` (`../../base/engine-workers`). `imgproc-prod` is untouched and contains no worker Deployments.
+* **Worker workloads:** Engine worker Deployments (`ai-worker`, `image-worker`) are included in `infra/app` via `infra/app/kustomization.yaml` (`../base/engine-workers`).
 * **Temporary `:dev` tag:** Deployments use `socknot1000kg/imgproc-engine:dev` with `imagePullPolicy: Always` as a temporary measure until CI publishes immutable digest/SHA tags.
 * **Worker label and steady-state budget:** Worker Deployments carry label `app.kubernetes.io/component: worker` and are excluded from the platform steady-state budget (which remains at **2560Mi**). Their sizing (AI: 1536Mi limit; Image: 768Mi limit) is reported informationally by `verify-render.sh`.
 * **MinIO credentials:** Workers mount MinIO credentials from the existing `imgproc-minio` Secret (`rootUser`/`rootPassword`). Root credentials are used temporarily for dev; a scoped MinIO service account user is a future improvement.
@@ -125,5 +125,6 @@ This document outlines the complete plan to deploy the foundational infrastructu
 ## Operational notes (Task 3, KEDA ScaledObjects)
 * **Replicas owned by KEDA:** `ai-worker` and `image-worker` Deployments omit `replicas` so `kubectl apply` does not fight the KEDA HPA.
 * **Pool thresholds and peak RAM:** `ai-worker` scales with `lagThreshold: "1"` (1 heavy inference job per pod) up to 2 replicas (peak 3072Mi limit); `image-worker` scales with `lagThreshold: "5"` up to 3 replicas (peak 2304Mi limit). Total peak worker memory is **5376Mi**.
-* **Dev-only monitoring endpoint:** Trigger `natsServerMonitoringEndpoint: nats.imgproc-dev.svc.cluster.local:8222` explicitly targets the dev namespace because workers are dev-only.
+* **Monitoring endpoint:** Trigger `natsServerMonitoringEndpoint: nats.imgproc.svc.cluster.local:8222` targets the `imgproc` namespace.
+
 

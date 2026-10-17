@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rendered-manifest checks for dev, prod, and keda overlays.
+# Rendered-manifest checks for app and keda overlays.
 #   bash infra/verify-render.sh
 set -uo pipefail
 
@@ -30,6 +30,38 @@ render() {
     cat "$WORK/err" >&2
     return 1
   fi
+}
+
+# Rule 1.1: App namespace checks
+check_app_namespace() {
+  python3 - "$1" <<'APPNS'
+import sys, yaml
+
+CLUSTER_SCOPED = {
+    "Namespace", "CustomResourceDefinition", "ClusterRole", "ClusterRoleBinding",
+    "APIService", "ValidatingWebhookConfiguration", "MutatingWebhookConfiguration",
+    "PriorityClass", "StorageClass",
+}
+problems = []
+for doc in yaml.safe_load_all(open(sys.argv[1])):
+    if not doc:
+        continue
+    kind = doc.get("kind")
+    md = doc.get("metadata", {})
+    name = md.get("name")
+    where = f"{kind}/{name}"
+    if kind == "Namespace":
+        if name != "imgproc":
+            problems.append(f"{where}: Namespace name is {name!r}, expected 'imgproc'")
+    elif kind not in CLUSTER_SCOPED:
+        ns = md.get("namespace")
+        if ns != "imgproc":
+            problems.append(f"{where}: namespace is {ns!r}, expected 'imgproc'")
+
+for p in problems:
+    print("PROBLEM:", p)
+sys.exit(1 if problems else 0)
+APPNS
 }
 
 # Rules 2 & 3: Workloads pinned to home-server with memory limits, platform steady-state memory calculation
@@ -65,7 +97,7 @@ for doc in yaml.safe_load_all(open(sys.argv[1])):
             val = int(lim[:-2]) if unit in ("Mi", "Gi") else int(round(float(lim.rstrip("m")) / 1000))
             if unit == "Gi":
                 val *= 1024
-            # Worker pools are dev-only and reported separately from platform services
+            # Worker pools are reported separately from platform services
             if not is_worker:
                 total += val
                 # setup Jobs are one-shot (ttlSecondsAfterFinished: 600) and init
@@ -268,46 +300,32 @@ sys.exit(1 if problems else 0)
 DUPENV
 }
 
-# Rule 9: Workers: dev only, contract §4 stream/consumer pair, KEDA ScaledObjects
+# Rule 9: Workers: contract §4 stream/consumer pair, KEDA ScaledObjects
 check_workers() {
-  local dev_file="$1"
-  local prod_file="$2"
-  python3 - "$dev_file" "$prod_file" <<'WORKERS'
+  local app_file="$1"
+  python3 - "$app_file" <<'WORKERS'
 import sys, yaml
 
-dev_path, prod_path = sys.argv[1], sys.argv[2]
+app_path = sys.argv[1]
 problems = []
 
-# 1. Assert no worker workloads or ScaledObjects render in prod
-for doc in yaml.safe_load_all(open(prod_path)):
-    if not doc:
-        continue
-    kind = doc.get("kind")
-    md = doc.get("metadata", {}) or {}
-    name = md.get("name", "")
-    labels = md.get("labels", {}) or {}
-    if kind == "ScaledObject":
-        problems.append(f"prod: ScaledObject/{name} rendered in prod (ScaledObjects must only render in dev)")
-    elif labels.get("app.kubernetes.io/component") == "worker" or name in ("ai-worker", "image-worker"):
-        problems.append(f"prod: {kind}/{name} rendered in prod (workers must only render in dev)")
-
-# 2. Collect ScaledObjects in dev
-dev_docs = list(yaml.safe_load_all(open(dev_path)))
+# Collect ScaledObjects in app
+app_docs = list(yaml.safe_load_all(open(app_path)))
 scaled_objects = {}  # target_name -> list of ScaledObject docs
-for doc in dev_docs:
+for doc in app_docs:
     if not doc:
         continue
     if doc.get("kind") == "ScaledObject":
         target = (doc.get("spec") or {}).get("scaleTargetRef", {}).get("name")
         scaled_objects.setdefault(target, []).append(doc)
 
-# 3. Assert workers in dev follow contract §4 and KEDA ScaledObject assertions
+# Assert workers in app follow contract §4 and KEDA ScaledObject assertions
 VALID_PAIRS = {("AI_JOBS", "ai-workers"), ("IMAGE_JOBS", "image-workers")}
 expected_workers = {"ai-worker", "image-worker"}
 found_workers = set()
 workers = {}
 
-for doc in dev_docs:
+for doc in app_docs:
     if not doc or doc.get("kind") != "Deployment":
         continue
     md = doc.get("metadata", {}) or {}
@@ -315,7 +333,7 @@ for doc in dev_docs:
     labels = md.get("labels", {}) or {}
     if labels.get("app.kubernetes.io/component") != "worker":
         if name in expected_workers:
-            problems.append(f"dev: Deployment/{name} is missing 'app.kubernetes.io/component: worker' label")
+            problems.append(f"app: Deployment/{name} is missing 'app.kubernetes.io/component: worker' label")
         continue
 
     found_workers.add(name)
@@ -323,12 +341,12 @@ for doc in dev_docs:
 
     # Worker Deployments must have no replicas field
     if "replicas" in spec:
-        problems.append(f"dev: Deployment/{name} has explicit 'replicas' field (replicas must be managed by KEDA)")
+        problems.append(f"app: Deployment/{name} has explicit 'replicas' field (replicas must be managed by KEDA)")
 
     tpl_spec = (spec.get("template", {}) or {}).get("spec", {}) or {}
     containers = tpl_spec.get("containers", []) or []
     if not containers:
-        problems.append(f"dev: Deployment/{name} has no containers")
+        problems.append(f"app: Deployment/{name} has no containers")
         continue
 
     main_c = containers[0]
@@ -349,14 +367,14 @@ for doc in dev_docs:
 
     if (stream_val, consumer_val) not in VALID_PAIRS:
         problems.append(
-            f"dev: Deployment/{name} has invalid NATS_STREAM_NAME/NATS_CONSUMER_NAME pair: "
+            f"app: Deployment/{name} has invalid NATS_STREAM_NAME/NATS_CONSUMER_NAME pair: "
             f"({stream_val!r}, {consumer_val!r}) not in contract §4 {sorted(VALID_PAIRS)}"
         )
 
     # ScaledObject targeting this Deployment
     target_sos = scaled_objects.get(name, [])
     if len(target_sos) != 1:
-        problems.append(f"dev: Deployment/{name} has {len(target_sos)} ScaledObjects targeting it (expected exactly 1)")
+        problems.append(f"app: Deployment/{name} has {len(target_sos)} ScaledObjects targeting it (expected exactly 1)")
         continue
 
     so = target_sos[0]
@@ -364,24 +382,24 @@ for doc in dev_docs:
     so_spec = so.get("spec", {}) or {}
     min_replicas = so_spec.get("minReplicaCount")
     if min_replicas != 0:
-        problems.append(f"dev: ScaledObject/{so_name} minReplicaCount is {min_replicas!r} (expected 0)")
+        problems.append(f"app: ScaledObject/{so_name} minReplicaCount is {min_replicas!r} (expected 0)")
 
     max_replicas = so_spec.get("maxReplicaCount")
     if not isinstance(max_replicas, int) or max_replicas <= 0:
-        problems.append(f"dev: ScaledObject/{so_name} maxReplicaCount is {max_replicas!r} (expected positive int)")
+        problems.append(f"app: ScaledObject/{so_name} maxReplicaCount is {max_replicas!r} (expected positive int)")
         max_replicas = 1
 
     triggers = so_spec.get("triggers", []) or []
     nats_triggers = [t for t in triggers if t.get("type") == "nats-jetstream"]
     if not nats_triggers:
-        problems.append(f"dev: ScaledObject/{so_name} has no nats-jetstream trigger")
+        problems.append(f"app: ScaledObject/{so_name} has no nats-jetstream trigger")
     else:
         t_meta = nats_triggers[0].get("metadata", {}) or {}
         t_stream = t_meta.get("stream")
         t_consumer = t_meta.get("consumer")
         if t_stream != stream_val or t_consumer != consumer_val:
             problems.append(
-                f"dev: ScaledObject/{so_name} trigger stream/consumer ({t_stream!r}, {t_consumer!r}) "
+                f"app: ScaledObject/{so_name} trigger stream/consumer ({t_stream!r}, {t_consumer!r}) "
                 f"does not match Deployment/{name} ({stream_val!r}, {consumer_val!r})"
             )
 
@@ -390,12 +408,12 @@ for doc in dev_docs:
 
 missing = expected_workers - found_workers
 if missing:
-    problems.append(f"dev: missing expected worker deployments: {sorted(missing)}")
+    problems.append(f"app: missing expected worker deployments: {sorted(missing)}")
 
 # ScaledObjects targeting non-worker or unknown workloads
 for target, sos in scaled_objects.items():
     if target not in found_workers:
-        problems.append(f"dev: ScaledObject targets non-worker or unknown Deployment {target!r}")
+        problems.append(f"app: ScaledObject targets non-worker or unknown Deployment {target!r}")
 
 for p in problems:
     print("PROBLEM:", p)
@@ -412,18 +430,18 @@ WORKERS
 MEM_LIMIT_TOTAL_MI=0
 MEM_STEADY_TOTAL_MI=0
 
-DEV_OUT=""
-PROD_OUT=""
+ns="imgproc"
+out="$(render "app")" || {
+  fail "kustomize build app"
+}
+if [ -n "${out:-}" ]; then
+  pass "kustomize build app"
 
-for env in dev prod; do
-  ns="imgproc-$env"
-  out="$(render "overlays/$env")" || {
-    fail "kustomize build overlays/$env"
-    continue
-  }
-  pass "kustomize build overlays/$env"
-  [ "$env" = "dev" ] && DEV_OUT="$out"
-  [ "$env" = "prod" ] && PROD_OUT="$out"
+  if check_app_namespace "$out"; then
+    pass "$ns: all app-level resources land in namespace imgproc, nothing in default"
+  else
+    fail "$ns: namespace checks failed"
+  fi
 
   if result="$(check_workloads "$out")"; then
     pass "$ns: every Deployment/StatefulSet/Job pinned to home-server with memory limits"
@@ -435,7 +453,7 @@ for env in dev prod; do
   steady="$(echo "$result" | awk '/STEADY_MI/ {print $2}')"
   MEM_LIMIT_TOTAL_MI=$((MEM_LIMIT_TOTAL_MI + total))
   MEM_STEADY_TOTAL_MI=$((MEM_STEADY_TOTAL_MI + steady))
-  echo "     $ns memory limits total: ${total}Mi (steady-state without setup Jobs: ${steady}Mi)"
+  echo "     $ns platform memory limits total: ${total}Mi (steady-state without setup Jobs: ${steady}Mi)"
 
   if check_pullable_images "$out"; then
     pass "$ns: no unpullable MinIO images"
@@ -460,20 +478,18 @@ for env in dev prod; do
   else
     fail "$ns: duplicate env names found"
   fi
-done
 
-if [ -n "$DEV_OUT" ] && [ -n "$PROD_OUT" ]; then
   echo
-  echo "== Worker Deployments (dev only, contract §4)"
-  if worker_result="$(check_workers "$DEV_OUT" "$PROD_OUT")"; then
-    pass "workers render in dev only with valid contract stream/consumer pairs"
+  echo "== Worker Deployments (contract §4)"
+  if worker_result="$(check_workers "$out")"; then
+    pass "workers render with valid contract stream/consumer pairs and matching ScaledObjects"
   else
     echo "$worker_result" | grep '^PROBLEM:' | sed "s/^/FAIL: /"
     FAILURES=$((FAILURES + 1))
   fi
   echo "$worker_result" | grep '^WORKER:' | sed 's/^WORKER: /     /'
   worker_total="$(echo "$worker_result" | awk '/TOTAL_WORKER_MI/ {print $2}')"
-  echo "     Total worker peak memory limits (informational, dev only): ${worker_total:-0}Mi"
+  echo "     Total worker peak memory limits: ${worker_total:-0}Mi"
 fi
 
 keda_out="$(render cluster/keda)" || fail "kustomize build cluster/keda"
@@ -510,8 +526,8 @@ if [ -n "${keda_out:-}" ]; then
 fi
 
 echo
-echo "TOTAL memory limits incl. setup Jobs (dev + prod + keda): ${MEM_LIMIT_TOTAL_MI}Mi"
-echo "TOTAL memory limits steady-state (setup Jobs excluded):   ${MEM_STEADY_TOTAL_MI}Mi"
+echo "TOTAL platform memory limits incl. setup Jobs (app + keda): ${MEM_LIMIT_TOTAL_MI}Mi"
+echo "TOTAL platform memory limits steady-state (setup Jobs excluded):   ${MEM_STEADY_TOTAL_MI}Mi"
 if [ "$MEM_STEADY_TOTAL_MI" -le 2560 ]; then
   pass "steady-state memory budget within ~2.5Gi"
 else

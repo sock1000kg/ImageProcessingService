@@ -27,14 +27,12 @@ PostgreSQL: postgres:18.1-alpine
   - Nếu cổng 5432 trên máy đã bị chiếm thì tắt PostgreSQL đang chạy sẵn hoặc đổi cổng trong một file override riêng. Không sửa file chung.
 - Không cần quyền truy cập lab để dev.
 
-## 2. Tích hợp: chạy trên môi trường dev của cluster
+## 2. Tích hợp: chạy trên môi trường chung của cluster
 - Mỗi team giữ một `Dockerfile` chạy được trong folder của mình (`web/Dockerfile`, `engine/Dockerfile`).
 - CI (GitHub Actions, Đạt sẽ set up) tự build và push image lên Docker Hub mỗi khi có commit lên `main` thay đổi `web/` hoặc `engine/`:
   - `socknot1000kg/imgproc-web`
   - `socknot1000kg/imgproc-engine`
   - Tag là commit SHA, kèm tag `main`.
-- Infra (Đạt) giữ phần manifest Kubernetes và deploy các image đó lên namespace `imgproc-dev`. Muốn deploy bản mới thì báo Đạt (sau này có thể tự động).
+- Infra (Đạt) giữ phần manifest Kubernetes và deploy các image đó lên namespace `imgproc`. Muốn deploy bản mới thì báo Đạt (sau này có thể tự động). Cả nhóm test và tích hợp trực tiếp trên môi trường này, việc deploy được phối hợp với Infra.
 - Trong cluster, app kết nối tới `nats:4222`, `postgresql:5432`, `minio:9000`. Thông tin đăng nhập lấy từ Secret do Infra cấp, không hardcode.
-- Web dev public tại `https://imgproc-dev.sock1000kg.io.vn` (`/results/...` là link tải kết quả, `/api` và UI sẽ có khi web được deploy).
-- Khi cần debug code local với NATS/PostgreSQL/MinIO thật của môi trường dev, các service này sẽ được mở qua Tailscale với tên miền dạng `*.internal.sock1000kg.io.vn` (chỉ môi trường dev). Đạt sẽ gửi tên miền cụ thể và mời vào Tailscale.
-- Môi trường prod chỉ dùng cho demo và benchmark, Infra quản lý. Không dùng prod để test.
+- Web public tại `https://imgproc.sock1000kg.io.vn` (`/results/...` là link tải kết quả, `/api` và UI sẽ có khi web được deploy).

@@ -34,7 +34,7 @@ Lỗ hổng cần xử lý trong Phase 1:
 
 # Phase 1: PoC tối thiểu (17/10 → 31/10)
 
-**Định nghĩa hoàn thành Phase 1:** Web chạy trong `imgproc-dev` trên lab, truy cập public tại `https://imgproc-dev.sock1000kg.io.vn`.
+**Định nghĩa hoàn thành Phase 1:** Web chạy trong `imgproc` trên lab, truy cập public tại `https://imgproc.sock1000kg.io.vn`.
 Người dùng upload ảnh → worker **thật** của engine xử lý → xem và tải được kết quả, với **1 loại job AI + 1 loại job xử lý ảnh thường**.
 
 ## Milestone 1: Căn chỉnh với Infra và Contract (17/10 → 20/10)
@@ -64,22 +64,22 @@ Người dùng upload ảnh → worker **thật** của engine xử lý → xem 
     - [ ] `npm run test:e2e` pass cho cả 2 loại job và cho kịch bản `FAILED`.
     - [ ] Tắt backend giữa chừng rồi bật lại → event vẫn được xử lý (durable consumer), UI hiển thị đúng sau khi refresh.
 
-## Milestone 3: Đóng gói và deploy lên `imgproc-dev` (24/10 → 28/10)
-**Mục tiêu:** Image Web chạy trên lab, truy cập được qua hostname dev.
+## Milestone 3: Đóng gói và deploy lên `imgproc` (24/10 → 28/10)
+**Mục tiêu:** Image Web chạy trên lab, truy cập được qua hostname public.
 * **Tasks:**
     - [ ] `web/Dockerfile` multi-stage: build backend + frontend, image runtime chạy non-root, chỉ chứa `node_modules` production. Backend serve `frontend/dist` bằng `express.static` + fallback SPA về `index.html`. (G4)
     - [ ] Endpoint `/health` (liveness) và `/ready` (readiness: PG, NATS, MinIO đều kết nối được).
     - [ ] Graceful shutdown: dừng nhận request, drain NATS, đóng pool PG khi nhận `SIGTERM`.
     - [ ] Toàn bộ cấu hình qua env, không hardcode. Liệt kê đầy đủ biến env trong `web/README.md` cho Infra.
-    - [ ] **[Cần Infra]** Đạt: CI build/push `socknot1000kg/imgproc-web` (tag SHA + `main`). Tạo Deployment + Service `web` trong `imgproc-dev`. Tạo Secret cho web (`DATABASE_URL` user `imgproc`, MinIO credentials — **nên là user MinIO riêng** chỉ có quyền `uploads` RW + `results` RW, không dùng root). HTTPRoute `/api` và `/` → `web`, giữ nguyên `/results/` → MinIO. Đặt memory limit cho web trong budget (gợi ý: 256Mi, Web đo thực tế rồi báo lại).
+    - [ ] **[Cần Infra]** Đạt: CI build/push `socknot1000kg/imgproc-web` (tag SHA + `main`). Tạo Deployment + Service `web` trong `imgproc`. Tạo Secret cho web (`DATABASE_URL` user `imgproc`, MinIO credentials — **nên là user MinIO riêng** chỉ có quyền `uploads` RW + `results` RW, không dùng root). HTTPRoute `/api` và `/` → `web`, giữ nguyên `/results/` → MinIO. Đặt memory limit cho web trong budget (gợi ý: 256Mi, Web đo thực tế rồi báo lại).
     - [ ] Đặt `UPLOAD_MAX_BYTES` khớp giới hạn body của Traefik/Cloudflare (Cloudflare free giới hạn 100MB). **[Cần Infra]**: xác nhận giới hạn trên Gateway.
 * **Kiểm chứng:**
     - [ ] `docker build` + chạy container với compose local → `npm run test:e2e` pass trên image.
-    - [ ] Trên lab: `https://imgproc-dev.sock1000kg.io.vn` mở được UI, `/api/system/stats` trả JSON, pod `web` Ready.
+    - [ ] Trên lab: `https://imgproc.sock1000kg.io.vn` mở được UI, `/api/system/stats` trả JSON, pod `web` Ready.
     - [ ] Upload trên lab + mock worker chạy tay (`kubectl run` hoặc Job tạm, nhờ Đạt) → kết quả xem được qua `/results/...`.
 
 ## Milestone 4: Tích hợp engine thật và demo (28/10 → 31/10)
-**Mục tiêu:** Luồng E2E với worker thật trên `imgproc-dev`, sẵn sàng demo trên lớp.
+**Mục tiêu:** Luồng E2E với worker thật trên `imgproc`, sẵn sàng demo trên lớp.
 * **Tasks:**
     - [ ] **[Cần Engine]** Chạy E2E với worker thật cho từng loại job Phase 1. Ghi lại mọi chỗ lệch contract (tên field, `resultSummary`, `error.code`) và sửa ở phía chịu trách nhiệm theo contract mục 6, không vá ở Web nếu lỗi nằm ở Engine.
     - [ ] Hiển thị `resultSummary` dạng dễ đọc: danh sách label + confidence cho `object-detection`, kích thước/dung lượng trước và sau cho `image-convert`.
@@ -139,7 +139,7 @@ Hướng tham khảo: các dịch vụ media trên cloud (Cloudinary, AWS Rekogn
     - [ ] **[Should]** Công cụ benchmark: nâng `burst.ts` thành CLI có tham số (số job, tỉ lệ AI/ảnh, tốc độ gửi). Xuất CSV thời gian chờ (`QUEUED` → `PROCESSING`) và thời gian xử lý mỗi job. **[Cần Infra]**: thống nhất kịch bản và chỉ số để Đạt so sánh các chiến thuật scaling.
     - [ ] **[Should]** Dashboard hệ thống: số job theo trạng thái, độ sâu hàng đợi mỗi pool, throughput, số worker đang chạy, để minh hoạ KEDA scale. **[Cần Infra]**: backend đọc lag qua NATS monitoring `nats:8222/jsz`. Số replica worker cần quyền đọc Kubernetes API (ServiceAccount + Role `get/list` deployments trong namespace), hoặc Infra cung cấp nguồn khác (VictoriaMetrics).
     - [ ] **[Could]** API key cho truy cập bằng chương trình + trang tài liệu OpenAPI/Swagger.
-* **Kiểm chứng:** batch 50 ảnh × 1 preset hoàn tất trên `imgproc-dev`, dashboard thấy queue tăng rồi về 0 và worker scale tương ứng. CSV benchmark được Infra dùng trong báo cáo.
+* **Kiểm chứng:** batch 50 ảnh × 1 preset hoàn tất trên `imgproc`, dashboard thấy queue tăng rồi về 0 và worker scale tương ứng. CSV benchmark được Infra dùng trong báo cáo.
 
 ---
 

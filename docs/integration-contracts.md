@@ -481,8 +481,8 @@ spec:
   triggers:
     - type: nats-jetstream
       metadata:
-        # Dev-only endpoint by design (engine worker pools are dev-only)
-        natsServerMonitoringEndpoint: "nats.imgproc-dev.svc.cluster.local:8222"
+        # Endpoint matches the single app environment (imgproc)
+        natsServerMonitoringEndpoint: "nats.imgproc.svc.cluster.local:8222"
         account: "$G"
         stream: "AI_JOBS"
         consumer: "ai-workers"
@@ -504,8 +504,8 @@ spec:
   triggers:
     - type: nats-jetstream
       metadata:
-        # Dev-only endpoint by design (engine worker pools are dev-only)
-        natsServerMonitoringEndpoint: "nats.imgproc-dev.svc.cluster.local:8222"
+        # Endpoint matches the single app environment (imgproc)
+        natsServerMonitoringEndpoint: "nats.imgproc.svc.cluster.local:8222"
         account: "$G"
         stream: "IMAGE_JOBS"
         consumer: "image-workers"

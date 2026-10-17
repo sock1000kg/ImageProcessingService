@@ -8,26 +8,26 @@ stream/consumer/bucket topology and who provisions it are defined in
 `docs/phân-công-và-guideline.md` §1. If this file disagrees with `docs/`, `docs/`
 wins: change `docs/` first (with the team), then this file.
 
-## Environments
+## Environment
 
-| | dev | prod |
-|---|---|---|
-| namespace | `imgproc-dev` | `imgproc-prod` |
-| public hostname | `imgproc-dev.sock1000kg.io.vn` | `imgproc.sock1000kg.io.vn` |
-| overlay | `infra/overlays/dev` | `infra/overlays/prod` |
-| KEDA | namespace `keda` (shared, `infra/cluster/keda`) | same |
+| | value |
+|---|---|
+| namespace | `imgproc` |
+| public hostname | `imgproc.sock1000kg.io.vn` |
+| kustomization | `infra/app` |
+| KEDA | namespace `keda` (`infra/cluster/keda`) |
 
-Both run on the single lab node `home-server` (i5-7200U, 2C/4T, 12GB, HDD).
+Runs on the single lab node `home-server` (i5-7200U, 2C/4T, 12GB, HDD).
 
 ## In-cluster service DNS
 
-| service | dev | prod |
-|---|---|---|
-| NATS client | `nats.imgproc-dev.svc:4222` | `nats.imgproc-prod.svc:4222` |
-| NATS monitoring | `nats.imgproc-dev.svc:8222` | `nats.imgproc-prod.svc:8222` |
-| PostgreSQL | `postgresql.imgproc-dev.svc:5432` | `postgresql.imgproc-prod.svc:5432` |
-| MinIO API | `minio.imgproc-dev.svc:9000` | `minio.imgproc-prod.svc:9000` |
-| MinIO console | `minio-console.imgproc-dev.svc:9001` | `minio-console.imgproc-prod.svc:9001` |
+| service | endpoint |
+|---|---|
+| NATS client | `nats.imgproc.svc:4222` |
+| NATS monitoring | `nats.imgproc.svc:8222` |
+| PostgreSQL | `postgresql.imgproc.svc:5432` |
+| MinIO API | `minio.imgproc.svc:9000` |
+| MinIO console | `minio-console.imgproc.svc:9001` |
 
 - PostgreSQL: database `imgproc`, user `imgproc`, port `5432`.
 - MinIO buckets: `uploads` (private), `results` (anonymous **GetObject only**).
@@ -39,8 +39,8 @@ Both run on the single lab node `home-server` (i5-7200U, 2C/4T, 12GB, HDD).
 | `imgproc-minio` | `rootUser`, `rootPassword` | MinIO chart (`existingSecret`), MinIO setup Job |
 | `imgproc-postgres` | `postgres-password` (admin `postgres`), `password` (user `imgproc`) | PostgreSQL chart (`auth.existingSecret`) |
 
-Create `infra/overlays/<env>/real-secret.yaml` from `real-secret.example.yaml`
-(gitignored), then run `infra/seal.sh <env>` to produce `sealed-secret.yaml`.
+Create `infra/app/real-secret.yaml` from `real-secret.example.yaml`
+(gitignored), then run `infra/seal.sh` to produce `sealed-secret.yaml`.
 The committed `sealed-secret.yaml` is a **placeholder**; `deploy.sh` refuses to
 run until it has been sealed.
 
@@ -52,7 +52,7 @@ Finished images are served same-origin by Traefik straight from MinIO:
 https://<host>/results/<object-key>
 ```
 
-- HTTPRoute `minio-results` in each namespace, `parentRefs: traefik-gateway`
+- HTTPRoute `minio-results` in `imgproc`, `parentRefs: traefik-gateway`
   (namespace `traefik`), `PathPrefix /results/`, backend `minio:9000`, **no path
   rewrite** — `/results/<key>` maps to bucket `results`, key `<key>`.
 - The route matches **GET and HEAD only**. Any other method is refused at the Gateway, so a
@@ -60,7 +60,7 @@ https://<host>/results/<object-key>
 - Anonymous `GET` on a known key works; anonymous listing of the bucket is
   denied (403/404). Keys are unguessable UUID paths, which is the access model.
 - Cloudflare: the user adds a Tunnel public hostname
-  (`imgproc-dev.sock1000kg.io.vn`, `imgproc.sock1000kg.io.vn`) pointing at
+  (`imgproc.sock1000kg.io.vn`) pointing at
   `http://traefik.traefik.svc.cluster.local:80` in the CF dashboard. Nothing in
   this repo creates it.
 
@@ -84,8 +84,7 @@ All consumers use explicit ack. Provisioned idempotently by
 triggers:
   - type: nats-jetstream
     metadata:
-      # Dev-only endpoint by design (engine worker pools are dev-only)
-      natsServerMonitoringEndpoint: nats.imgproc-dev.svc.cluster.local:8222
+      natsServerMonitoringEndpoint: nats.imgproc.svc.cluster.local:8222
       account: $G
       stream: AI_JOBS          # or IMAGE_JOBS
       consumer: ai-workers     # or image-workers
@@ -98,9 +97,9 @@ triggers:
 > Must match `docs/integration-contracts.md` §4 and §11 (per-pool `AI_JOBS` /
 > `IMAGE_JOBS` streams).
 
-## Workers (dev)
+## Workers
 
-Engine worker pools deployed in `imgproc-dev` only (agreeing with `docs/integration-contracts.md` §4):
+Engine worker pools deployed in `imgproc` (agreeing with `docs/integration-contracts.md` §4):
 
 | deployment | stream / consumer | min / max replicas | lag / activation | CPU req / limit | memory req / limit | peak RAM | image |
 |---|---|---|---|---|---|---|---|
@@ -178,4 +177,4 @@ not match the official `.sha256sum` — a truncated download or a swapped binary
 
 | script | what it proves |
 |---|---|
-| `infra/verify-render.sh` | renders all three overlays and checks nodeSelectors, memory limits, budget, unpullable images, volume ownership, no duplicate env vars, HTTPRoute wiring, KEDA namespace, and worker stream/consumer pairs |
+| `infra/verify-render.sh` | renders app and cluster/keda overlays and checks nodeSelectors, memory limits, budget, unpullable images, volume ownership, no duplicate env vars, HTTPRoute wiring, KEDA namespace, and worker stream/consumer pairs |

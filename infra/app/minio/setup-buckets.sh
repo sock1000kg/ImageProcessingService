@@ -1,6 +1,6 @@
 #!/bin/sh
 # Provision the ImageProcessing MinIO buckets.
-# Shared by the Kubernetes setup Job (infra/base/minio/setup-job.yaml) and the
+# Shared by the Kubernetes setup Job (infra/app/minio/setup-job.yaml) and the
 # local docker-compose service `minio-setup` (infra/docker-compose.yaml).
 #
 # Idempotent: buckets are created with --ignore-existing, the anonymous policy

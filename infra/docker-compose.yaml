@@ -7,7 +7,7 @@
 #   docker compose -f infra/docker-compose.yaml down -v
 #
 # The setup services run exactly the same scripts as the Kubernetes Jobs
-# (infra/base/nats/setup-streams.sh, infra/base/minio/setup-buckets.sh).
+# (infra/app/nats/setup-streams.sh, infra/app/minio/setup-buckets.sh).
 name: imgproc-local
 
 services:
@@ -34,7 +34,7 @@ services:
       NATS_URL: nats://nats:4222
       WAIT_TIMEOUT_SECONDS: "120"
     volumes:
-      - ./base/nats/setup-streams.sh:/scripts/setup-streams.sh:ro
+      - ./app/nats/setup-streams.sh:/scripts/setup-streams.sh:ro
     entrypoint: ["/bin/sh", "/scripts/setup-streams.sh"]
     restart: "no"
 
@@ -84,9 +84,9 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in infra/.env}
       WAIT_TIMEOUT_SECONDS: "120"
     volumes:
-      - ./base/minio/setup-buckets.sh:/scripts/setup-buckets.sh:ro
-      - ./base/minio/results-policy.json:/scripts/results-policy.json:ro
-      - ./base/minio/ilm.json:/scripts/ilm.json:ro
+      - ./app/minio/setup-buckets.sh:/scripts/setup-buckets.sh:ro
+      - ./app/minio/results-policy.json:/scripts/results-policy.json:ro
+      - ./app/minio/ilm.json:/scripts/ilm.json:ro
     entrypoint: ["/bin/sh", "/scripts/setup-buckets.sh"]
     restart: "no"
 

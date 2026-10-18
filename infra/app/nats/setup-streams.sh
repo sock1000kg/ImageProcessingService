@@ -1,6 +1,6 @@
 #!/bin/sh
 # Provision the ImageProcessing NATS JetStream topology.
-# Shared by the Kubernetes setup Job (infra/base/nats/setup-job.yaml) and the
+# Shared by the Kubernetes setup Job (infra/app/nats/setup-job.yaml) and the
 # local docker-compose service `nats-setup` (infra/docker-compose.yaml).
 #
 # Idempotent: existing streams/consumers are edited in place, nothing is

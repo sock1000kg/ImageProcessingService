@@ -1,5 +1,5 @@
-# MinIO — Lab-sock tenant base.
-# Rendered with: kubectl kustomize --enable-helm infra/overlays/<env>
+# MinIO — Lab-sock tenant.
+# Rendered with: kubectl kustomize --enable-helm infra/app
 mode: standalone
 
 # MinIO upstream is archived (anonymous pulls are refused, dl.min.io is 410), so
@@ -22,18 +22,17 @@ existingSecret: imgproc-minio
 persistence:
   enabled: true
   storageClass: local-path
-  size: 2Gi
+  size: 10Gi
 
 # the chart defaults to a 16Gi memory *request* — unusable on this 12GB node
-# dev ceiling is 256Mi; the prod overlay patches this to the plan's 512Mi
-# (prod takes the upload bursts and the benchmark runs)
+# 512Mi: the object store takes the upload bursts and the benchmark runs
 resources:
   requests:
     cpu: 50m
     memory: 128Mi
   limits:
     cpu: 500m
-    memory: 256Mi
+    memory: 512Mi
 
 nodeSelector:
   kubernetes.io/hostname: home-server

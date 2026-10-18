@@ -1,14 +1,14 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# Lab-sock tenant, one environment (imgproc).
+# - rendered with: kubectl kustomize --enable-helm infra/app
 namespace: imgproc
 
 resources:
   - namespace.yaml
-  - ../base
-  - ../base/engine-workers
+  - nats
+  - postgresql
+  - minio
+  - engine-workers
   - sealed-secret.yaml
-
-patches:
-  - path: patch-sizing.yaml
-  - path: patch-results-route.yaml

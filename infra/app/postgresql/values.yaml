@@ -1,5 +1,5 @@
-# PostgreSQL (Bitnami chart) — Lab-sock tenant base.
-# Rendered with: kubectl kustomize --enable-helm infra/overlays/<env>
+# PostgreSQL (Bitnami chart) — Lab-sock tenant.
+# Rendered with: kubectl kustomize --enable-helm infra/app
 architecture: standalone
 
 global:
@@ -29,7 +29,7 @@ primary:
     kubernetes.io/hostname: home-server
   persistence:
     enabled: true
-    size: 2Gi
+    size: 5Gi
     storageClass: local-path
   resources:
     requests:
@@ -37,8 +37,8 @@ primary:
       memory: 128Mi
     limits:
       cpu: 500m
-      # trimmed from the plan's 384Mi so dev + prod + KEDA limits stay <= 2.5Gi
-      memory: 256Mi
+      # trimmed from the plan's 512Mi to fit the ~2.5Gi steady-state budget
+      memory: 384Mi
 
 # The lab's local-path storage dir carries inherited POSIX ACLs whose mask caps
 # the group class, so the chart's fsGroup-only fixup cannot create

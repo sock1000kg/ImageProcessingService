@@ -4,6 +4,8 @@ import json
 import logging
 import signal
 import sys
+import nats
+import nats.errors
 from .config import settings
 from .storage import StorageClient
 from .messaging import MessagingClient
@@ -126,7 +128,7 @@ class EngineWorker:
                     msgs = await sub.fetch(batch=1, timeout=1.0)
                     for msg in msgs:
                         await self.handle_job(msg)
-                except nats.errors.TimeoutError:
+                except (nats.errors.TimeoutError, TimeoutError, asyncio.TimeoutError):
                     continue
                 except Exception as e:
                     if self.running:
@@ -144,11 +146,12 @@ class EngineWorker:
 def main():
     worker = EngineWorker()
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
             loop.add_signal_handler(sig, worker.stop)
-        except NotImplementedError:
+        except (NotImplementedError, AttributeError):
             # On Windows, add_signal_handler is not fully supported for all signals
             pass
 

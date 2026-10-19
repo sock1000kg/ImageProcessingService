@@ -13,14 +13,16 @@ logger = logging.getLogger(__name__)
 import os
 
 class YoloDetectorProcessor(BaseProcessor):
-    def __init__(self, model_name: str = "yolov8n.pt"):
+    def __init__(self, model_name: str = "yolov8n-oiv7.pt"):
         """Load YOLO model weights into RAM ONCE at worker startup."""
         # Check if user already placed a model in model/ or models/
         candidate_paths = [
-            "model/yolov8m.pt",
+            "models/yolov8n-oiv7.pt",
+            "model/yolov8n-oiv7.pt",
             "models/yolov8m.pt",
-            "model/yolov8n.pt",
+            "model/yolov8m.pt",
             "models/yolov8n.pt",
+            "model/yolov8n.pt",
             model_name,
         ]
         chosen_model = model_name
@@ -31,13 +33,13 @@ class YoloDetectorProcessor(BaseProcessor):
 
         logger.info(f"Initializing YOLO model from: {chosen_model}...")
         self.model = YOLO(chosen_model)
-        logger.info(f"YOLO model ({chosen_model}) loaded successfully!")
+        logger.info(f"YOLO model ({chosen_model}) loaded successfully with {len(self.model.names)} classes!")
 
     def process(self, input_bytes: bytes, params: Dict[str, Any]) -> Tuple[bytes, Dict[str, Any], str]:
         start_time = time.perf_counter()
         
-        # Read confidence threshold from params or default to 0.45
-        conf_threshold = float(params.get("confidenceThreshold", 0.45))
+        # Read confidence threshold from params or default to 0.35 (optimal for Open Images 600 classes)
+        conf_threshold = float(params.get("confidenceThreshold", 0.35))
         
         # Load image from bytes
         image = Image.open(io.BytesIO(input_bytes)).convert("RGB")
@@ -77,6 +79,7 @@ class YoloDetectorProcessor(BaseProcessor):
         processing_time_ms = round((time.perf_counter() - start_time) * 1000)
         
         result_summary = {
+            "model": "yolov8n-oiv7 (Open Images v7 - 600 classes)",
             "objectsDetected": len(detected_labels),
             "labels": detected_labels,
             "details": details,

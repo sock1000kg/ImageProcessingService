@@ -8,10 +8,17 @@ Nhiệm vụ của script này:
 import asyncio
 import io
 import json
+import sys
 import uuid
 import nats
 from minio import Minio
 from PIL import Image, ImageDraw
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 MINIO_ENDPOINT = "localhost:9000"
 MINIO_ACCESS_KEY = "minioadmin"
@@ -104,7 +111,7 @@ async def main():
             "key": output_key
         },
         "params": {
-            "confidenceThreshold": 0.5
+            "confidenceThreshold": 0.35
         }
     }
 

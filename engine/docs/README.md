@@ -35,9 +35,9 @@
 
 ### Pha 1: Trọng tâm MVP (Hoàn thành trong 2–3 tuần đầu)
 1. **`object-detection` (AI Job cốt lõi):**
-   * Mô hình: **YOLOv8n (Nano)** của `ultralytics`.
-   * Dung lượng model: ~6 MB.
-   * Tài nguyên: ~300MB RAM, CPU chạy mất ~150–250ms/ảnh.
+   * Mô hình: **YOLOv8n-OIV7** (nhận diện 600 loại vật thể từ Open Images v7, hoặc `yolov8n` 80 vật thể) của `ultralytics`.
+   * Dung lượng model: ~7.8 MB.
+   * Tài nguyên: ~350MB – 400MB RAM, CPU chạy mất ~180–250ms/ảnh.
    * Đầu ra: Vẽ bounding box + nhãn vào ảnh kết quả; trả về metadata danh sách vật thể và độ tin cậy.
 2. **`image-convert` (Non-AI Job cơ bản):**
    * Thư viện: `Pillow` (PIL).

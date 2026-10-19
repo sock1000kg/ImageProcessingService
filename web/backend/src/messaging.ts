@@ -40,8 +40,18 @@ export async function connectMessaging(): Promise<void> {
 }
 
 async function consumeEvents(subscription: AsyncIterable<JsMsg> & { pull: (options: { batch: number; expires: number }) => void }): Promise<void> {
-  while (true) {
-    subscription.pull({ batch: 10, expires: 30_000 });
+  const pull = () => {
+    try {
+      subscription.pull({ batch: 10, expires: 10_000 });
+    } catch {
+      // ignore pull errors during shutdown
+    }
+  };
+
+  pull();
+  const interval = setInterval(pull, 1000);
+
+  try {
     for await (const message of subscription) {
       try {
         const event = JSON.parse(codec.decode(message.data));
@@ -51,6 +61,8 @@ async function consumeEvents(subscription: AsyncIterable<JsMsg> & { pull: (optio
         console.error("Invalid worker event; message was not acknowledged", error);
       }
     }
+  } finally {
+    clearInterval(interval);
   }
 }
 

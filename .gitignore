@@ -7,3 +7,13 @@ real-secret.yaml
 /infra/**/real-secret.yaml
 # ai agent resources
 .relayer
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# IDE
+.vscode/

@@ -18,8 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download YOLOv8n weights into image during build time (so Pod can run offline)
-RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+# Pre-download YOLOv8n-OIV7 (600 classes) weights into image during build time (so Pod can run offline)
+RUN python -c "from ultralytics import YOLO; YOLO('yolov8n-oiv7.pt')"
 
 # Copy source code
 COPY src/ /app/src/

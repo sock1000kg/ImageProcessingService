@@ -32,6 +32,34 @@ MINIO_SECRET_KEY = "minioadmin"
 MINIO_SECURE = False
 
 
+import os
+from ultralytics import YOLO
+
+_yolo_model = None
+
+def get_yolo_model():
+    """Load model weights vào RAM duy nhất 1 lần (Long-Running Worker)."""
+    global _yolo_model
+    if _yolo_model is None:
+        candidate_paths = [
+            "models/yolov8n-oiv7.pt",
+            "model/yolov8n-oiv7.pt",
+            "models/yolov8m.pt",
+            "model/yolov8m.pt",
+            "models/yolov8n.pt",
+            "yolov8n-oiv7.pt",
+        ]
+        chosen = "yolov8n-oiv7.pt"
+        for p in candidate_paths:
+            if os.path.exists(p):
+                chosen = p
+                break
+        logger.info(f"Đang nạp mô hình YOLO từ: {chosen}...")
+        _yolo_model = YOLO(chosen)
+        logger.info(f"Nạp thành công YOLO ({chosen}) với {len(_yolo_model.names)} classes!")
+    return _yolo_model
+
+
 # ==============================================================================
 # 👉 [KHU VỰC CỦA BẠN] TỰ VIẾT CODE XỬ LÝ ẢNH / AI TẠI ĐÂY 👈
 # ==============================================================================
@@ -56,27 +84,44 @@ def my_custom_processing(input_bytes: bytes, job_type: str, params: dict) -> tup
     original_size = image.size
 
     # --------------------------------------------------------------------------
-    # TODO: VIẾT CODE XỬ LÝ CỦA BẠN DƯỚI ĐÂY
-    # Bạn có thể dùng YOLO, OpenCV, Pillow, Rembg,... tùy ý
+    # XỬ LÝ THEO TỪNG LOẠI JOB
     # --------------------------------------------------------------------------
 
     if job_type == "object-detection":
-        # VÍ DỤ MẪU: Đọc tham số threshold
-        conf_threshold = params.get("confidenceThreshold", 0.45)
-        logger.info(f"Đang chạy Object Detection với threshold={conf_threshold}...")
+        # Ngưỡng tin cậy (mặc định 0.35 cho bản 600 vật thể Open Images v7)
+        conf_threshold = float(params.get("confidenceThreshold", 0.35))
+        logger.info(f"Đang chạy YOLOv8n-OIV7 (600 classes) với threshold={conf_threshold}...")
 
-        # [CHỖ NÀY]: Bạn ném ảnh vào model YOLO của bạn:
-        # results = my_yolo_model(image, conf=conf_threshold)
-        # output_image = Image.fromarray(results[0].plot())
-        
-        # (Tạm thời demo: Giả sử kết quả là ảnh gốc)
-        output_image = image.convert("RGB")
-        
-        # Chuẩn bị thông số tóm tắt trả về
+        # Chạy suy luận với mô hình YOLOv8n-OIV7
+        model = get_yolo_model()
+        results = model(image.convert("RGB"), conf=conf_threshold)
+        result = results[0]
+
+        # Vẽ bounding box và nhãn lên ảnh kết quả
+        plotted_bgr = result.plot()
+        output_image = Image.fromarray(plotted_bgr)
+
+        # Thu thập chi tiết vật thể phát hiện được
+        boxes = result.boxes
+        detected_labels = []
+        details = []
+        if boxes is not None:
+            for box in boxes:
+                cls_id = int(box.cls[0].item())
+                label = model.names.get(cls_id, str(cls_id))
+                conf = round(float(box.conf[0].item()), 4)
+                detected_labels.append(label)
+                details.append({
+                    "label": label,
+                    "confidence": conf,
+                    "box": [round(float(c), 1) for c in box.xyxy[0].tolist()]
+                })
+
         result_summary = {
-            "objectsDetected": 2,
-            "labels": ["person", "car"],
-            "note": "Đây là kết quả mẫu từ my_custom_processing"
+            "model": f"YOLOv8 ({len(model.names)} classes - Open Images v7)",
+            "objectsDetected": len(detected_labels),
+            "labels": detected_labels,
+            "details": details
         }
         output_format = "JPEG"
         content_type = "image/jpeg"

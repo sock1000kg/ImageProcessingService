@@ -57,6 +57,7 @@ function App() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    const formElement = event.currentTarget as HTMLFormElement;
     if (!file) return setMessage("Choose an image first");
     setBusy(true);
     setMessage("");
@@ -75,7 +76,7 @@ function App() {
     try {
       await request("/api/jobs", { method: "POST", body: form });
       setFile(null);
-      (event.currentTarget as HTMLFormElement).reset();
+      formElement?.reset();
       setMessage("Job submitted");
       await refresh();
     } catch (error) {

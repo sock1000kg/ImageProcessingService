@@ -24,8 +24,9 @@ class Settings(BaseModel):
     minio_secret_key: str = os.getenv("MINIO_SECRET_KEY", "minioadmin")
     minio_secure: bool = os.getenv("MINIO_SECURE", "false").lower() in ("true", "1", "yes")
 
-    # Model weights directory
+    # Model weights directory & default model
     models_dir: str = os.getenv("MODELS_DIR", "./models")
+    yolo_model_name: str = os.getenv("YOLO_MODEL_NAME", "yolov8n-oiv7.pt")
 
 
 settings = Settings()

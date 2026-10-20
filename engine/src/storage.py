@@ -40,10 +40,6 @@ class StorageClient:
     ) -> str:
         """Upload raw bytes to MinIO object storage."""
         try:
-            # Ensure bucket exists
-            if not self.client.bucket_exists(bucket):
-                self.client.make_bucket(bucket)
-
             data_stream = io.BytesIO(data)
             self.client.put_object(
                 bucket_name=bucket,

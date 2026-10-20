@@ -25,10 +25,25 @@ class EngineWorker:
         self.messaging = MessagingClient()
         self.processors = get_processor_registry()
         self.running = True
+        self.is_processing = False
 
     async def handle_job(self, msg):
         """Process a single job message received from NATS JetStream."""
         job_id = "unknown"
+
+        async def heartbeat():
+            try:
+                while True:
+                    await asyncio.sleep(15)
+                    try:
+                        await msg.in_progress()
+                        logger.debug(f"Heartbeat in_progress() sent for job {job_id}")
+                    except Exception as err:
+                        logger.warning(f"Failed to send in_progress heartbeat: {err}")
+            except asyncio.CancelledError:
+                pass
+
+        hb_task = asyncio.create_task(heartbeat())
         try:
             payload = json.loads(msg.data.decode("utf-8"))
             job_id = payload.get("jobId", "unknown")
@@ -99,41 +114,56 @@ class EngineWorker:
             logger.exception(f"Unexpected fatal error handling job {job_id}: {e}")
             await self.messaging.emit_failure_event(job_id, "INTERNAL_WORKER_ERROR", str(e))
             await msg.ack()
+        finally:
+            hb_task.cancel()
+            try:
+                await hb_task
+            except asyncio.CancelledError:
+                pass
 
     async def run(self):
         """Start worker loop and consume jobs."""
         await self.messaging.connect()
         js = self.messaging.js
 
-        # Ensure Stream exists (or listen to existing)
-        for subject in settings.nats_subjects:
-            stream_name = "AI_JOBS" if "ai" in subject else "IMAGE_JOBS"
-            try:
-                await js.add_stream(name=stream_name, subjects=[subject])
-            except Exception:
-                pass
+        logger.info(
+            f"Worker [{settings.worker_id}] binding to stream '{settings.nats_stream_name}', "
+            f"consumer '{settings.nats_consumer_name}', subjects: {settings.nats_subjects}..."
+        )
 
-        logger.info(f"Worker [{settings.worker_id}] is listening on subjects: {settings.nats_subjects}...")
-
-        # Create pull subscriptions for each subject
-        subs = []
-        for subject in settings.nats_subjects:
-            durable_name = f"{settings.nats_consumer_name}-{subject.replace('.', '-')}"
-            sub = await js.pull_subscribe(subject, durable=durable_name)
-            subs.append(sub)
+        # Bind to pre-provisioned durable consumer created by Infra
+        subject = settings.nats_subjects[0] if settings.nats_subjects else ""
+        try:
+            sub = await js.pull_subscribe(
+                subject=subject,
+                durable=settings.nats_consumer_name,
+                stream=settings.nats_stream_name,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to bind to consumer '{settings.nats_consumer_name}' on stream '{settings.nats_stream_name}': {e}"
+            )
+            raise
 
         while self.running:
-            for sub in subs:
-                try:
-                    msgs = await sub.fetch(batch=1, timeout=1.0)
-                    for msg in msgs:
+            try:
+                msgs = await sub.fetch(batch=1, timeout=1.0)
+                for msg in msgs:
+                    self.is_processing = True
+                    try:
                         await self.handle_job(msg)
-                except (nats.errors.TimeoutError, TimeoutError, asyncio.TimeoutError):
-                    continue
-                except Exception as e:
-                    if self.running:
-                        logger.error(f"Error fetching messages: {e}")
-                        await asyncio.sleep(1)
+                    finally:
+                        self.is_processing = False
+            except (nats.errors.TimeoutError, TimeoutError, asyncio.TimeoutError):
+                continue
+            except Exception as e:
+                if self.running:
+                    logger.error(f"Error fetching messages: {e}")
+                    await asyncio.sleep(1)
+
+        while self.is_processing:
+            logger.info("Graceful shutdown: waiting for in-flight job to finish...")
+            await asyncio.sleep(0.5)
 
         logger.info("Worker loop stopped. Draining connections...")
         await self.messaging.close()

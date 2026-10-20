@@ -25,5 +25,12 @@ RUN python -c "from ultralytics import YOLO; YOLO('yolov8n-oiv7.pt')"
 COPY src/ /app/src/
 COPY models/ /app/models/
 
+# Create non-root user (uid 10001) and configure directory permissions for Kubernetes securityContext
+RUN useradd -u 10001 -m -s /bin/bash appuser && \
+    mkdir -p /tmp/Ultralytics && \
+    chown -R appuser:appuser /app /tmp
+
+USER 10001
+
 # Default entrypoint
 CMD ["python", "-m", "src.main"]

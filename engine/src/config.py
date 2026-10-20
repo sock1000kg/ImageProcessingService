@@ -14,7 +14,7 @@ class Settings(BaseModel):
     nats_stream_name: str = os.getenv("NATS_STREAM_NAME", "AI_JOBS")
     nats_consumer_name: str = os.getenv("NATS_CONSUMER_NAME", "ai-workers")
     nats_subjects: list[str] = [
-        s.strip() for s in os.getenv("NATS_SUBJECTS", "jobs.ai,jobs.image").split(",")
+        s.strip() for s in os.getenv("NATS_SUBJECTS", "jobs.ai").split(",") if s.strip()
     ]
     nats_events_subject: str = os.getenv("NATS_EVENTS_SUBJECT", "jobs.events")
 

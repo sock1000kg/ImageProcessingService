@@ -13,10 +13,10 @@ export const storage = new Client({
   secretKey: config.MINIO_SECRET_KEY,
 });
 
-export async function ensureBuckets(): Promise<void> {
+export async function verifyBuckets(): Promise<void> {
   for (const bucket of [UPLOADS_BUCKET, RESULTS_BUCKET]) {
     if (!(await storage.bucketExists(bucket))) {
-      await storage.makeBucket(bucket);
+      throw new Error(`MinIO bucket ${bucket} is missing`);
     }
   }
 }

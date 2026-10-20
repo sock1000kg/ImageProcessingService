@@ -98,7 +98,8 @@ check_postgres() {
       --image="$POSTGRES_IMAGE" --overrides="$POD_OVERRIDES" \
       --env="PGPASSWORD=$pgpass" --env=PGUSER=imgproc --env=PGDATABASE=imgproc \
       --command -- /bin/sh -c "$POSTGRES_CHECK_SCRIPT" 2>&1); then
-    if [ "$(printf '%s' "$out" | tr -d '[:space:]')" = "1" ]; then
+    # kubectl >= 1.31 prepends an attach banner to the output, so match the psql line itself
+    if printf '%s\n' "$out" | grep -qx '1'; then
       pass "postgres: SELECT 1 on imgproc/postgresql returned 1"
     else
       fail "postgres: unexpected psql output: $out"

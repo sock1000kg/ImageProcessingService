@@ -1,20 +1,20 @@
 """YOLOv8 Object Detection Processor."""
 import io
+import os
 import time
 import logging
 from typing import Tuple, Dict, Any
 from PIL import Image
-from ultralytics import YOLO
 from .base import BaseProcessor
 
 logger = logging.getLogger(__name__)
 
 
-import os
-
 class YoloDetectorProcessor(BaseProcessor):
     def __init__(self, model_name: str = "yolov8n-oiv7.pt"):
         """Load YOLO model weights into RAM ONCE at worker startup."""
+        from ultralytics import YOLO
+
         # Check if user already placed a model in model/ or models/
         candidate_paths = [
             "models/yolov8n-oiv7.pt",

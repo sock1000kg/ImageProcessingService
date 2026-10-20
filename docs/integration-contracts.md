@@ -264,7 +264,7 @@ Phát ra khi xảy ra lỗi trong quá trình xử lý (ảnh hỏng, không tì
 
 ## 4. Hạ tầng dùng chung: stream, consumer, bucket
 
-Infra tạo và cấu hình toàn bộ tài nguyên dưới đây bằng `infra/base/nats/setup-streams.sh` và `infra/base/minio/setup-buckets.sh`.
+Infra tạo và cấu hình toàn bộ tài nguyên dưới đây bằng `infra/app/nats/setup-streams.sh` và `infra/app/minio/setup-buckets.sh`.
 Cùng hai script đó chạy ở **cả local lẫn cluster**, nên code chạy được local thì lên cluster cũng chạy được.
 
 | Stream | Subjects | Durable consumer | Ai dùng | ack_wait | max_deliver |

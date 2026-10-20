@@ -1,5 +1,5 @@
-# NATS with JetStream (file store) — Lab-sock tenant base.
-# Rendered with: kubectl kustomize --enable-helm infra/overlays/<env>
+# NATS with JetStream (file store) — Lab-sock tenant.
+# Rendered with: kubectl kustomize --enable-helm infra/app
 config:
   cluster:
     enabled: false
@@ -11,7 +11,7 @@ config:
       dir: /data
       pvc:
         enabled: true
-        size: 2Gi
+        size: 5Gi
         storageClassName: local-path
     # we only use the file store; keep the in-memory store tiny
     memoryStore:

@@ -4,8 +4,8 @@ This document outlines the complete plan to deploy the foundational infrastructu
 
 > **Round 1 – tenant migration (done in code, NOT yet verified on the lab).**
 > `infra/` is now a tenant of the existing **Lab-sock** k3s cluster instead of a
-> standalone kind setup. Layout: `infra/base/{nats,postgresql,minio}`,
-> `infra/base/engine-workers`, `infra/app`, `infra/cluster/keda`, plus `deploy.sh`,
+> standalone kind setup. Layout: `infra/app/{nats,postgresql,minio,engine-workers}`,
+> `infra/app` (one environment, `imgproc`), `infra/cluster/keda`, plus `deploy.sh`,
 > `seal.sh`, `smoke-test.sh`, `scaling-demo.sh`, `docker-compose.yaml`.
 > The lab provides k3s, node `home-server` (**i5-7200U, 2C/4T, 12GB RAM, HDD**),
 > Traefik Gateway API (`Gateway/traefik-gateway` in ns `traefik`, listener 8000,
@@ -27,8 +27,8 @@ This document outlines the complete plan to deploy the foundational infrastructu
 | `infra/smoke-test.sh` | End-to-end smoke test of cluster services and routes | User (lab) |
 | `infra/images/build-push.sh` | Builds custom MinIO+mc image and optionally pushes to registry | Maintainer / CI |
 | `infra/verify-render.sh` | Verifies rendered manifests, resource limits, and budgets | Coder / Reviewer / CI |
-| `infra/base/nats/setup-streams.sh` | Sets up NATS JetStream streams and durable consumers | Run automatically (Job / compose) |
-| `infra/base/minio/setup-buckets.sh` | Sets up MinIO buckets, access policy, and ILM lifecycle | Run automatically (Job / compose) |
+| `infra/app/nats/setup-streams.sh` | Sets up NATS JetStream streams and durable consumers | Run automatically (Job / compose) |
+| `infra/app/minio/setup-buckets.sh` | Sets up MinIO buckets, access policy, and ILM lifecycle | Run automatically (Job / compose) |
 | `infra/scaling-demo.sh` | Demonstrates independent autoscaling of AI and Image worker pools | User (lab) |
 
 ## Milestone 1: Messaging and Event Bus Foundation
@@ -58,7 +58,7 @@ This document outlines the complete plan to deploy the foundational infrastructu
 ## Milestone 3: Engine Worker Deployments & Resource Limits
 **Goal:** Deploy engine worker Deployments (`ai-worker`, `image-worker`) to validate the message consumption patterns and enforce the constrained hardware limits (**2C/4T i5-7200U, 12GB RAM, HDD** node, shared with the rest of the lab; platform services app + KEDA steady-state memory limits are capped at ~2.5Gi).
 *   **Tasks:**
-        - [x] Configure engine worker manifests (`infra/base/engine-workers/`) using the real engine image `socknot1000kg/imgproc-engine:dev`. *(code only, not yet run on the lab)*
+        - [x] Configure engine worker manifests (`infra/app/engine-workers/`) using the real engine image `socknot1000kg/imgproc-engine:dev`. *(code only, not yet run on the lab)*
         - [x] Deploy an `ai-worker` Deployment consuming from `ai-workers` on `AI_JOBS` (`jobs.ai`). *(code only, not yet run on the lab)*
         - [x] Deploy an `image-worker` Deployment consuming from `image-workers` on `IMAGE_JOBS` (`jobs.image`). *(code only, not yet run on the lab)*
         - [x] Set strict CPU and Memory requests/limits on these deployments (AI: 512Mi/1536Mi; Image: 256Mi/768Mi). *(code only, not yet run on the lab)*
@@ -92,9 +92,9 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * Namespace: `imgproc`; KEDA lives in `keda` and is installed once.
 * Every Deployment/StatefulSet/Job is pinned with `nodeSelector: kubernetes.io/hostname: home-server` and has an explicit memory limit. `infra/verify-render.sh` renders `app` and `cluster/keda` overlays and prints both totals: steady-state (setup Jobs excluded — the budget gate, currently **1696Mi**, capped at **2560Mi**) and including the transient setup Jobs (**1888Mi**, informational only). The gate is the steady-state total, which must stay ≤ ~2.5Gi.
 * `MINIO_PROMETHEUS_AUTH_TYPE=public` is emitted by the MinIO chart via `metrics.serviceMonitor.public: true` — never add it again under `environment:` in `values.yaml`, a duplicate env key breaks client-side re-apply. `verify-render.sh` fails on duplicate env names.
-* The MinIO chart defaults to a **16Gi** memory request — always keep the `resources` override in `infra/base/minio/values.yaml`. Memory limit: **MinIO 512Mi** (patched in `infra/app/patch-sizing.yaml`).
+* The MinIO chart defaults to a **16Gi** memory request — always keep the `resources` override in `infra/app/minio/values.yaml`. Memory limit: **MinIO 512Mi** (set in `infra/app/minio/values.yaml`).
 * Bucket setup: anonymous policy is **GetObject only** (no ListBucket) and lifecycle is imported wholesale with `mc ilm import`, so re-running the Job is safe.
-* The setup scripts (`infra/base/nats/setup-streams.sh`, `infra/base/minio/setup-buckets.sh`) are shared verbatim with `infra/docker-compose.yaml`.
+* The setup scripts (`infra/app/nats/setup-streams.sh`, `infra/app/minio/setup-buckets.sh`) are shared verbatim with `infra/docker-compose.yaml`.
 * `kubectl run ... --command -- /bin/sh -c <script> sh <arg>`: `--command` is a boolean flag and the trailing `sh` becomes `$0`, so the real argument must come after it.
 * **MinIO image is ours, not upstream's.** MinIO is archived and its images can't be pulled any more, so `infra/images/minio/Dockerfile` builds the server from the release source and bundles the official sha256-verified `mc` client. Everything uses `socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z`. Rebuild with `infra/images/build-push.sh`; never re-pin to a MinIO registry. `verify-render.sh` fails if any rendered image points at `quay.io/minio`, `minio/mc` or `docker.io/minio/`.
 * The public `/results/` HTTPRoute matches **GET and HEAD only**; `verify-render.sh` asserts it.
@@ -109,14 +109,14 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * **The lab's storage directory has inherited POSIX ACLs.** `/var/lib/rancher/k3s/storage/` shows `drwxrwsrwx+ root <fsGroup>`: the `+` means an ACL inherited from a default ACL on the storage dir, whose **mask caps the group class**. A non-root uid that reaches the directory through the group/ACL entries therefore cannot write, even though the mode bits say `rwx`. That is why MinIO died with `unable to create (/export/.minio.sys/tmp) file access denied` and Postgres with `mkdir: cannot create directory '/bitnami/postgresql'`.
 * **The lab ACL is left untouched on purpose** — the user says it may be a dependency of another app (an existing `media-dev` Postgres works because its data dir is *owned* by its uid; the owner class is not capped by the mask). Never run `setfacl -k` lab-wide. The fix lives in our manifests only.
 * **Fix = ownership, not permission.** Every Deployment/StatefulSet that mounts a PVC and runs its main container as non-root gets an init container that runs as uid 0 with `drop: ALL` + `CHOWN` + `FOWNER` and chowns the data volume to the writing uid:
-  * MinIO: `infra/base/minio/patch-volume-permissions.yaml` (chart 5.4.0 cannot render an init container, hence a kustomize patch). It uses **our** `socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z` image (Alpine, has `sh`/`chown`/`stat`) and chowns to `1000:1000` (the chart's `securityContext.runAsUser/runAsGroup`). It only chowns **recursively** when the top-level owner is wrong, so a big bucket directory is not walked on every restart, and it prints what it did.
-  * Postgres: the chart's own `volumePermissions.enabled: true` (`bitnamilegacy/os-shell:12-debian-12-r51`, pinned by digest — `bitnami/os-shell` only has a rolling `latest`), plus `infra/base/postgresql/patch-volume-permissions.yaml` to add `drop: ALL` + `CHOWN`/`FOWNER`, since the chart would otherwise give the init container the full default capability set (including `DAC_OVERRIDE`). `FOWNER` is needed because the chart's `chmod 700 .../data` runs *after* the chown.
+  * MinIO: `infra/app/minio/patch-volume-permissions.yaml` (chart 5.4.0 cannot render an init container, hence a kustomize patch). It uses **our** `socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z` image (Alpine, has `sh`/`chown`/`stat`) and chowns to `1000:1000` (the chart's `securityContext.runAsUser/runAsGroup`). It only chowns **recursively** when the top-level owner is wrong, so a big bucket directory is not walked on every restart, and it prints what it did.
+  * Postgres: the chart's own `volumePermissions.enabled: true` (`bitnamilegacy/os-shell:12-debian-12-r51`, pinned by digest — `bitnami/os-shell` only has a rolling `latest`), plus `infra/app/postgresql/patch-volume-permissions.yaml` to add `drop: ALL` + `CHOWN`/`FOWNER`, since the chart would otherwise give the init container the full default capability set (including `DAC_OVERRIDE`). `FOWNER` is needed because the chart's `chmod 700 .../data` runs *after* the chown.
   * NATS runs as root, which bypasses ACLs, so it needs no init container.
 * `verify-render.sh` enforces this: any PVC-mounted workload whose main container is non-root must have an init container that mounts the same volume, runs as uid 0 and has `CHOWN`. Init containers also need memory limits, and are excluded from the steady-state budget like setup Jobs.
 * If Postgres still fails after this change, the earlier crash likely left a half-initialised data dir: delete PVC `data-postgresql-0` **in `imgproc`** (holds no persistent data yet) and redeploy.
 
 ## Operational notes (Task 2, engine workers)
-* **Worker workloads:** Engine worker Deployments (`ai-worker`, `image-worker`) are included in `infra/app` via `infra/app/kustomization.yaml` (`../base/engine-workers`).
+* **Worker workloads:** Engine worker Deployments (`ai-worker`, `image-worker`) are included in `infra/app` via `infra/app/kustomization.yaml` (`engine-workers`).
 * **Temporary `:dev` tag:** Deployments use `socknot1000kg/imgproc-engine:dev` with `imagePullPolicy: Always` as a temporary measure until CI publishes immutable digest/SHA tags.
 * **Worker label and steady-state budget:** Worker Deployments carry label `app.kubernetes.io/component: worker` and are excluded from the platform steady-state budget (which remains at **2560Mi**). Their sizing (AI: 1536Mi limit; Image: 768Mi limit) is reported informationally by `verify-render.sh`.
 * **MinIO credentials:** Workers mount MinIO credentials from the existing `imgproc-minio` Secret (`rootUser`/`rootPassword`). Root credentials are used temporarily for dev; a scoped MinIO service account user is a future improvement.

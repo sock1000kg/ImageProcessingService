@@ -75,7 +75,7 @@ Streams use **workqueue** retention, file storage, 1 replica.
 | `JOB_EVENTS` | `jobs.events`, `jobs.events.>` | `backend-job-events` | 30s | 10 | 1000 |
 
 All consumers use explicit ack. Provisioned idempotently by
-`infra/base/nats/setup-streams.sh` (Job `nats-setup`, also the compose service
+`infra/app/nats/setup-streams.sh` (Job `nats-setup`, also the compose service
 `nats-setup`).
 
 ## KEDA trigger values

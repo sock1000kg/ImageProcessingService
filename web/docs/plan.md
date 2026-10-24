@@ -14,7 +14,7 @@ backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, 
 ---
 
 # Phase 1: Ẩn danh hoá bộ ảnh (24/10 → 07/11)
-**Hoàn thành khi:** trên `https://imgproc.sock1000kg.io.vn`, người dùng tải lên một bộ ảnh + ảnh chân dung whitelist, chọn cách che → thấy từng ảnh chạy → xem before/after → chỉnh độ mạnh/bật tắt box → áp dụng → tải ảnh và báo cáo JSON.
+**Hoàn thành khi:** trên `https://imgproc.sock1000kg.io.vn`, người dùng tải lên một bộ ảnh + ảnh chân dung whitelist, chọn cách che → xem trạng thái từng ảnh → xem before/after → chỉnh độ mạnh/bật tắt box → áp dụng → tải ảnh và báo cáo JSON.
 
 ## Milestone 1: Mô hình dữ liệu batch (24/10 → 27/10)
 * **Tasks:**
@@ -29,7 +29,7 @@ backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, 
 Đường dẫn cụ thể do Web quyết định. Contract §9 chỉ liệt kê khả năng cần có.
 * **Tasks:**
     - [ ] Tạo batch: multipart nhiều `files` (JPG/PNG/WEBP, giới hạn số lượng + dung lượng mỗi file), 0..n `whitelist` (ảnh chân dung), `config` (targets, style, strength, padding, confidenceThreshold, reviewThreshold, similarityThreshold). Validate rõ ràng, lỗi 4xx kèm message.
-    - [ ] Xem batch: thông tin batch + danh sách job (trạng thái, progress, `counts`, `resultUrl`).
+    - [ ] Xem batch: thông tin batch + danh sách job (trạng thái, `counts`, `resultUrl`).
     - [ ] Ảnh gốc cho thanh trượt: endpoint trả ảnh gốc từ `uploads` (stream qua backend, hoặc presigned URL ngắn hạn). Bucket `uploads` là private.
     - [ ] Render lại: nhận cấu hình mới + danh sách box được bật → tạo job `image-render` (cùng batch, `parent_job_id`). Kết quả mới thay kết quả hiển thị của ảnh đó.
     - [ ] Thử lại ảnh `FAILED`: tạo job `image-redact` mới cho đúng ảnh đó. Input vẫn còn trong TTL 24h, hết hạn thì trả 410.
@@ -39,7 +39,7 @@ backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, 
 ## Milestone 3: Giao diện (28/10 → 05/11)
 * **Tasks:**
     - [ ] **Trang tạo batch:** kéo-thả nhiều ảnh (preview thumbnail, bỏ từng ảnh), khu vực "Người cần giữ nguyên" để thêm ảnh chân dung whitelist, chọn đối tượng che (mặt/biển số), style (Blur/Pixelate/Blackout) với ảnh minh hoạ nhỏ, độ mạnh. Có "Nâng cao" cho các ngưỡng. Kiểm tra định dạng/dung lượng ngay trên trình duyệt.
-    - [ ] **Trang batch:** lưới ảnh với trạng thái từng ảnh (badge + progress), tiến độ tổng (x/N xong), nút thử lại ảnh lỗi, nút tải báo cáo JSON, "Tải tất cả" (link từng ảnh, zip để Phase 2). Tự cập nhật (polling vài giây là đủ).
+    - [ ] **Trang batch:** dropdown (hoặc danh sách thu gọn) liệt kê các ảnh trong batch, mỗi ảnh hiện trạng thái hiện tại (`QUEUED`/`PROCESSING`/`COMPLETED`/`FAILED`). Chọn một ảnh để mở phần xem kết quả bên dưới. Không cần lưới ảnh hay thanh progress. Kèm số ảnh đã xong (x/N), nút thử lại ảnh lỗi, nút tải báo cáo JSON, "Tải tất cả" (link từng ảnh, zip để Phase 2). Trạng thái tự cập nhật (polling vài giây là đủ).
     - [ ] **Xem một ảnh:** thanh trượt before/after (ảnh gốc ↔ kết quả). Danh sách phát hiện (mặt/biển số, confidence, cảnh báo `lowConfidence`, nhãn "whitelist").
     - [ ] **Chỉnh trước khi áp dụng:** vẽ lại vùng che trên `<canvas>` từ `detections` (blur/pixelate/blackout bằng JS) khi kéo thanh độ mạnh hoặc đổi style. Click một box để bật/tắt che (ví dụ bỏ che biển số của mình). Nút "Áp dụng" gọi API render lại. Preview chỉ là xấp xỉ, kết quả thật do worker render.
     - [ ] **Báo cáo trên web:** bảng tổng hợp + danh sách ảnh có phát hiện confidence thấp để người dùng kiểm tra lại.
@@ -64,7 +64,7 @@ Tier: **[Must]** phải có, **[Should]** nên có, **[Could]** nếu còn thờ
 - [ ] **[Must]** Xuất báo cáo PDF từ báo cáo JSON (render phía server hoặc in từ trang báo cáo).
 - [ ] **[Should]** Whitelist biển số: nhập danh sách biển số. **[Cần Engine]** cần OCR. **[Đổi contract]** thêm `whitelist.plates`.
 - [ ] **[Should]** Tải cả batch dạng zip. Xoá batch thủ công (xoá object MinIO + dòng PG).
-- [ ] **[Should]** Tiến độ real-time bằng SSE thay polling.
+- [ ] **[Should]** Cập nhật trạng thái real-time bằng SSE thay polling.
 - [ ] **[Could]** Tài khoản người dùng + lưu "người cần giữ nguyên" để dùng lại (thay vì tải lại mỗi batch).
 - [ ] **[Could]** Trang thống kê hệ thống cho buổi bảo vệ: số job theo trạng thái, độ dài hàng đợi từng pool, số worker. **[Cần Infra]** nguồn số liệu (NATS monitoring/KEDA).
 

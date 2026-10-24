@@ -27,6 +27,7 @@ This document outlines the complete plan to deploy the foundational infrastructu
 | `infra/smoke-test.sh` | End-to-end smoke test of cluster services and routes | User (lab) |
 | `infra/images/build-push.sh` | Builds custom MinIO+mc image and optionally pushes to registry | Maintainer / CI |
 | `infra/verify-render.sh` | Verifies rendered manifests, resource limits, and budgets | Coder / Reviewer / CI |
+| `.github/workflows/images.yml` | Builds and pushes web and engine images to Docker Hub on push to `main` | CI (GitHub Actions) / Dispatch |
 | `infra/app/nats/setup-streams.sh` | Sets up NATS JetStream streams and durable consumers | Run automatically (Job / compose) |
 | `infra/app/minio/setup-buckets.sh` | Sets up MinIO buckets, access policy, and ILM lifecycle | Run automatically (Job / compose) |
 | `infra/scaling-demo.sh` | Demonstrates independent autoscaling of Video and Image worker pools | User (lab) |
@@ -84,7 +85,8 @@ This document outlines the complete plan to deploy the foundational infrastructu
 *   **Tasks:**
         - [x] Document the exact connection strings, internal service DNS names (`nats.<ns>.svc:4222`, `postgresql.<ns>.svc:5432`, `minio.<ns>.svc:9000`), public endpoints and the stream/consumer table in `infra/docs/endpoints.md`.
         - [x] Deploy basic monitoring: `prometheus.io/scrape|port|path` annotations on the NATS exporter sidecar (7777), the MinIO pod (9000, `/minio/v2/metrics/cluster`, `MINIO_PROMETHEUS_AUTH_TYPE=public`) and the `postgresql-metrics` Service (9187) — scraped by the lab's prom-agent.
-        - [x] Deploy web application (`Deployment`, `Service`, `HTTPRoute` `/` and `/api`) using `socknot1000kg/imgproc-web:dev`. *(code only, not yet run on the lab)*
+        - [x] Deploy web application (`Deployment`, `Service`, `HTTPRoute` `/` and `/api`) using `socknot1000kg/imgproc-web:main`. *(code only, not yet run on the lab)*
+        - [x] CI image builds for web and engine: GitHub Actions workflow (`.github/workflows/images.yml`) building and pushing `socknot1000kg/imgproc-web` and `socknot1000kg/imgproc-engine` to Docker Hub on push to `main` (commit SHA and `main` tags). *(code only, not yet run on the lab)*
 *   **Verification:**
         - [ ] The Web team can successfully connect to Postgres, MinIO, and NATS.
         - [ ] The Engine team can connect to NATS and MinIO, consume jobs, and publish events.
@@ -118,7 +120,7 @@ This document outlines the complete plan to deploy the foundational infrastructu
 
 ## Operational notes (Task 2, engine workers)
 * **Worker workloads:** Engine worker Deployments (`video-worker`, `image-worker`) are included in `infra/app` via `infra/app/kustomization.yaml` (`engine-workers`).
-* **Temporary `:dev` tag:** Deployments use `socknot1000kg/imgproc-engine:dev` with `imagePullPolicy: Always` as a temporary measure until CI publishes immutable digest/SHA tags.
+* **CI `:main` tag:** Deployments use `socknot1000kg/imgproc-engine:main` with `imagePullPolicy: Always`. `:main` tracks the latest build of `main`, and pods pick it up on restart. Exact commit SHAs (e.g. `:<sha>`) can be pinned manually when needed.
 * **Worker label and steady-state budget:** Worker Deployments carry label `app.kubernetes.io/component: worker` and are excluded from the platform steady-state budget (which remains at **2560Mi**). Their sizing (Video: 2048Mi limit; Image: 1536Mi limit) is reported informationally by `verify-render.sh`.
 * **MinIO credentials:** Workers mount MinIO credentials from the existing `imgproc-minio` Secret (`rootUser`/`rootPassword`). Root credentials are used temporarily for dev; a scoped MinIO service account user is a future improvement.
 * **Smoke test interaction:** When worker Deployments have ready replicas, `smoke-test.sh` skips the pool queue drain (`SKIP (workers running)`) to prevent racing with active engine workers, and asserts stream and consumer presence.
@@ -130,9 +132,18 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * **Monitoring endpoint:** Trigger `natsServerMonitoringEndpoint: nats.imgproc.svc.cluster.local:8222` targets the `imgproc` namespace.
 
 ## Operational notes (Task 8, web deploy)
-* **Web deployment & routing:** Web application deployed via `infra/app/web/` (`Deployment`, `Service`, `HTTPRoute` `web`). Replicas: 1, image `socknot1000kg/imgproc-web:dev`, `imagePullPolicy: Always` as a temporary measure until CI publishes immutable digest/SHA tags. Container port 3000.
+* **Web deployment & routing:** Web application deployed via `infra/app/web/` (`Deployment`, `Service`, `HTTPRoute` `web`). Replicas: 1, image `socknot1000kg/imgproc-web:main`, `imagePullPolicy: Always`. Container port 3000. `:main` tracks the latest build of `main`, picking up changes on restart. Exact commit SHAs can be pinned manually when needed.
 * **Database URL assembly:** Secrets `PGPASSWORD` from `imgproc-postgres` (key `password`), then `DATABASE_URL=postgresql://imgproc:$(PGPASSWORD)@postgresql:5432/imgproc` using Kubernetes `$(VAR)` expansion (`PGPASSWORD` declared before `DATABASE_URL`). This assumes a URL-safe password (generated as hex by `seal.sh`).
 * **Resource limits & steady-state budget:** Container requests 128Mi / 100m, limits 512Mi / 500m (uploads buffered in memory via multer `memoryStorage`). Component is `web` (not `worker`), counting toward the platform steady-state budget (steady-state total 2208Mi, staying well under the 2560Mi ceiling).
 * **HTTPRoute precedence:** HTTPRoute `web` matches `PathPrefix /` on `imgproc.sock1000kg.io.vn`. The existing `minio-results` HTTPRoute (`PathPrefix /results/`) on the same hostname wins by longest-prefix match under Gateway API route matching rules.
+
+## Operational notes (Task 9, CI image builds and rollout)
+* **CI workflow (`.github/workflows/images.yml`):** Automatically builds and pushes `socknot1000kg/imgproc-web` and `socknot1000kg/imgproc-engine` to Docker Hub on push to `main` when `web/**` or `engine/**` change, or on manual `workflow_dispatch`. Each build is tagged with both the commit SHA (`:${{ github.sha }}`) and `:main`, targeting `linux/amd64` with GHA layer caching.
+* **Secrets and environment:** The workflow uses GitHub Actions environment `dockerhub` (restricted to deployment branch `main`) with secrets `DOCKERHUB_USERNAME` (`socknot1000kg`) and `DOCKERHUB_TOKEN` (Docker Hub personal access token with Read & Write scope). Permissions are restricted to `contents: read` and no pull request triggers are configured.
+* **Image rollout procedure:** Manifests use `:main` with `imagePullPolicy: Always`. `infra/deploy.sh` is unchanged; after CI publishes a new image, the user rolls it out via:
+  1. `infra/deploy.sh app` (if manifests changed)
+  2. `kubectl --context default -n imgproc rollout restart deploy/web` (to bounce the web deployment immediately)
+  3. Engine workers automatically pull the newest `:main` image the next time KEDA scales them up from 0 (or restart them manually if already running).
+
 
 

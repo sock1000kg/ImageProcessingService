@@ -69,12 +69,13 @@ https://<host>/results/<object-key>
 
 Web tier serving the frontend SPA and `/api` backend routes:
 
-| service | route | internal DNS | port | env configuration |
-|---|---|---|---|---|
-| `web` | `https://<host>/` (`HTTPRoute/web`, `PathPrefix /`) | `web.imgproc.svc:3000` | 3000 | `PORT=3000`, `NATS_URL=nats://nats:4222`, `MINIO_ENDPOINT=minio`, `MINIO_PORT=9000`, `MINIO_USE_SSL=false`, `PUBLIC_RESULTS_BASE_URL=/results`, `MINIO_ACCESS_KEY` & `MINIO_SECRET_KEY` (from `imgproc-minio`), `PGPASSWORD` & `DATABASE_URL` (from `imgproc-postgres`) |
+| service | route | internal DNS | port | image | env configuration |
+|---|---|---|---|---|---|
+| `web` | `https://<host>/` (`HTTPRoute/web`, `PathPrefix /`) | `web.imgproc.svc:3000` | 3000 | `socknot1000kg/imgproc-web:main` (and `:<sha>`) | `PORT=3000`, `NATS_URL=nats://nats:4222`, `MINIO_ENDPOINT=minio`, `MINIO_PORT=9000`, `MINIO_USE_SSL=false`, `PUBLIC_RESULTS_BASE_URL=/results`, `MINIO_ACCESS_KEY` & `MINIO_SECRET_KEY` (from `imgproc-minio`), `PGPASSWORD` & `DATABASE_URL` (from `imgproc-postgres`) |
 
 - HTTPRoute `web` in `imgproc`, `parentRefs: traefik-gateway` (namespace `traefik`), `PathPrefix /`, backend `web:3000`.
 - Longest-prefix match: Traefik routes `/results/` to `minio-results` and everything else (`/`, `/api/*`, `/health`, `/ready`) to `web`.
+- Image: built by `.github/workflows/images.yml` and pushed to Docker Hub as `socknot1000kg/imgproc-web:main` and `:<sha>`. Deployment uses `:main` with `imagePullPolicy: Always`.
 
 ## Streams, subjects and consumers
 
@@ -115,10 +116,10 @@ Engine worker pools deployed in `imgproc` (agreeing with `docs/integration-contr
 
 | deployment | stream / consumer | min / max replicas | lag / activation | CPU req / limit | memory req / limit | peak RAM | image |
 |---|---|---|---|---|---|---|---|
-| `image-worker` | `IMAGE_JOBS` / `image-workers` | 0 / 3 | 5 / 0 | 250m / 1000m | 512Mi / 1536Mi | 4608Mi | `socknot1000kg/imgproc-engine:dev` |
-| `video-worker` | `VIDEO_JOBS` / `video-workers` | 0 / 1 | 1 / 0 | 500m / 1500m | 768Mi / 2048Mi | 2048Mi | `socknot1000kg/imgproc-engine:dev` |
+| `image-worker` | `IMAGE_JOBS` / `image-workers` | 0 / 3 | 5 / 0 | 250m / 1000m | 512Mi / 1536Mi | 4608Mi | `socknot1000kg/imgproc-engine:main` |
+| `video-worker` | `VIDEO_JOBS` / `video-workers` | 0 / 1 | 1 / 0 | 500m / 1500m | 768Mi / 2048Mi | 2048Mi | `socknot1000kg/imgproc-engine:main` |
 
-Total peak worker RAM: **6656Mi** (3×1536Mi + 1×2048Mi). Replicas are managed dynamically by KEDA ScaledObjects (omitted from Deployments).
+Total peak worker RAM: **6656Mi** (3×1536Mi + 1×2048Mi). Replicas are managed dynamically by KEDA ScaledObjects (omitted from Deployments). Images are built by `.github/workflows/images.yml` and pushed as `socknot1000kg/imgproc-engine:main` and `:<sha>`. Deployments use `:main` with `imagePullPolicy: Always`.
 
 
 ## Metrics

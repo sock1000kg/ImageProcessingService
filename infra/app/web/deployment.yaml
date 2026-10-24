@@ -26,8 +26,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: web
-          # socknot1000kg/imgproc-web:dev is temporary until CI publishes immutable SHA tags, same as workers
-          image: socknot1000kg/imgproc-web:dev
+          # socknot1000kg/imgproc-web:main is the latest build of main; pods pick it up on restart. Pin a SHA by hand when you need an exact version.
+          image: socknot1000kg/imgproc-web:main
           imagePullPolicy: Always
           ports:
             - name: http

@@ -177,3 +177,9 @@ Mỗi mục theo format **Vấn đề → Lựa chọn → Quyết định → V
 - **Quyết định:** (b) — Gom toàn bộ manifests ứng dụng vào `infra/app` chạy trên namespace `imgproc`, hostname công khai duy nhất `imgproc.sock1000kg.io.vn`. Áp dụng cấu hình prod sizing (MinIO 512Mi, Postgres 384Mi), giữ nguyên các worker pools và KEDA ScaledObjects. Xóa bỏ 2 namespace cũ `imgproc-dev` và `imgproc-prod`.
 - **Vì sao:** Tiết kiệm tài nguyên cho node lab dùng chung, đơn giản hóa quy trình vận hành và kiểm thử E2E; loại bỏ sự phức tạp không cần thiết của cấu hình mạng nội bộ Tailscale.
 
+
+## 16. Chia pool worker theo loại media (ảnh / video) thay vì theo "AI / xử lý thường"
+- **Vấn đề:** Đề tài thu hẹp về ẩn danh hoá (che khuôn mặt, biển số), nên **mọi** job đều dùng model AI. Cách chia cũ `AI_JOBS` (model) / `IMAGE_JOBS` (Pillow đổi định dạng) không còn ý nghĩa: pool "thường" mất việc. Trong khi đó, job ảnh và job video có tải rất khác nhau (ảnh: hàng trăm job nhỏ vài trăm ms; video 15–60s: một job chạy hàng phút, nặng CPU vì ByteTrack + FFmpeg).
+- **Lựa chọn:** (a) Một pool chung cho mọi job; (b) giữ tên cũ, gán `jobs.ai` = video, `jobs.image` = ảnh; (c) chia theo media: `IMAGE_JOBS`/`jobs.image` cho ảnh, thêm `VIDEO_JOBS`/`jobs.video` cho video, bỏ `AI_JOBS`.
+- **Quyết định:** (c). Mỗi bộ ảnh tách thành **một job cho mỗi ảnh**, nên hàng đợi phản ánh đúng khối lượng việc và KEDA scale pool ảnh theo số ảnh chờ. Pool video scale theo từng video (lagThreshold 1).
+- **Vì sao:** Một pool chung thì video dài chặn hàng trăm ảnh nhỏ phía sau và không chỉnh được ngưỡng scale riêng. Tên cũ gây hiểu nhầm. Chia theo media cho mỗi pool đúng `ack_wait`, giới hạn RAM và ngưỡng KEDA của nó, và giữ được thí nghiệm co giãn độc lập hai pool (trọng tâm môn học).

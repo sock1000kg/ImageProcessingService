@@ -28,6 +28,7 @@ Runs on the single lab node `home-server` (i5-7200U, 2C/4T, 12GB, HDD).
 | PostgreSQL | `postgresql.imgproc.svc:5432` |
 | MinIO API | `minio.imgproc.svc:9000` |
 | MinIO console | `minio-console.imgproc.svc:9001` |
+| Web application | `web.imgproc.svc:3000` |
 
 - PostgreSQL: database `imgproc`, user `imgproc`, port `5432`.
 - MinIO buckets: `uploads` (private), `results` (anonymous **GetObject only**).
@@ -36,8 +37,8 @@ Runs on the single lab node `home-server` (i5-7200U, 2C/4T, 12GB, HDD).
 
 | secret | keys | used by |
 |---|---|---|
-| `imgproc-minio` | `rootUser`, `rootPassword` | MinIO chart (`existingSecret`), MinIO setup Job |
-| `imgproc-postgres` | `postgres-password` (admin `postgres`), `password` (user `imgproc`) | PostgreSQL chart (`auth.existingSecret`) |
+| `imgproc-minio` | `rootUser`, `rootPassword` | MinIO chart (`existingSecret`), MinIO setup Job, workers, web |
+| `imgproc-postgres` | `postgres-password` (admin `postgres`), `password` (user `imgproc`) | PostgreSQL chart (`auth.existingSecret`), web |
 
 Create `infra/app/real-secret.yaml` from `real-secret.example.yaml`
 (gitignored), then run `infra/seal.sh` to produce `sealed-secret.yaml`.
@@ -63,6 +64,17 @@ https://<host>/results/<object-key>
   (`imgproc.sock1000kg.io.vn`) pointing at
   `http://traefik.traefik.svc.cluster.local:80` in the CF dashboard. Nothing in
   this repo creates it.
+
+## Web application
+
+Web tier serving the frontend SPA and `/api` backend routes:
+
+| service | route | internal DNS | port | env configuration |
+|---|---|---|---|---|
+| `web` | `https://<host>/` (`HTTPRoute/web`, `PathPrefix /`) | `web.imgproc.svc:3000` | 3000 | `PORT=3000`, `NATS_URL=nats://nats:4222`, `MINIO_ENDPOINT=minio`, `MINIO_PORT=9000`, `MINIO_USE_SSL=false`, `PUBLIC_RESULTS_BASE_URL=/results`, `MINIO_ACCESS_KEY` & `MINIO_SECRET_KEY` (from `imgproc-minio`), `PGPASSWORD` & `DATABASE_URL` (from `imgproc-postgres`) |
+
+- HTTPRoute `web` in `imgproc`, `parentRefs: traefik-gateway` (namespace `traefik`), `PathPrefix /`, backend `web:3000`.
+- Longest-prefix match: Traefik routes `/results/` to `minio-results` and everything else (`/`, `/api/*`, `/health`, `/ready`) to `web`.
 
 ## Streams, subjects and consumers
 

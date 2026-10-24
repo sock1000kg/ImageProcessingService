@@ -11,4 +11,5 @@ resources:
   - postgresql
   - minio
   - engine-workers
+  - web
   - sealed-secret.yaml

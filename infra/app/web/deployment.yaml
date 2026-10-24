@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/component: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web
+        app.kubernetes.io/component: web
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: home-server
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          # socknot1000kg/imgproc-web:dev is temporary until CI publishes immutable SHA tags, same as workers
+          image: socknot1000kg/imgproc-web:dev
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          env:
+            - name: PORT
+              value: "3000"
+            - name: NATS_URL
+              value: nats://nats:4222
+            - name: MINIO_ENDPOINT
+              value: minio
+            - name: MINIO_PORT
+              value: "9000"
+            - name: MINIO_USE_SSL
+              value: "false"
+            - name: PUBLIC_RESULTS_BASE_URL
+              value: /results
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: imgproc-minio
+                  key: rootUser
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: imgproc-minio
+                  key: rootPassword
+            # PGPASSWORD must precede DATABASE_URL for $(PGPASSWORD) expansion.
+            # Assumes a URL-safe password (seal.sh instructions generate hex).
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: imgproc-postgres
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://imgproc:$(PGPASSWORD)@postgresql:5432/imgproc
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -84,6 +84,7 @@ This document outlines the complete plan to deploy the foundational infrastructu
 *   **Tasks:**
         - [x] Document the exact connection strings, internal service DNS names (`nats.<ns>.svc:4222`, `postgresql.<ns>.svc:5432`, `minio.<ns>.svc:9000`), public endpoints and the stream/consumer table in `infra/docs/endpoints.md`.
         - [x] Deploy basic monitoring: `prometheus.io/scrape|port|path` annotations on the NATS exporter sidecar (7777), the MinIO pod (9000, `/minio/v2/metrics/cluster`, `MINIO_PROMETHEUS_AUTH_TYPE=public`) and the `postgresql-metrics` Service (9187) — scraped by the lab's prom-agent.
+        - [x] Deploy web application (`Deployment`, `Service`, `HTTPRoute` `/` and `/api`) using `socknot1000kg/imgproc-web:dev`. *(code only, not yet run on the lab)*
 *   **Verification:**
         - [ ] The Web team can successfully connect to Postgres, MinIO, and NATS.
         - [ ] The Engine team can connect to NATS and MinIO, consume jobs, and publish events.
@@ -127,5 +128,11 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * **Pool thresholds and peak RAM:** `video-worker` scales with `lagThreshold: "1"` (1 heavy video job per pod) up to 1 replica (peak 2048Mi limit); `image-worker` scales with `lagThreshold: "5"` up to 3 replicas (peak 4608Mi limit). Total peak worker memory is **6656Mi**.
 * **Pool sizing and scale rationale:** Image redaction handles many small, fast requests and now runs YOLO + face embeddings, so it needs more memory per pod (1536Mi limit) and scales out more (up to 3 replicas, lagThreshold: "5"). Video redaction is heavy and long-running (YOLO + ByteTrack + FFmpeg per job), so the video pool gets fewer, bigger pods (1 replica max, 2048Mi limit, lagThreshold: "1"). These sizes are interim until the engine reports measured RAM (engine plan M3).
 * **Monitoring endpoint:** Trigger `natsServerMonitoringEndpoint: nats.imgproc.svc.cluster.local:8222` targets the `imgproc` namespace.
+
+## Operational notes (Task 8, web deploy)
+* **Web deployment & routing:** Web application deployed via `infra/app/web/` (`Deployment`, `Service`, `HTTPRoute` `web`). Replicas: 1, image `socknot1000kg/imgproc-web:dev`, `imagePullPolicy: Always` as a temporary measure until CI publishes immutable digest/SHA tags. Container port 3000.
+* **Database URL assembly:** Secrets `PGPASSWORD` from `imgproc-postgres` (key `password`), then `DATABASE_URL=postgresql://imgproc:$(PGPASSWORD)@postgresql:5432/imgproc` using Kubernetes `$(VAR)` expansion (`PGPASSWORD` declared before `DATABASE_URL`). This assumes a URL-safe password (generated as hex by `seal.sh`).
+* **Resource limits & steady-state budget:** Container requests 128Mi / 100m, limits 512Mi / 500m (uploads buffered in memory via multer `memoryStorage`). Component is `web` (not `worker`), counting toward the platform steady-state budget (steady-state total 2208Mi, staying well under the 2560Mi ceiling).
+* **HTTPRoute precedence:** HTTPRoute `web` matches `PathPrefix /` on `imgproc.sock1000kg.io.vn`. The existing `minio-results` HTTPRoute (`PathPrefix /results/`) on the same hostname wins by longest-prefix match under Gateway API route matching rules.
 
 

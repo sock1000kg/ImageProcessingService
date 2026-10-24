@@ -323,7 +323,13 @@ check_minio() {
 route_check() {
   local base_url="$1"
   local label="$2"
-  local tmp status body list_status
+  local tmp status body list_status web_status
+  web_status="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $HOST" "$base_url/health")"
+  if [ "$web_status" = "200" ]; then
+    pass "web route ($label): GET /health -> 200"
+  else
+    fail "web route ($label): GET /health -> $web_status (expected 200)"
+  fi
   tmp="$(mktemp)"
   status="$(curl -s -o "$tmp" -w '%{http_code}' -H "Host: $HOST" "$base_url/results/$TEST_KEY")"
   body="$(cat "$tmp")"

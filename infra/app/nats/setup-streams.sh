@@ -120,9 +120,9 @@ main() {
   workdir="$(mktemp -d)"
   trap 'rm -rf "$workdir"' EXIT INT TERM
 
-  # AI pool: heavy inference jobs
-  write_stream_config "$workdir/ai_jobs.json" "AI_JOBS" \
-    '"jobs.ai", "jobs.ai.>"' "workqueue"
+  # Video pool: heavy video redaction jobs (Phase 2)
+  write_stream_config "$workdir/video_jobs.json" "VIDEO_JOBS" \
+    '"jobs.video", "jobs.video.>"' "workqueue"
   # Image pool: fast image tasks
   write_stream_config "$workdir/image_jobs.json" "IMAGE_JOBS" \
     '"jobs.image", "jobs.image.>"' "workqueue"
@@ -130,19 +130,19 @@ main() {
   write_stream_config "$workdir/job_events.json" "JOB_EVENTS" \
     '"jobs.events", "jobs.events.>"' "workqueue"
 
-  # ack_wait: AI 5m (slow models), image 1m, events 30s
-  write_consumer_config "$workdir/ai_workers.json" "ai-workers" \
+  # ack_wait: video 5m (slow video jobs), image 1m, events 30s
+  write_consumer_config "$workdir/video_workers.json" "video-workers" \
     300000000000 5 1000
   write_consumer_config "$workdir/image_workers.json" "image-workers" \
     60000000000 5 1000
   write_event_consumer_config "$workdir/backend_job_events.json" "backend-job-events" \
     30000000000 10
 
-  ensure_stream "AI_JOBS" "$workdir/ai_jobs.json"
+  ensure_stream "VIDEO_JOBS" "$workdir/video_jobs.json"
   ensure_stream "IMAGE_JOBS" "$workdir/image_jobs.json"
   ensure_stream "JOB_EVENTS" "$workdir/job_events.json"
 
-  ensure_consumer "AI_JOBS" "ai-workers" "$workdir/ai_workers.json"
+  ensure_consumer "VIDEO_JOBS" "video-workers" "$workdir/video_workers.json"
   ensure_consumer "IMAGE_JOBS" "image-workers" "$workdir/image_workers.json"
   ensure_consumer "JOB_EVENTS" "backend-job-events" "$workdir/backend_job_events.json"
 

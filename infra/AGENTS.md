@@ -27,20 +27,21 @@ This document outlines the complete plan to deploy the foundational infrastructu
 | `infra/smoke-test.sh` | End-to-end smoke test of cluster services and routes | User (lab) |
 | `infra/images/build-push.sh` | Builds custom MinIO+mc image and optionally pushes to registry | Maintainer / CI |
 | `infra/verify-render.sh` | Verifies rendered manifests, resource limits, and budgets | Coder / Reviewer / CI |
+| `.github/workflows/images.yml` | Builds and pushes web and engine images to Docker Hub on push to `main` | CI (GitHub Actions) / Dispatch |
 | `infra/app/nats/setup-streams.sh` | Sets up NATS JetStream streams and durable consumers | Run automatically (Job / compose) |
 | `infra/app/minio/setup-buckets.sh` | Sets up MinIO buckets, access policy, and ILM lifecycle | Run automatically (Job / compose) |
-| `infra/scaling-demo.sh` | Demonstrates independent autoscaling of AI and Image worker pools | User (lab) |
+| `infra/scaling-demo.sh` | Demonstrates independent autoscaling of Video and Image worker pools | User (lab) |
 
 ## Milestone 1: Messaging and Event Bus Foundation
 **Goal:** Deploy NATS JetStream and configure the complete streaming topology exactly as defined in the integration contracts.
 *   **Tasks:**
         - [x] Deploy NATS to the Kubernetes cluster with JetStream enabled via Helm/Kustomize.
-        - [x] Create the `AI_JOBS` stream with subject `jobs.ai` and the `ai-workers` durable consumer.
+        - [x] Create the `VIDEO_JOBS` stream with subject `jobs.video` and the `video-workers` durable consumer.
         - [x] Create the `IMAGE_JOBS` stream with subject `jobs.image` and the `image-workers` durable consumer.
         - [x] Create the `JOB_EVENTS` stream with subject `jobs.events` and the `backend-job-events` durable consumer.
 *   **Verification:**
         - [x] Use the NATS CLI within a `nats-box` pod to verify all streams and consumers exist. *(provisioned idempotently by the `nats-setup` Job / `setup-streams.sh`; automated in `smoke-test.sh`, not yet run on the lab)*
-        - [x] Manually publish test messages to `jobs.ai`, `jobs.image`, and `jobs.events` and verify they can be fetched by their respective consumers. *(automated in the NATS section of `smoke-test.sh`; not yet run on the lab)*
+        - [x] Manually publish test messages to `jobs.video`, `jobs.image`, and `jobs.events` and verify they can be fetched by their respective consumers. *(automated in the NATS section of `smoke-test.sh`; not yet run on the lab)*
 
 ## Milestone 2: Persistent Storage and State Authority
 **Goal:** Deploy PostgreSQL for authoritative job state and MinIO for large binary object storage, complete with networking and data lifecycle policies.
@@ -56,12 +57,12 @@ This document outlines the complete plan to deploy the foundational infrastructu
         - [ ] Verify the TTL policy is applied to the buckets.
 
 ## Milestone 3: Engine Worker Deployments & Resource Limits
-**Goal:** Deploy engine worker Deployments (`ai-worker`, `image-worker`) to validate the message consumption patterns and enforce the constrained hardware limits (**2C/4T i5-7200U, 12GB RAM, HDD** node, shared with the rest of the lab; platform services app + KEDA steady-state memory limits are capped at ~2.5Gi).
+**Goal:** Deploy engine worker Deployments (`video-worker`, `image-worker`) to validate the message consumption patterns and enforce the constrained hardware limits (**2C/4T i5-7200U, 12GB RAM, HDD** node, shared with the rest of the lab; platform services app + KEDA steady-state memory limits are capped at ~2.5Gi).
 *   **Tasks:**
         - [x] Configure engine worker manifests (`infra/app/engine-workers/`) using the real engine image `socknot1000kg/imgproc-engine:dev`. *(code only, not yet run on the lab)*
-        - [x] Deploy an `ai-worker` Deployment consuming from `ai-workers` on `AI_JOBS` (`jobs.ai`). *(code only, not yet run on the lab)*
+        - [x] Deploy a `video-worker` Deployment consuming from `video-workers` on `VIDEO_JOBS` (`jobs.video`). *(code only, not yet run on the lab)*
         - [x] Deploy an `image-worker` Deployment consuming from `image-workers` on `IMAGE_JOBS` (`jobs.image`). *(code only, not yet run on the lab)*
-        - [x] Set strict CPU and Memory requests/limits on these deployments (AI: 512Mi/1536Mi; Image: 256Mi/768Mi). *(code only, not yet run on the lab)*
+        - [x] Set strict CPU and Memory requests/limits on these deployments (Video: 768Mi/2048Mi; Image: 512Mi/1536Mi). *(code only, not yet run on the lab)*
 *   **Verification:**
         - [ ] Manually scale both deployments to 1.
         - [ ] Publish messages to both queues and verify independent processing and ACKing in the respective logs.
@@ -70,12 +71,12 @@ This document outlines the complete plan to deploy the foundational infrastructu
 **Goal:** Connect KEDA to NATS JetStream consumer lag to demonstrate that different worker pools can scale independently based on their specific queue depths.
 *   **Tasks:**
         - [ ] Install KEDA in the Kubernetes cluster. *(already installed by `infra/deploy.sh cluster` into ns `keda` — this item only becomes `[x]` once it is verified running on the lab)*
-        - [x] Create a `ScaledObject` for `ai-worker` targeting the `AI_JOBS` stream and `ai-workers` consumer lag. *(code only, not yet run on the lab)*
+        - [x] Create a `ScaledObject` for `video-worker` targeting the `VIDEO_JOBS` stream and `video-workers` consumer lag. *(code only, not yet run on the lab)*
         - [x] Create a `ScaledObject` for `image-worker` targeting the `IMAGE_JOBS` stream and `image-workers` consumer lag. *(code only, not yet run on the lab)*
         - [x] Set `minReplicaCount: 0`, and distinct `maxReplicaCount` values and scaling thresholds for each pool based on their simulated resource weight. *(code only, not yet run on the lab)*
 *   **Verification:**
         - [ ] Verify that KEDA creates HorizontalPodAutoscalers for both deployments.
-        - [ ] Publish a burst of messages *only* to `jobs.ai` and verify only the AI workers scale up.
+        - [ ] Publish a burst of messages *only* to `jobs.video` and verify only the Video workers scale up.
         - [ ] Publish a burst to `jobs.image` and verify independent scaling of Image workers.
         - [ ] Verify both scale down to 0 after queues are empty.
 
@@ -84,6 +85,8 @@ This document outlines the complete plan to deploy the foundational infrastructu
 *   **Tasks:**
         - [x] Document the exact connection strings, internal service DNS names (`nats.<ns>.svc:4222`, `postgresql.<ns>.svc:5432`, `minio.<ns>.svc:9000`), public endpoints and the stream/consumer table in `infra/docs/endpoints.md`.
         - [x] Deploy basic monitoring: `prometheus.io/scrape|port|path` annotations on the NATS exporter sidecar (7777), the MinIO pod (9000, `/minio/v2/metrics/cluster`, `MINIO_PROMETHEUS_AUTH_TYPE=public`) and the `postgresql-metrics` Service (9187) — scraped by the lab's prom-agent.
+        - [x] Deploy web application (`Deployment`, `Service`, `HTTPRoute` `/` and `/api`) using `socknot1000kg/imgproc-web:main`. *(code only, not yet run on the lab)*
+        - [x] CI image builds for web and engine: GitHub Actions workflow (`.github/workflows/images.yml`) building and pushing `socknot1000kg/imgproc-web` and `socknot1000kg/imgproc-engine` to Docker Hub on push to `main` (commit SHA and `main` tags). *(code only, not yet run on the lab)*
 *   **Verification:**
         - [ ] The Web team can successfully connect to Postgres, MinIO, and NATS.
         - [ ] The Engine team can connect to NATS and MinIO, consume jobs, and publish events.
@@ -116,15 +119,31 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * If Postgres still fails after this change, the earlier crash likely left a half-initialised data dir: delete PVC `data-postgresql-0` **in `imgproc`** (holds no persistent data yet) and redeploy.
 
 ## Operational notes (Task 2, engine workers)
-* **Worker workloads:** Engine worker Deployments (`ai-worker`, `image-worker`) are included in `infra/app` via `infra/app/kustomization.yaml` (`engine-workers`).
-* **Temporary `:dev` tag:** Deployments use `socknot1000kg/imgproc-engine:dev` with `imagePullPolicy: Always` as a temporary measure until CI publishes immutable digest/SHA tags.
-* **Worker label and steady-state budget:** Worker Deployments carry label `app.kubernetes.io/component: worker` and are excluded from the platform steady-state budget (which remains at **2560Mi**). Their sizing (AI: 1536Mi limit; Image: 768Mi limit) is reported informationally by `verify-render.sh`.
+* **Worker workloads:** Engine worker Deployments (`video-worker`, `image-worker`) are included in `infra/app` via `infra/app/kustomization.yaml` (`engine-workers`).
+* **CI `:main` tag:** Deployments use `socknot1000kg/imgproc-engine:main` with `imagePullPolicy: Always`. `:main` tracks the latest build of `main`, and pods pick it up on restart. Exact commit SHAs (e.g. `:<sha>`) can be pinned manually when needed.
+* **Worker label and steady-state budget:** Worker Deployments carry label `app.kubernetes.io/component: worker` and are excluded from the platform steady-state budget (which remains at **2560Mi**). Their sizing (Video: 2048Mi limit; Image: 1536Mi limit) is reported informationally by `verify-render.sh`.
 * **MinIO credentials:** Workers mount MinIO credentials from the existing `imgproc-minio` Secret (`rootUser`/`rootPassword`). Root credentials are used temporarily for dev; a scoped MinIO service account user is a future improvement.
 * **Smoke test interaction:** When worker Deployments have ready replicas, `smoke-test.sh` skips the pool queue drain (`SKIP (workers running)`) to prevent racing with active engine workers, and asserts stream and consumer presence.
 
 ## Operational notes (Task 3, KEDA ScaledObjects)
-* **Replicas owned by KEDA:** `ai-worker` and `image-worker` Deployments omit `replicas` so `kubectl apply` does not fight the KEDA HPA.
-* **Pool thresholds and peak RAM:** `ai-worker` scales with `lagThreshold: "1"` (1 heavy inference job per pod) up to 2 replicas (peak 3072Mi limit); `image-worker` scales with `lagThreshold: "5"` up to 3 replicas (peak 2304Mi limit). Total peak worker memory is **5376Mi**.
+* **Replicas owned by KEDA:** `video-worker` and `image-worker` Deployments omit `replicas` so `kubectl apply` does not fight the KEDA HPA.
+* **Pool thresholds and peak RAM:** `video-worker` scales with `lagThreshold: "1"` (1 heavy video job per pod) up to 1 replica (peak 2048Mi limit); `image-worker` scales with `lagThreshold: "5"` up to 3 replicas (peak 4608Mi limit). Total peak worker memory is **6656Mi**.
+* **Pool sizing and scale rationale:** Image redaction handles many small, fast requests and now runs YOLO + face embeddings, so it needs more memory per pod (1536Mi limit) and scales out more (up to 3 replicas, lagThreshold: "5"). Video redaction is heavy and long-running (YOLO + ByteTrack + FFmpeg per job), so the video pool gets fewer, bigger pods (1 replica max, 2048Mi limit, lagThreshold: "1"). These sizes are interim until the engine reports measured RAM (engine plan M3).
 * **Monitoring endpoint:** Trigger `natsServerMonitoringEndpoint: nats.imgproc.svc.cluster.local:8222` targets the `imgproc` namespace.
+
+## Operational notes (Task 8, web deploy)
+* **Web deployment & routing:** Web application deployed via `infra/app/web/` (`Deployment`, `Service`, `HTTPRoute` `web`). Replicas: 1, image `socknot1000kg/imgproc-web:main`, `imagePullPolicy: Always`. Container port 3000. `:main` tracks the latest build of `main`, picking up changes on restart. Exact commit SHAs can be pinned manually when needed.
+* **Database URL assembly:** Secrets `PGPASSWORD` from `imgproc-postgres` (key `password`), then `DATABASE_URL=postgresql://imgproc:$(PGPASSWORD)@postgresql:5432/imgproc` using Kubernetes `$(VAR)` expansion (`PGPASSWORD` declared before `DATABASE_URL`). This assumes a URL-safe password (generated as hex by `seal.sh`).
+* **Resource limits & steady-state budget:** Container requests 128Mi / 100m, limits 512Mi / 500m (uploads buffered in memory via multer `memoryStorage`). Component is `web` (not `worker`), counting toward the platform steady-state budget (steady-state total 2208Mi, staying well under the 2560Mi ceiling).
+* **HTTPRoute precedence:** HTTPRoute `web` matches `PathPrefix /` on `imgproc.sock1000kg.io.vn`. The existing `minio-results` HTTPRoute (`PathPrefix /results/`) on the same hostname wins by longest-prefix match under Gateway API route matching rules.
+
+## Operational notes (Task 9, CI image builds and rollout)
+* **CI workflow (`.github/workflows/images.yml`):** Automatically builds and pushes `socknot1000kg/imgproc-web` and `socknot1000kg/imgproc-engine` to Docker Hub on push to `main` when `web/**` or `engine/**` change, or on manual `workflow_dispatch`. Each build is tagged with both the commit SHA (`:${{ github.sha }}`) and `:main`, targeting `linux/amd64` with GHA layer caching.
+* **Secrets and environment:** The workflow uses GitHub Actions environment `dockerhub` (restricted to deployment branch `main`) with secrets `DOCKERHUB_USERNAME` (`socknot1000kg`) and `DOCKERHUB_TOKEN` (Docker Hub personal access token with Read & Write scope). Permissions are restricted to `contents: read` and no pull request triggers are configured.
+* **Image rollout procedure:** Manifests use `:main` with `imagePullPolicy: Always`. `infra/deploy.sh` is unchanged; after CI publishes a new image, the user rolls it out via:
+  1. `infra/deploy.sh app` (if manifests changed)
+  2. `kubectl --context default -n imgproc rollout restart deploy/web` (to bounce the web deployment immediately)
+  3. Engine workers automatically pull the newest `:main` image the next time KEDA scales them up from 0 (or restart them manually if already running).
+
 
 

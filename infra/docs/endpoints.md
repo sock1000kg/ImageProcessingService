@@ -28,6 +28,7 @@ Runs on the single lab node `home-server` (i5-7200U, 2C/4T, 12GB, HDD).
 | PostgreSQL | `postgresql.imgproc.svc:5432` |
 | MinIO API | `minio.imgproc.svc:9000` |
 | MinIO console | `minio-console.imgproc.svc:9001` |
+| Web application | `web.imgproc.svc:3000` |
 
 - PostgreSQL: database `imgproc`, user `imgproc`, port `5432`.
 - MinIO buckets: `uploads` (private), `results` (anonymous **GetObject only**).
@@ -36,8 +37,8 @@ Runs on the single lab node `home-server` (i5-7200U, 2C/4T, 12GB, HDD).
 
 | secret | keys | used by |
 |---|---|---|
-| `imgproc-minio` | `rootUser`, `rootPassword` | MinIO chart (`existingSecret`), MinIO setup Job |
-| `imgproc-postgres` | `postgres-password` (admin `postgres`), `password` (user `imgproc`) | PostgreSQL chart (`auth.existingSecret`) |
+| `imgproc-minio` | `rootUser`, `rootPassword` | MinIO chart (`existingSecret`), MinIO setup Job, workers, web |
+| `imgproc-postgres` | `postgres-password` (admin `postgres`), `password` (user `imgproc`) | PostgreSQL chart (`auth.existingSecret`), web |
 
 Create `infra/app/real-secret.yaml` from `real-secret.example.yaml`
 (gitignored), then run `infra/seal.sh` to produce `sealed-secret.yaml`.
@@ -64,14 +65,26 @@ https://<host>/results/<object-key>
   `http://traefik.traefik.svc.cluster.local:80` in the CF dashboard. Nothing in
   this repo creates it.
 
+## Web application
+
+Web tier serving the frontend SPA and `/api` backend routes:
+
+| service | route | internal DNS | port | image | env configuration |
+|---|---|---|---|---|---|
+| `web` | `https://<host>/` (`HTTPRoute/web`, `PathPrefix /`) | `web.imgproc.svc:3000` | 3000 | `socknot1000kg/imgproc-web:main` (and `:<sha>`) | `PORT=3000`, `NATS_URL=nats://nats:4222`, `MINIO_ENDPOINT=minio`, `MINIO_PORT=9000`, `MINIO_USE_SSL=false`, `PUBLIC_RESULTS_BASE_URL=/results`, `MINIO_ACCESS_KEY` & `MINIO_SECRET_KEY` (from `imgproc-minio`), `PGPASSWORD` & `DATABASE_URL` (from `imgproc-postgres`) |
+
+- HTTPRoute `web` in `imgproc`, `parentRefs: traefik-gateway` (namespace `traefik`), `PathPrefix /`, backend `web:3000`.
+- Longest-prefix match: Traefik routes `/results/` to `minio-results` and everything else (`/`, `/api/*`, `/health`, `/ready`) to `web`.
+- Image: built by `.github/workflows/images.yml` and pushed to Docker Hub as `socknot1000kg/imgproc-web:main` and `:<sha>`. Deployment uses `:main` with `imagePullPolicy: Always`.
+
 ## Streams, subjects and consumers
 
 Streams use **workqueue** retention, file storage, 1 replica.
 
 | stream | subjects | consumer | ack_wait | max_deliver | max_ack_pending |
 |---|---|---|---|---|---|
-| `AI_JOBS` | `jobs.ai`, `jobs.ai.>` | `ai-workers` | 5m (300s) | 5 | 1000 |
 | `IMAGE_JOBS` | `jobs.image`, `jobs.image.>` | `image-workers` | 1m (60s) | 5 | 1000 |
+| `VIDEO_JOBS` | `jobs.video`, `jobs.video.>` | `video-workers` | 5m (300s) | 5 | 1000 |
 | `JOB_EVENTS` | `jobs.events`, `jobs.events.>` | `backend-job-events` | 30s | 10 | 1000 |
 
 All consumers use explicit ack. Provisioned idempotently by
@@ -86,15 +99,15 @@ triggers:
     metadata:
       natsServerMonitoringEndpoint: nats.imgproc.svc.cluster.local:8222
       account: $G
-      stream: AI_JOBS          # or IMAGE_JOBS
-      consumer: ai-workers     # or image-workers
-      lagThreshold: "1"        # AI_JOBS: "1", IMAGE_JOBS: "5"
+      stream: VIDEO_JOBS        # or IMAGE_JOBS
+      consumer: video-workers   # or image-workers
+      lagThreshold: "1"         # VIDEO_JOBS: "1", IMAGE_JOBS: "5"
       activationLagThreshold: "0"
       useHttps: "false"
 ```
 
 > ScaledObjects configure `pollingInterval: 10` and `cooldownPeriod: 120`. `durableName` is no longer used by KEDA's `nats-jetstream` scaler (legacy STAN parameter; JetStream scaler uses `consumer`).
-> Must match `docs/integration-contracts.md` §4 and §11 (per-pool `AI_JOBS` /
+> Must match `docs/integration-contracts.md` §4 and §11 (per-pool `VIDEO_JOBS` /
 > `IMAGE_JOBS` streams).
 
 ## Workers
@@ -103,10 +116,10 @@ Engine worker pools deployed in `imgproc` (agreeing with `docs/integration-contr
 
 | deployment | stream / consumer | min / max replicas | lag / activation | CPU req / limit | memory req / limit | peak RAM | image |
 |---|---|---|---|---|---|---|---|
-| `ai-worker` | `AI_JOBS` / `ai-workers` | 0 / 2 | 1 / 0 | 250m / 1000m | 512Mi / 1536Mi | 3072Mi | `socknot1000kg/imgproc-engine:dev` |
-| `image-worker` | `IMAGE_JOBS` / `image-workers` | 0 / 3 | 5 / 0 | 100m / 500m | 256Mi / 768Mi | 2304Mi | `socknot1000kg/imgproc-engine:dev` |
+| `image-worker` | `IMAGE_JOBS` / `image-workers` | 0 / 3 | 5 / 0 | 250m / 1000m | 512Mi / 1536Mi | 4608Mi | `socknot1000kg/imgproc-engine:main` |
+| `video-worker` | `VIDEO_JOBS` / `video-workers` | 0 / 1 | 1 / 0 | 500m / 1500m | 768Mi / 2048Mi | 2048Mi | `socknot1000kg/imgproc-engine:main` |
 
-Total peak worker RAM: **5376Mi** (2×1536Mi + 3×768Mi). Replicas are managed dynamically by KEDA ScaledObjects (omitted from Deployments).
+Total peak worker RAM: **6656Mi** (3×1536Mi + 1×2048Mi). Replicas are managed dynamically by KEDA ScaledObjects (omitted from Deployments). Images are built by `.github/workflows/images.yml` and pushed as `socknot1000kg/imgproc-engine:main` and `:<sha>`. Deployments use `:main` with `imagePullPolicy: Always`.
 
 
 ## Metrics

@@ -113,25 +113,25 @@ NATS_CHECK_SCRIPT=$(cat <<'EOS'
 set -e
 [ -n "${1:-}" ] || { echo "missing arg (expected the smoke test id)" >&2; exit 2; }
 NATS_URL="${NATS_URL:-nats://nats:4222}"
-AI_WORKERS_ACTIVE="${AI_WORKERS_ACTIVE:-0}"
+VIDEO_WORKERS_ACTIVE="${VIDEO_WORKERS_ACTIVE:-0}"
 IMAGE_WORKERS_ACTIVE="${IMAGE_WORKERS_ACTIVE:-0}"
 
-for s in AI_JOBS IMAGE_JOBS JOB_EVENTS; do
+for s in VIDEO_JOBS IMAGE_JOBS JOB_EVENTS; do
   nats --server "$NATS_URL" stream info "$s" >/dev/null || exit 10
 done
-nats --server "$NATS_URL" consumer info AI_JOBS ai-workers >/dev/null || exit 11
+nats --server "$NATS_URL" consumer info VIDEO_JOBS video-workers >/dev/null || exit 11
 nats --server "$NATS_URL" consumer info IMAGE_JOBS image-workers >/dev/null || exit 12
 nats --server "$NATS_URL" consumer info JOB_EVENTS backend-job-events >/dev/null || exit 13
 
 # When workers are active, draining via the same durable consumer races with workers.
 # In that case, verifying stream and consumer existence above is sufficient.
-if [ "$AI_WORKERS_ACTIVE" = "0" ]; then
-  nats --server "$NATS_URL" pub jobs.ai "{\"smoke\":\"$1\"}" >/dev/null || exit 14
-  nats --server "$NATS_URL" consumer next AI_JOBS ai-workers --count 1 --ack >/dev/null || exit 17
-  left_ai=$(nats --server "$NATS_URL" stream info AI_JOBS -j | sed -n 's/^ *"messages": *\([0-9]*\),*$/\1/p')
-  [ "$left_ai" = "0" ] || exit 20
+if [ "$VIDEO_WORKERS_ACTIVE" = "0" ]; then
+  nats --server "$NATS_URL" pub jobs.video "{\"smoke\":\"$1\"}" >/dev/null || exit 14
+  nats --server "$NATS_URL" consumer next VIDEO_JOBS video-workers --count 1 --ack >/dev/null || exit 17
+  left_video=$(nats --server "$NATS_URL" stream info VIDEO_JOBS -j | sed -n 's/^ *"messages": *\([0-9]*\),*$/\1/p')
+  [ "$left_video" = "0" ] || exit 20
 else
-  echo "SKIP: ai-workers running, pool drain skipped"
+  echo "SKIP: video-workers running, pool drain skipped"
 fi
 
 if [ "$IMAGE_WORKERS_ACTIVE" = "0" ]; then
@@ -148,7 +148,7 @@ nats --server "$NATS_URL" pub jobs.events "{\"smoke\":\"$1\"}" >/dev/null || exi
 nats --server "$NATS_URL" consumer next JOB_EVENTS backend-job-events --count 1 --ack >/dev/null || exit 19
 
 # When no workers are running, verify JOB_EVENTS stream is completely drained
-if [ "$AI_WORKERS_ACTIVE" = "0" ] && [ "$IMAGE_WORKERS_ACTIVE" = "0" ]; then
+if [ "$VIDEO_WORKERS_ACTIVE" = "0" ] && [ "$IMAGE_WORKERS_ACTIVE" = "0" ]; then
   left_evt=$(nats --server "$NATS_URL" stream info JOB_EVENTS -j | sed -n 's/^ *"messages": *\([0-9]*\),*$/\1/p')
   [ "$left_evt" = "0" ] || exit 22
 fi
@@ -159,21 +159,21 @@ EOS
 
 check_nats() {
   local out
-  local ai_active=0 image_active=0
-  local ai_ready image_ready
-  ai_ready="$("${KUBECTL[@]}" -n "$NS" get deploy ai-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+  local video_active=0 image_active=0
+  local video_ready image_ready
+  video_ready="$("${KUBECTL[@]}" -n "$NS" get deploy video-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
   image_ready="$("${KUBECTL[@]}" -n "$NS" get deploy image-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
-  [ "${ai_ready:-0}" -gt 0 ] 2>/dev/null && ai_active=1
+  [ "${video_ready:-0}" -gt 0 ] 2>/dev/null && video_active=1
   [ "${image_ready:-0}" -gt 0 ] 2>/dev/null && image_active=1
 
   if out=$("${KUBECTL[@]}" -n "$NS" run nats-smoke --rm -i --restart=Never \
       --image="$NATS_BOX_IMAGE" --overrides="$POD_OVERRIDES" \
-      --env="AI_WORKERS_ACTIVE=$ai_active" --env="IMAGE_WORKERS_ACTIVE=$image_active" \
+      --env="VIDEO_WORKERS_ACTIVE=$video_active" --env="IMAGE_WORKERS_ACTIVE=$image_active" \
       --command -- /bin/sh -c "$NATS_CHECK_SCRIPT" sh "$TEST_UUID" 2>&1); then
     if echo "$out" | grep -q "NATS_OK"; then
-      if [ "$ai_active" -eq 1 ] || [ "$image_active" -eq 1 ]; then
+      if [ "$video_active" -eq 1 ] || [ "$image_active" -eq 1 ]; then
         pass "nats: stream/consumer exist (worker pools running)"
-        [ "$ai_active" -eq 1 ] && skip "nats: ai-worker pool drain (workers running)"
+        [ "$video_active" -eq 1 ] && skip "nats: video-worker pool drain (workers running)"
         [ "$image_active" -eq 1 ] && skip "nats: image-worker pool drain (workers running)"
       else
         pass "nats: streams/consumers present, publish+ack round-trip, streams empty"
@@ -323,7 +323,13 @@ check_minio() {
 route_check() {
   local base_url="$1"
   local label="$2"
-  local tmp status body list_status
+  local tmp status body list_status web_status
+  web_status="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $HOST" "$base_url/health")"
+  if [ "$web_status" = "200" ]; then
+    pass "web route ($label): GET /health -> 200"
+  else
+    fail "web route ($label): GET /health -> $web_status (expected 200)"
+  fi
   tmp="$(mktemp)"
   status="$(curl -s -o "$tmp" -w '%{http_code}' -H "Host: $HOST" "$base_url/results/$TEST_KEY")"
   body="$(cat "$tmp")"

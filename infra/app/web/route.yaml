@@ -1,0 +1,21 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: web
+spec:
+  hostnames:
+    - imgproc.sock1000kg.io.vn
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+  rules:
+    # Default route for the web application (frontend and API).
+    # The existing minio-results route (/results/) stays as it is and wins by
+    # longest-prefix match under Gateway API route matching rules.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: web
+          port: 3000

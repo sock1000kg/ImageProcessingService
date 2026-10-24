@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ai-worker
+  name: video-worker
   labels:
-    app.kubernetes.io/name: ai-worker
+    app.kubernetes.io/name: video-worker
     app.kubernetes.io/component: worker
-    imgproc.io/pool: ai
+    imgproc.io/pool: video
 spec:
-  # Replicas managed by KEDA ScaledObject (min 0, max 2)
+  # Replicas managed by KEDA ScaledObject (min 0, max 1)
   selector:
     matchLabels:
-      app.kubernetes.io/name: ai-worker
+      app.kubernetes.io/name: video-worker
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ai-worker
+        app.kubernetes.io/name: video-worker
         app.kubernetes.io/component: worker
-        imgproc.io/pool: ai
+        imgproc.io/pool: video
     spec:
       nodeSelector:
         kubernetes.io/hostname: home-server
@@ -28,7 +28,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: ai-worker
+        - name: video-worker
           # socknot1000kg/imgproc-engine:dev is temporary until CI publishes immutable SHA tags
           image: socknot1000kg/imgproc-engine:dev
           imagePullPolicy: Always
@@ -36,11 +36,11 @@ spec:
             - name: NATS_URL
               value: nats://nats:4222
             - name: NATS_STREAM_NAME
-              value: AI_JOBS
+              value: VIDEO_JOBS
             - name: NATS_CONSUMER_NAME
-              value: ai-workers
+              value: video-workers
             - name: NATS_SUBJECTS
-              value: jobs.ai
+              value: jobs.video
             - name: NATS_EVENTS_SUBJECT
               value: jobs.events
             - name: MINIO_ENDPOINT
@@ -63,11 +63,11 @@ spec:
               value: /tmp
           resources:
             requests:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 500m
+              memory: 768Mi
             limits:
-              cpu: 1000m
-              memory: 1536Mi
+              cpu: 1500m
+              memory: 2048Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Demonstration of independent autoscaling of AI and Image worker pools in imgproc.
+# Demonstration of independent autoscaling of Video and Image worker pools in imgproc.
+#
+# Note: The video phase only passes once the engine has a video processor (Phase 2).
 #
 # Usage:
-#   infra/scaling-demo.sh [--ai N] [--image N] [--image-file PATH] [--csv PATH] [--timeout SECONDS]
+#   infra/scaling-demo.sh [--video N] [--image N] [--image-file PATH] [--csv PATH] [--timeout SECONDS]
 #
 # What "PASS" means:
 #   1. Preflight: ScaledObjects exist and READY; both pools start at 0 replicas.
-#   2. Phase AI: ai-worker desired replicas reach min(2, --ai) while image-worker desired
-#      stays 0 for the whole phase, and then the AI consumer drains to 0.
-#   3. Phase Image: image-worker desired replicas reach min(3, ceil(--image/5)), ai-worker
+#   2. Phase Video: video-worker desired replicas reach min(1, --video) while image-worker desired
+#      stays 0 for the whole phase, and then the Video consumer drains to 0.
+#   3. Phase Image: image-worker desired replicas reach min(3, ceil(--image/5)), video-worker
 #      desired does not increase during the phase, and the Image consumer drains to 0.
 #   4. Scale to zero: both worker Deployments scale back down to 0 replicas.
 #
@@ -19,12 +21,12 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: scaling-demo.sh [--ai N] [--image N] [--image-file PATH] [--csv PATH] [--timeout SECONDS]
+usage: scaling-demo.sh [--video N] [--image N] [--image-file PATH] [--csv PATH] [--timeout SECONDS]
 
-Demonstrates independent autoscaling of AI and Image worker pools in imgproc.
+Demonstrates independent autoscaling of Video and Image worker pools in imgproc.
 
 Options:
-  --ai N                Number of AI jobs to publish (default: 6)
+  --video N             Number of Video jobs to publish (default: 6)
   --image N             Number of Image jobs to publish (default: 15)
   --image-file PATH     Path to sample input image (default: infra/demo/sample.png)
   --csv PATH            Optional path to write scaling time series CSV
@@ -32,9 +34,9 @@ Options:
   -h, --help            Show this help message and exit
 
 PASS criteria:
-  - Phase AI: ai-worker desired reaches min(2, --ai), image-worker desired stays 0,
-    and AI consumer drains to 0.
-  - Phase Image: image-worker desired reaches min(3, ceil(--image/5)), ai-worker
+  - Phase Video: video-worker desired reaches min(1, --video), image-worker desired stays 0,
+    and Video consumer drains to 0.
+  - Phase Image: image-worker desired reaches min(3, ceil(--image/5)), video-worker
     desired does not increase, and Image consumer drains to 0.
   - Scale to zero: both worker Deployments scale back down to 0 replicas.
 EOF
@@ -44,7 +46,7 @@ EOF
 # 1. Argument parsing & environment validation
 # -----------------------------------------------------------------------------
 
-AI_COUNT=6
+VIDEO_COUNT=6
 IMAGE_COUNT=15
 IMAGE_FILE="infra/demo/sample.png"
 CSV_PATH=""
@@ -52,9 +54,9 @@ TIMEOUT=600
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --ai)
-      [ "$#" -ge 2 ] || { echo "scaling-demo.sh: missing value for --ai" >&2; exit 1; }
-      AI_COUNT="$2"
+    --video)
+      [ "$#" -ge 2 ] || { echo "scaling-demo.sh: missing value for --video" >&2; exit 1; }
+      VIDEO_COUNT="$2"
       shift 2
       ;;
     --image)
@@ -112,25 +114,25 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # State variables for polling
-ai_ready=0
-ai_desired=0
+video_ready=0
+video_desired=0
 image_ready=0
 image_desired=0
-ai_pending=0
+video_pending=0
 image_pending=0
 
 poll_status() {
   local deploy_raw
-  deploy_raw=$("${KUBECTL[@]}" -n "$NS" get deploy ai-worker image-worker -o jsonpath='{range .items[*]}{.status.readyReplicas}:{.spec.replicas} {end}' 2>/dev/null || true)
+  deploy_raw=$("${KUBECTL[@]}" -n "$NS" get deploy video-worker image-worker -o jsonpath='{range .items[*]}{.status.readyReplicas}:{.spec.replicas} {end}' 2>/dev/null || true)
   
-  local raw_ai raw_img
-  raw_ai=$(echo "$deploy_raw" | awk '{print $1}')
+  local raw_vid raw_img
+  raw_vid=$(echo "$deploy_raw" | awk '{print $1}')
   raw_img=$(echo "$deploy_raw" | awk '{print $2}')
 
-  ai_ready="${raw_ai%%:*}"
-  ai_desired="${raw_ai##*:}"
-  [ -z "$ai_ready" ] && ai_ready=0
-  [ -z "$ai_desired" ] && ai_desired=0
+  video_ready="${raw_vid%%:*}"
+  video_desired="${raw_vid##*:}"
+  [ -z "$video_ready" ] && video_ready=0
+  [ -z "$video_desired" ] && video_desired=0
 
   image_ready="${raw_img%%:*}"
   image_desired="${raw_img##*:}"
@@ -139,9 +141,9 @@ poll_status() {
 
   local consumer_raw
   consumer_raw=$("${KUBECTL[@]}" -n "$NS" exec "$NATS_POD" -- /bin/sh -c '
-    ai=$(nats --server nats:4222 consumer info AI_JOBS ai-workers --json 2>/dev/null || echo "{}")
+    vid=$(nats --server nats:4222 consumer info VIDEO_JOBS video-workers --json 2>/dev/null || echo "{}")
     img=$(nats --server nats:4222 consumer info IMAGE_JOBS image-workers --json 2>/dev/null || echo "{}")
-    echo "$ai"
+    echo "$vid"
     echo "===DELIMITER==="
     echo "$img"
   ' 2>/dev/null || true)
@@ -171,14 +173,14 @@ def calc(s):
 
 raw = sys.stdin.read()
 parts = raw.split('===DELIMITER===')
-ai_p = calc(parts[0]) if len(parts) > 0 else 0
+vid_p = calc(parts[0]) if len(parts) > 0 else 0
 img_p = calc(parts[1]) if len(parts) > 1 else 0
-print(f'{ai_p} {img_p}')
+print(f'{vid_p} {img_p}')
 " <<< "$consumer_raw" 2>/dev/null || echo "0 0")
 
-  ai_pending=$(echo "$pending_pair" | awk '{print $1}')
+  video_pending=$(echo "$pending_pair" | awk '{print $1}')
   image_pending=$(echo "$pending_pair" | awk '{print $2}')
-  [ -z "$ai_pending" ] && ai_pending=0
+  [ -z "$video_pending" ] && video_pending=0
   [ -z "$image_pending" ] && image_pending=0
 }
 
@@ -187,24 +189,24 @@ print(f'{ai_p} {img_p}')
 # -----------------------------------------------------------------------------
 preflight() {
   echo "=== Step 1: Preflight checks ==="
-  echo "Checking ScaledObjects ai-worker and image-worker are READY..."
+  echo "Checking ScaledObjects video-worker and image-worker are READY..."
   local elapsed=0
   while true; do
-    local ai_so_ready img_so_ready
-    ai_so_ready=$("${KUBECTL[@]}" -n "$NS" get scaledobject ai-worker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+    local video_so_ready img_so_ready
+    video_so_ready=$("${KUBECTL[@]}" -n "$NS" get scaledobject video-worker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
     img_so_ready=$("${KUBECTL[@]}" -n "$NS" get scaledobject image-worker -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
 
-    if [ "$ai_so_ready" = "True" ] && [ "$img_so_ready" = "True" ]; then
-      echo "ScaledObjects ai-worker and image-worker are READY."
+    if [ "$video_so_ready" = "True" ] && [ "$img_so_ready" = "True" ]; then
+      echo "ScaledObjects video-worker and image-worker are READY."
       break
     fi
 
     if [ "$elapsed" -ge "$TIMEOUT" ]; then
-      echo "ERROR: ScaledObjects not READY after ${TIMEOUT}s (ai: $ai_so_ready, image: $img_so_ready)" >&2
+      echo "ERROR: ScaledObjects not READY after ${TIMEOUT}s (video: $video_so_ready, image: $img_so_ready)" >&2
       exit 1
     fi
 
-    echo "Preflight: waiting for ScaledObjects to become READY (ai: ${ai_so_ready:-Unknown}, image: ${img_so_ready:-Unknown})..."
+    echo "Preflight: waiting for ScaledObjects to become READY (video: ${video_so_ready:-Unknown}, image: ${img_so_ready:-Unknown})..."
     sleep 5
     elapsed=$((elapsed + 5))
   done
@@ -212,28 +214,28 @@ preflight() {
   echo "Checking that worker Deployments start at 0 replicas..."
   elapsed=0
   while true; do
-    local deploy_raw raw_ai raw_img r_ai d_ai r_img d_img
-    deploy_raw=$("${KUBECTL[@]}" -n "$NS" get deploy ai-worker image-worker -o jsonpath='{range .items[*]}{.status.readyReplicas}:{.spec.replicas} {end}' 2>/dev/null || true)
-    raw_ai=$(echo "$deploy_raw" | awk '{print $1}')
+    local deploy_raw raw_vid raw_img r_vid d_vid r_img d_img
+    deploy_raw=$("${KUBECTL[@]}" -n "$NS" get deploy video-worker image-worker -o jsonpath='{range .items[*]}{.status.readyReplicas}:{.spec.replicas} {end}' 2>/dev/null || true)
+    raw_vid=$(echo "$deploy_raw" | awk '{print $1}')
     raw_img=$(echo "$deploy_raw" | awk '{print $2}')
-    r_ai="${raw_ai%%:*}"; d_ai="${raw_ai##*:}"
+    r_vid="${raw_vid%%:*}"; d_vid="${raw_vid##*:}"
     r_img="${raw_img%%:*}"; d_img="${raw_img##*:}"
-    [ -z "$r_ai" ] && r_ai=0
-    [ -z "$d_ai" ] && d_ai=0
+    [ -z "$r_vid" ] && r_vid=0
+    [ -z "$d_vid" ] && d_vid=0
     [ -z "$r_img" ] && r_img=0
     [ -z "$d_img" ] && d_img=0
 
-    if [ "$d_ai" -eq 0 ] && [ "$r_ai" -eq 0 ] && [ "$d_img" -eq 0 ] && [ "$r_img" -eq 0 ]; then
+    if [ "$d_vid" -eq 0 ] && [ "$r_vid" -eq 0 ] && [ "$d_img" -eq 0 ] && [ "$r_img" -eq 0 ]; then
       echo "Both worker Deployments are at 0 replicas."
       break
     fi
 
     if [ "$elapsed" -ge "$TIMEOUT" ]; then
-      echo "ERROR: worker Deployments did not scale down to 0 replicas within ${TIMEOUT}s (ai: $r_ai/$d_ai, image: $r_img/$d_img)" >&2
+      echo "ERROR: worker Deployments did not scale down to 0 replicas within ${TIMEOUT}s (video: $r_vid/$d_vid, image: $r_img/$d_img)" >&2
       exit 1
     fi
 
-    echo "Preflight: waiting for worker pools to reach 0 replicas (ai-worker: $r_ai/$d_ai, image-worker: $r_img/$d_img)..."
+    echo "Preflight: waiting for worker pools to reach 0 replicas (video-worker: $r_vid/$d_vid, image-worker: $r_img/$d_img)..."
     sleep 5
     elapsed=$((elapsed + 5))
   done
@@ -282,9 +284,9 @@ prepare_inputs() {
   "${KUBECTL[@]}" -n "$NS" cp "$IMAGE_FILE" "$MC_POD:/tmp/sample.png"
   "${KUBECTL[@]}" -n "$NS" exec "$MC_POD" -- mc cp /tmp/sample.png "local/uploads/run-$RUN_ID/sample.png" >/dev/null
 
-  AI_JOB_IDS=()
-  for ((i=1; i<=AI_COUNT; i++)); do
-    AI_JOB_IDS+=("$(python3 -c 'import uuid; print(uuid.uuid4())')")
+  VIDEO_JOB_IDS=()
+  for ((i=1; i<=VIDEO_COUNT; i++)); do
+    VIDEO_JOB_IDS+=("$(python3 -c 'import uuid; print(uuid.uuid4())')")
   done
 
   IMAGE_JOB_IDS=()
@@ -292,11 +294,11 @@ prepare_inputs() {
     IMAGE_JOB_IDS+=("$(python3 -c 'import uuid; print(uuid.uuid4())')")
   done
 
-  ALL_JOB_IDS=("${AI_JOB_IDS[@]}" "${IMAGE_JOB_IDS[@]}")
+  ALL_JOB_IDS=("${VIDEO_JOB_IDS[@]}" "${IMAGE_JOB_IDS[@]}")
 
-  echo "Generated ${#AI_JOB_IDS[@]} AI job IDs and ${#IMAGE_JOB_IDS[@]} Image job IDs (run prefix: run-$RUN_ID)"
-  for jid in "${AI_JOB_IDS[@]}"; do
-    echo "  AI job: run-$RUN_ID / $jid"
+  echo "Generated ${#VIDEO_JOB_IDS[@]} Video job IDs and ${#IMAGE_JOB_IDS[@]} Image job IDs (run prefix: run-$RUN_ID)"
+  for jid in "${VIDEO_JOB_IDS[@]}"; do
+    echo "  Video job: run-$RUN_ID / $jid"
   done
   for jid in "${IMAGE_JOB_IDS[@]}"; do
     echo "  Image job: run-$RUN_ID / $jid"
@@ -314,39 +316,39 @@ prepare_inputs() {
 }
 
 # -----------------------------------------------------------------------------
-# Step 4: Phase AI
+# Step 4: Phase Video
 # -----------------------------------------------------------------------------
-phase_ai_passed=0
-target_ai_desired=0
+phase_video_passed=0
+target_video_desired=0
 
-run_phase_ai() {
+run_phase_video() {
   echo
-  echo "=== Step 4: Phase AI ($AI_COUNT jobs) ==="
-  target_ai_desired=$(( AI_COUNT < 2 ? AI_COUNT : 2 ))
-  echo "Target ai-worker desired replicas: $target_ai_desired (min(2, $AI_COUNT))"
+  echo "=== Step 4: Phase Video ($VIDEO_COUNT jobs) ==="
+  target_video_desired=$(( VIDEO_COUNT < 1 ? VIDEO_COUNT : 1 ))
+  echo "Target video-worker desired replicas: $target_video_desired (min(1, $VIDEO_COUNT))"
 
-  local ai_payloads=""
-  for jid in "${AI_JOB_IDS[@]}"; do
-    ai_payloads+=$(cat <<JSON
-{"jobId":"$jid","type":"object-detection","input":{"bucket":"uploads","key":"$jid/input.png"},"output":{"bucket":"results","key":"$jid/result.jpg"},"params":{"confidenceThreshold":0.45}}
+  local video_payloads=""
+  for jid in "${VIDEO_JOB_IDS[@]}"; do
+    video_payloads+=$(cat <<JSON
+{"jobId":"$jid","type":"video-redact","input":{"bucket":"uploads","key":"$jid/input.png"},"output":{"bucket":"results","key":"$jid/result.mp4"},"params":{"confidenceThreshold":0.35}}
 JSON
 )
-    ai_payloads+=$'\n'
+    video_payloads+=$'\n'
   done
 
-  echo "Publishing $AI_COUNT jobs to jobs.ai..."
-  printf "%s" "$ai_payloads" | "${KUBECTL[@]}" -n "$NS" exec -i "$NATS_POD" -- /bin/sh -c '
+  echo "Publishing $VIDEO_COUNT jobs to jobs.video..."
+  printf "%s" "$video_payloads" | "${KUBECTL[@]}" -n "$NS" exec -i "$NATS_POD" -- /bin/sh -c '
     while IFS= read -r line; do
       [ -n "$line" ] || continue
-      nats --server nats:4222 pub jobs.ai "$line" >/dev/null
+      nats --server nats:4222 pub jobs.video "$line" >/dev/null
     done
   '
 
-  printf "%-8s %-25s %-11s %-28s %-13s\n" "ELAPSED" "AI-WORKER(READY/DESIRED)" "AI-PENDING" "IMAGE-WORKER(READY/DESIRED)" "IMAGE-PENDING"
+  printf "%-8s %-28s %-14s %-28s %-13s\n" "ELAPSED" "VIDEO-WORKER(READY/DESIRED)" "VIDEO-PENDING" "IMAGE-WORKER(READY/DESIRED)" "IMAGE-PENDING"
 
   local start_time now elapsed ts
   start_time=$(date +%s)
-  local ai_scaled_up=0
+  local video_scaled_up=0
   local image_stayed_zero=1
 
   while true; do
@@ -356,26 +358,26 @@ JSON
 
     poll_status
 
-    printf "%-8s %-25s %-11s %-28s %-13s\n" "${elapsed}s" "${ai_ready}/${ai_desired}" "$ai_pending" "${image_ready}/${image_desired}" "$image_pending"
+    printf "%-8s %-28s %-14s %-28s %-13s\n" "${elapsed}s" "${video_ready}/${video_desired}" "$video_pending" "${image_ready}/${image_desired}" "$image_pending"
     if [ -n "$CSV_PATH" ]; then
-      printf "%s,%s,%s,%s,%s,%s,%s,%s\n" "$ts" "ai" "$ai_ready" "$ai_desired" "$ai_pending" "$image_ready" "$image_desired" "$image_pending" >> "$CSV_PATH"
+      printf "%s,%s,%s,%s,%s,%s,%s,%s\n" "$ts" "video" "$video_ready" "$video_desired" "$video_pending" "$image_ready" "$image_desired" "$image_pending" >> "$CSV_PATH"
     fi
 
-    if [ "$ai_desired" -ge "$target_ai_desired" ]; then
-      ai_scaled_up=1
+    if [ "$video_desired" -ge "$target_video_desired" ]; then
+      video_scaled_up=1
     fi
     if [ "$image_desired" -gt 0 ]; then
       image_stayed_zero=0
     fi
 
-    if [ "$ai_scaled_up" -eq 1 ] && [ "$image_stayed_zero" -eq 1 ] && [ "$ai_pending" -eq 0 ]; then
-      phase_ai_passed=1
-      echo "Phase AI PASS: ai-worker scaled up to desired=$ai_desired, image-worker stayed 0, AI queue drained to 0."
+    if [ "$video_scaled_up" -eq 1 ] && [ "$image_stayed_zero" -eq 1 ] && [ "$video_pending" -eq 0 ]; then
+      phase_video_passed=1
+      echo "Phase Video PASS: video-worker scaled up to desired=$video_desired, image-worker stayed 0, Video queue drained to 0."
       break
     fi
 
     if [ "$elapsed" -ge "$TIMEOUT" ]; then
-      echo "Phase AI FAIL: timed out after ${TIMEOUT}s (scaled_up=$ai_scaled_up, image_stayed_zero=$image_stayed_zero, ai_pending=$ai_pending)"
+      echo "Phase Video FAIL: timed out after ${TIMEOUT}s (scaled_up=$video_scaled_up, image_stayed_zero=$image_stayed_zero, video_pending=$video_pending)"
       break
     fi
 
@@ -399,7 +401,7 @@ run_phase_image() {
   local image_payloads=""
   for jid in "${IMAGE_JOB_IDS[@]}"; do
     image_payloads+=$(cat <<JSON
-{"jobId":"$jid","type":"image-convert","input":{"bucket":"uploads","key":"$jid/input.png"},"output":{"bucket":"results","key":"$jid/result.webp"},"params":{"targetFormat":"WEBP"}}
+{"jobId":"$jid","type":"image-redact","input":{"bucket":"uploads","key":"$jid/input.png"},"output":{"bucket":"results","key":"$jid/result.jpg"},"params":{"confidenceThreshold":0.35}}
 JSON
 )
     image_payloads+=$'\n'
@@ -413,13 +415,13 @@ JSON
     done
   '
 
-  printf "%-8s %-25s %-11s %-28s %-13s\n" "ELAPSED" "AI-WORKER(READY/DESIRED)" "AI-PENDING" "IMAGE-WORKER(READY/DESIRED)" "IMAGE-PENDING"
+  printf "%-8s %-28s %-14s %-28s %-13s\n" "ELAPSED" "VIDEO-WORKER(READY/DESIRED)" "VIDEO-PENDING" "IMAGE-WORKER(READY/DESIRED)" "IMAGE-PENDING"
 
   local start_time now elapsed ts
   start_time=$(date +%s)
   local image_scaled_up=0
-  local ai_did_not_increase=1
-  local prev_ai_desired="$ai_desired"
+  local video_did_not_increase=1
+  local prev_video_desired="$video_desired"
 
   while true; do
     now=$(date +%s)
@@ -428,27 +430,27 @@ JSON
 
     poll_status
 
-    printf "%-8s %-25s %-11s %-28s %-13s\n" "${elapsed}s" "${ai_ready}/${ai_desired}" "$ai_pending" "${image_ready}/${image_desired}" "$image_pending"
+    printf "%-8s %-28s %-14s %-28s %-13s\n" "${elapsed}s" "${video_ready}/${video_desired}" "$video_pending" "${image_ready}/${image_desired}" "$image_pending"
     if [ -n "$CSV_PATH" ]; then
-      printf "%s,%s,%s,%s,%s,%s,%s,%s\n" "$ts" "image" "$ai_ready" "$ai_desired" "$ai_pending" "$image_ready" "$image_desired" "$image_pending" >> "$CSV_PATH"
+      printf "%s,%s,%s,%s,%s,%s,%s,%s\n" "$ts" "image" "$video_ready" "$video_desired" "$video_pending" "$image_ready" "$image_desired" "$image_pending" >> "$CSV_PATH"
     fi
 
     if [ "$image_desired" -ge "$target_image_desired" ]; then
       image_scaled_up=1
     fi
-    if [ "$ai_desired" -gt "$prev_ai_desired" ]; then
-      ai_did_not_increase=0
+    if [ "$video_desired" -gt "$prev_video_desired" ]; then
+      video_did_not_increase=0
     fi
-    prev_ai_desired="$ai_desired"
+    prev_video_desired="$video_desired"
 
-    if [ "$image_scaled_up" -eq 1 ] && [ "$ai_did_not_increase" -eq 1 ] && [ "$image_pending" -eq 0 ]; then
+    if [ "$image_scaled_up" -eq 1 ] && [ "$video_did_not_increase" -eq 1 ] && [ "$image_pending" -eq 0 ]; then
       phase_image_passed=1
-      echo "Phase Image PASS: image-worker scaled up to desired=$image_desired, ai-worker desired did not increase, image queue drained to 0."
+      echo "Phase Image PASS: image-worker scaled up to desired=$image_desired, video-worker desired did not increase, image queue drained to 0."
       break
     fi
 
     if [ "$elapsed" -ge "$TIMEOUT" ]; then
-      echo "Phase Image FAIL: timed out after ${TIMEOUT}s (scaled_up=$image_scaled_up, ai_did_not_increase=$ai_did_not_increase, image_pending=$image_pending)"
+      echo "Phase Image FAIL: timed out after ${TIMEOUT}s (scaled_up=$image_scaled_up, video_did_not_increase=$video_did_not_increase, image_pending=$image_pending)"
       break
     fi
 
@@ -464,7 +466,7 @@ scale_to_zero_passed=0
 run_scale_to_zero() {
   echo
   echo "=== Step 6: Scale to zero (cooldown ~120s, allowing up to 300s) ==="
-  printf "%-8s %-25s %-11s %-28s %-13s\n" "ELAPSED" "AI-WORKER(READY/DESIRED)" "AI-PENDING" "IMAGE-WORKER(READY/DESIRED)" "IMAGE-PENDING"
+  printf "%-8s %-28s %-14s %-28s %-13s\n" "ELAPSED" "VIDEO-WORKER(READY/DESIRED)" "VIDEO-PENDING" "IMAGE-WORKER(READY/DESIRED)" "IMAGE-PENDING"
 
   local start_time now elapsed ts
   start_time=$(date +%s)
@@ -478,12 +480,12 @@ run_scale_to_zero() {
 
     poll_status
 
-    printf "%-8s %-25s %-11s %-28s %-13s\n" "${elapsed}s" "${ai_ready}/${ai_desired}" "$ai_pending" "${image_ready}/${image_desired}" "$image_pending"
+    printf "%-8s %-28s %-14s %-28s %-13s\n" "${elapsed}s" "${video_ready}/${video_desired}" "$video_pending" "${image_ready}/${image_desired}" "$image_pending"
     if [ -n "$CSV_PATH" ]; then
-      printf "%s,%s,%s,%s,%s,%s,%s,%s\n" "$ts" "scale-to-zero" "$ai_ready" "$ai_desired" "$ai_pending" "$image_ready" "$image_desired" "$image_pending" >> "$CSV_PATH"
+      printf "%s,%s,%s,%s,%s,%s,%s,%s\n" "$ts" "scale-to-zero" "$video_ready" "$video_desired" "$video_pending" "$image_ready" "$image_desired" "$image_pending" >> "$CSV_PATH"
     fi
 
-    if [ "$ai_desired" -eq 0 ] && [ "$ai_ready" -eq 0 ] && [ "$image_desired" -eq 0 ] && [ "$image_ready" -eq 0 ]; then
+    if [ "$video_desired" -eq 0 ] && [ "$video_ready" -eq 0 ] && [ "$image_desired" -eq 0 ] && [ "$image_ready" -eq 0 ]; then
       scale_to_zero_passed=1
       echo "Scale to zero PASS: both worker pools returned to 0 replicas."
       break
@@ -527,10 +529,10 @@ count_results() {
 summary() {
   echo
   echo "=== Scaling Demo Summary ==="
-  if [ "$phase_ai_passed" -eq 1 ]; then
-    echo "PASS: Phase AI"
+  if [ "$phase_video_passed" -eq 1 ]; then
+    echo "PASS: Phase Video"
   else
-    echo "FAIL: Phase AI"
+    echo "FAIL: Phase Video"
   fi
 
   if [ "$phase_image_passed" -eq 1 ]; then
@@ -545,7 +547,7 @@ summary() {
     echo "FAIL: Scale to zero"
   fi
 
-  if [ "$phase_ai_passed" -eq 1 ] && [ "$phase_image_passed" -eq 1 ] && [ "$scale_to_zero_passed" -eq 1 ]; then
+  if [ "$phase_video_passed" -eq 1 ] && [ "$phase_image_passed" -eq 1 ] && [ "$scale_to_zero_passed" -eq 1 ]; then
     exit 0
   else
     exit 1
@@ -558,13 +560,13 @@ summary() {
 main() {
   if [ -n "$CSV_PATH" ]; then
     mkdir -p "$(dirname "$CSV_PATH")" 2>/dev/null || true
-    echo "timestamp,phase,ai_ready,ai_desired,ai_pending,image_ready,image_desired,image_pending" > "$CSV_PATH"
+    echo "timestamp,phase,video_ready,video_desired,video_pending,image_ready,image_desired,image_pending" > "$CSV_PATH"
   fi
 
   preflight
   start_helpers
   prepare_inputs
-  run_phase_ai
+  run_phase_video
   run_phase_image
   run_scale_to_zero
   count_results

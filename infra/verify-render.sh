@@ -320,8 +320,8 @@ for doc in app_docs:
         scaled_objects.setdefault(target, []).append(doc)
 
 # Assert workers in app follow contract §4 and KEDA ScaledObject assertions
-VALID_PAIRS = {("AI_JOBS", "ai-workers"), ("IMAGE_JOBS", "image-workers")}
-expected_workers = {"ai-worker", "image-worker"}
+VALID_PAIRS = {("IMAGE_JOBS", "image-workers"), ("VIDEO_JOBS", "video-workers")}
+expected_workers = {"image-worker", "video-worker"}
 found_workers = set()
 workers = {}
 

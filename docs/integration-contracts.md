@@ -20,8 +20,6 @@ NATS JetStream
 
 Tất cả stream, consumer và bucket do **Infra tạo sẵn** (xem mục 4). App chỉ bind vào, không tự tạo.
 
-> **Đang chuyển đổi (24/10):** cluster và `infra/docker-compose.yaml` vẫn đang có `AI_JOBS`/`jobs.ai` cũ. Infra đổi sang `VIDEO_JOBS`/`jobs.video` trong task hạ tầng tiếp theo. Phase 1 chỉ dùng `jobs.image` nên không bị chặn.
-
 ## 1. Message Subjects
 
 | Subject | Publisher | Subscriber | Mục đích |
@@ -343,8 +341,8 @@ Infra tạo một `ScaledObject` cho mỗi worker Deployment (`nats-jetstream` t
 
 | Deployment | Stream / consumer | min | max | lagThreshold | Ghi chú |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `image-worker` | `IMAGE_JOBS` / `image-workers` | 0 | chốt khi đo RAM | ~5 | Nhiều job nhỏ, mỗi pod xử lý tuần tự |
-| `video-worker` | `VIDEO_JOBS` / `video-workers` | 0 | chốt khi đo RAM | 1 | Mỗi video một pod (Phase 2) |
+| `image-worker` | `IMAGE_JOBS` / `image-workers` | 0 | 3 | 5 | Nhiều job nhỏ, mỗi pod xử lý tuần tự |
+| `video-worker` | `VIDEO_JOBS` / `video-workers` | 0 | 1 | 1 | Mỗi video một pod (Phase 2) |
 
 Giá trị đang chạy thực tế nằm trong `infra/app/engine-workers/scaledobjects.yaml` và `infra/docs/endpoints.md`. Mọi giá trị phải đo trên phần cứng lab (2C/4T, 12GB).
 

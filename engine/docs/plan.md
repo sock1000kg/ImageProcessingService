@@ -13,29 +13,28 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 
 ---
 
-# Phase 1: Ẩn danh hoá ảnh (24/10 → 07/11)
-**Hoàn thành khi:** pool `jobs.image` xử lý được `image-redact` (có whitelist khuôn mặt) và `image-render` đúng contract §2/§3, chạy trên lab trong giới hạn RAM đã đo.
+# Phase 1: Ẩn danh hoá ảnh (24/10 → 15/11)
+**Hoàn thành khi:** pool `jobs.image` xử lý được `image-redact` (có whitelist khuôn mặt) đúng contract §2/§3, chạy trên lab trong giới hạn RAM đã đo.
 
-## Milestone 1: `image-redact` không whitelist (24/10 → 28/10)
+## Milestone 1: `image-redact` không whitelist (24/10 → 01/11)
 * **Tasks:**
     - [ ] Processor `image-redact`: dùng `yolov8n-oiv7`, chỉ giữ 2 lớp `Human face` → `face`, `Vehicle registration plate` → `plate` (map tên lớp qua config, để đổi sang model fine-tune 2 nhãn chỉ cần đổi env `YOLO_MODEL_NAME` + bảng map). Lọc theo `params.redaction.targets` và `confidenceThreshold`.
     - [ ] Ba style che theo `params.redaction`: `blur` (Gaussian, bán kính = `strength`), `pixelate` (thu nhỏ rồi phóng lại theo ô `strength`px), `blackout` (tô đen). Nới box theo `padding`, cắt trong biên ảnh. Che **sau** khi đã quyết định whitelist.
     - [ ] Giữ định dạng ảnh đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
     - [ ] `resultSummary` đúng contract §3B: `imageSize`, `counts`, `detections` (box **trước** padding, `lowConfidence` theo `reviewThreshold`), `redaction`, `model`, `processingTimeMs`.
-    - [ ] Gỡ `object-detection` / `image-convert` khỏi registry. Pool `jobs.image` chỉ đăng ký `image-redact` + `image-render`. Loại khác → `UNSUPPORTED_JOB_TYPE`.
+    - [ ] Gỡ `object-detection` / `image-convert` khỏi registry. Pool `jobs.image` chỉ đăng ký `image-redact`. Loại khác → `UNSUPPORTED_JOB_TYPE`.
     - [ ] Ảnh hỏng hoặc không đọc được → `INVALID_INPUT_FILE` (không để thành `INTERNAL_WORKER_ERROR`).
 * **Kiểm chứng:** `engine/tests/` có test cho 3 style (vùng trong box bị đổi, ngoài box giữ nguyên), map lớp, `padding` ở mép ảnh. Chạy với compose local + publish tay 1 command `image-redact` theo contract §2A → ảnh kết quả trong `results`, event `COMPLETED` đúng shape.
 
-## Milestone 2: Whitelist khuôn mặt + `image-render` (28/10 → 03/11)
+## Milestone 2: Whitelist khuôn mặt (01/11 → 08/11)
 * **Tasks:**
     - [ ] Chọn model face embedding chạy tốt trên CPU (ví dụ ArcFace/InsightFace dạng ONNX, hoặc model nhẹ tương đương). Ghi lý do chọn + RAM/tốc độ đo được vào `engine/docs/`.
     - [ ] Whitelist: với mỗi ảnh mẫu trong `params.whitelist.faces`, phát hiện khuôn mặt (lấy khuôn mặt lớn nhất), tính embedding và **cache theo key** (cùng batch dùng lại, không tính lại mỗi ảnh). Ảnh mẫu không có mặt → `WHITELIST_REFERENCE_ERROR`.
     - [ ] Với mỗi khuôn mặt phát hiện: cosine similarity với từng mẫu. ≥ `similarityThreshold` → `whitelisted: true`, `redacted: false`, kèm `similarity`. Khi phân vân thì **che**.
-    - [ ] Processor `image-render`: che theo `params.boxes` với `params.redaction` mới. **Không** chạy detector (không cần load YOLO cho job này).
     - [ ] Hiệu chỉnh ngưỡng: thử trên vài bộ ảnh có người quen/người lạ, đề xuất `similarityThreshold` mặc định (ưu tiên không nhận nhầm người lạ) và `reviewThreshold`. **[Cần Web]** báo giá trị để Web đặt mặc định.
-* **Kiểm chứng:** test whitelist với 2 người (một trong whitelist, một không) → chỉ người lạ bị che. `image-render` đổi style mà không gọi detector (test bằng mock).
+* **Kiểm chứng:** test whitelist với 2 người (một trong whitelist, một không) → chỉ người lạ bị che.
 
-## Milestone 3: Tài nguyên và chạy trên lab (03/11 → 07/11)
+## Milestone 3: Tài nguyên và chạy trên lab (08/11 → 15/11)
 * **Tasks:**
     - [ ] Đo RAM/CPU của worker pool ảnh khi đã load YOLO + model embedding, và thời gian xử lý một ảnh 1080p. **[Cần Infra]** gửi số liệu để Đạt đặt memory limit và `maxReplicaCount` cho `image-worker`.
     - [ ] `engine/Dockerfile` bake sẵn trọng số model (pod chạy offline, không tải lúc khởi động). Ghi đường dẫn và biến env model vào `engine/README.md`.
@@ -52,7 +51,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 
 ---
 
-# Phase 2: Video + tối ưu (08/11 → 30/11)
+# Phase 2: Video + tối ưu (16/11 → 29/11)
 - [ ] **[Must]** `video-redact` trên pool `jobs.video` (worker riêng, contract §2C): tách khung hình (FFmpeg/OpenCV), phát hiện + **ByteTrack** để giữ id đối tượng giữa các khung (vết che không nhấp nháy, có thể nội suy khi mất phát hiện vài khung), che, ghép lại MP4 H.264, **copy nguyên audio gốc** bằng FFmpeg. Gửi progress theo % khung hình. Heartbeat `in_progress()` (ack_wait 5m). **[Đổi contract]** chốt `resultSummary` video với Web (số đối tượng duy nhất theo track id, khung có confidence thấp...).
 - [ ] **[Must]** Whitelist khuôn mặt cho video: so embedding theo **track**, không theo từng khung (một lần mỗi track, ổn định hơn và nhanh hơn).
 - [ ] **[Should]** ONNX + OpenVINO trên CPU Intel. Benchmark với PyTorch CPU: throughput, latency, RAM, mAP. INT8 chỉ dùng nếu nhanh hơn rõ rệt (mục tiêu 2–3 lần) mà mAP/recall vẫn đạt.
@@ -64,8 +63,8 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 ## Tổng hợp việc cần phối hợp
 | Khi nào | Với ai | Việc |
 |---|---|---|
-| M1 (27/10) | Web | Xác nhận contract §2/§3 mới trước khi code |
-| M2 (02/11) | Web | Ngưỡng mặc định `similarityThreshold`, `reviewThreshold` |
-| M3 (03/11) | Infra | RAM/CPU đo được → memory limit, max replicas, CI image |
-| M3 (05/11) | Web + Infra | Chạy luồng thật trên lab |
+| M1 (28/10) | Web | Xác nhận contract §2/§3 mới trước khi code |
+| M2 (06/11) | Web | Ngưỡng mặc định `similarityThreshold`, `reviewThreshold` |
+| M3 (09/11) | Infra | RAM/CPU đo được → memory limit, max replicas, CI image |
+| M3 (12/11) | Web + Infra | Chạy luồng thật trên lab |
 | Phase 2 | Web + Infra | `resultSummary` video, OCR biển số, benchmark |

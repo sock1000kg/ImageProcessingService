@@ -2,20 +2,19 @@
 File này chia các lượt công việc và theo dõi tiến độ. Đề tài: `docs/report-material/de-tai.md`. Contract: `docs/integration-contracts.md`.
 Kế hoạch chi tiết từng team: `web/docs/plan.md`, `engine/docs/plan.md`, `infra/AGENTS.md`.
 
-## Phase 1: Ẩn danh hoá bộ ảnh (24/10 → 07/11)
+## Phase 1: Ẩn danh hoá bộ ảnh (24/10 → 15/11)
 Demo được: tải lên một bộ ảnh + ảnh chân dung whitelist, chọn cách che, xem before/after, chỉnh độ mạnh, tải kết quả và báo cáo JSON. Chạy trên `https://imgproc.sock1000kg.io.vn`.
 
 1. Web / Backend: Nguyễn Đức Huy
 - [ ] Tạo batch: tải lên nhiều ảnh + 0..n ảnh whitelist + cấu hình che. Lưu MinIO, tạo batch và **một job cho mỗi ảnh** trong PostgreSQL, publish lên `jobs.image`.
 - [ ] Theo dõi batch: trạng thái từng ảnh và tiến độ tổng. Thử lại ảnh `FAILED` riêng lẻ.
-- [ ] Xem kết quả: thanh trượt before/after. Preview chỉnh style/độ mạnh trên trình duyệt từ `detections`, bật/tắt từng box. "Áp dụng" gửi job `image-render`.
+- [ ] Cấu hình che có ảnh mẫu đổi ngay theo style/độ mạnh đã chọn. Xem kết quả: thanh trượt before/after + danh sách phát hiện.
 - [ ] Báo cáo: tổng số khuôn mặt/biển số/đã che/whitelist, danh sách phát hiện confidence thấp. Xem trên web và tải JSON.
 - [ ] Đồng bộ trạng thái từ `jobs.events` (idempotent, contract §8).
 
 2. Engine / Workers: Huy Đức
 - [ ] `image-redact`: phát hiện face + plate (pretrained `yolov8n-oiv7`), che blur/pixelate/blackout theo `params.redaction`, trả `detections` + `counts` theo contract §3.
 - [ ] Whitelist khuôn mặt: embedding ảnh mẫu (cache theo key), cosine similarity, không che khi ≥ ngưỡng.
-- [ ] `image-render`: che theo `boxes` có sẵn, không phát hiện lại.
 - [ ] Đánh dấu `lowConfidence` theo `reviewThreshold`.
 - [ ] Song song: chuẩn bị dataset (WIDER FACE + biển số VN) và fine-tune YOLOv8n 2 nhãn. Thay model qua env khi đạt mAP@50 ≥ 85%.
 
@@ -24,7 +23,7 @@ Demo được: tải lên một bộ ảnh + ảnh chân dung whitelist, chọn 
 - [ ] Đổi stream theo contract mục 4: `IMAGE_JOBS` cho ảnh, thêm `VIDEO_JOBS`/`jobs.video`, bỏ `AI_JOBS`. Worker `image-worker` + KEDA chỉnh theo RAM đo được của model.
 - [ ] CI build image `imgproc-engine` / `imgproc-web` theo commit SHA. Deploy web (Deployment, Service, HTTPRoute `/` và `/api`).
 
-## Phase 2: Video + benchmark (08/11 → 30/11)
+## Phase 2: Video + benchmark (16/11 → 29/11)
 1. Web
 - [ ] Tải lên video (MP4 H.264, 15–60s), theo dõi tiến độ, xem/tải kết quả. Dùng chung cấu hình che và whitelist.
 - [ ] Xuất báo cáo PDF. Whitelist biển số (nhập danh sách biển).

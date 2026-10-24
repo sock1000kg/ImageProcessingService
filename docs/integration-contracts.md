@@ -26,7 +26,7 @@ Tất cả stream, consumer và bucket do **Infra tạo sẵn** (xem mục 4). A
 
 | Subject | Publisher | Subscriber | Mục đích |
 | :--- | :--- | :--- | :--- |
-| **`jobs.image`** | Backend | Image Worker Pool | Ẩn danh hoá **ảnh**: `image-redact`, `image-render`. Nhanh, nhiều job nhỏ. |
+| **`jobs.image`** | Backend | Image Worker Pool | Ẩn danh hoá **ảnh**: `image-redact`. Nhanh, nhiều job nhỏ. |
 | **`jobs.video`** | Backend | Video Worker Pool | Ẩn danh hoá **video**: `video-redact` (Phase 2). Nặng, chạy lâu (YOLO + ByteTrack + FFmpeg). |
 | **`jobs.events`** | Worker Pool | Backend | Tiến trình (`PROCESSING`), hoàn thành (`COMPLETED`), thất bại (`FAILED`). |
 
@@ -39,7 +39,7 @@ Tất cả stream, consumer và bucket do **Infra tạo sẵn** (xem mục 4). A
 ### Các trường chung
 * `jobId` *(UUID v4)*: định danh job.
 * `batchId` *(UUID v4, tuỳ chọn)*: batch chứa job. Worker không dùng, chỉ trả lại trong event.
-* `type` *(string)*: `image-redact`, `image-render`, `video-redact`.
+* `type` *(string)*: `image-redact`, `video-redact`.
 * `input` / `output`: `{bucket, key}` trên MinIO (đường dẫn xem mục 5).
 * `params` *(object)*: cấu hình theo từng loại job (bên dưới).
 
@@ -76,24 +76,7 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
 * `whitelist.faces`: ảnh chân dung mẫu (tuỳ chọn). Khuôn mặt có cosine similarity ≥ `similarityThreshold` với **bất kỳ** mẫu nào thì **không** bị che. Ưu tiên tránh nhận nhầm người lạ, nên khi phân vân thì che.
 * Whitelist biển số cần OCR nên để **Phase 2**.
 
-### B. `image-render` (subject `jobs.image`)
-Che lại ảnh gốc với cấu hình mới **mà không phát hiện lại**. Dùng khi người dùng chỉnh style/độ mạnh trên UI rồi bấm "Áp dụng", hoặc bật/tắt từng box.
-```json
-{
-  "jobId": "b2c3d4e5-6789-41bc-9ef0-223344556677",
-  "batchId": "0f1e2d3c-4b5a-4697-8877-665544332211",
-  "type": "image-render",
-  "input":  { "bucket": "uploads", "key": "0f1e2d3c-4b5a-4697-8877-665544332211/a1b2c3d4-5678-40ab-8def-112233445566/input.jpg" },
-  "output": { "bucket": "results", "key": "0f1e2d3c-4b5a-4697-8877-665544332211/b2c3d4e5-6789-41bc-9ef0-223344556677/result.jpg" },
-  "params": {
-    "redaction": { "style": "blur", "strength": 35, "padding": 0.1 },
-    "boxes": [ { "label": "face", "box": [34, 12, 120, 250] }, { "label": "plate", "box": [220, 300, 310, 340] } ]
-  }
-}
-```
-`boxes` là danh sách cần che (Backend lấy từ `detections` của job `image-redact`, bỏ những box người dùng tắt). `targets` không áp dụng ở đây.
-
-### C. `video-redact` (subject `jobs.video`, Phase 2)
+### B. `video-redact` (subject `jobs.video`, Phase 2)
 Cùng `params` như `image-redact`, thêm theo dõi đối tượng (ByteTrack) để vết che không nhấp nháy. Giữ nguyên âm thanh gốc bằng FFmpeg. Đầu vào MP4 (H.264), 15–60 giây. Đầu ra MP4. Chi tiết `resultSummary` chốt khi bắt đầu Phase 2.
 
 ---
@@ -109,7 +92,7 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
   "status": "PROCESSING", "progress": 40, "stage": "DETECTING", "timestamp": "2026-10-24T07:00:01Z" }
 ```
 
-### B. `COMPLETED` (`image-redact` / `image-render`)
+### B. `COMPLETED` (`image-redact`)
 ```json
 {
   "jobId": "a1b2c3d4-5678-40ab-8def-112233445566",
@@ -132,8 +115,7 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
   "timestamp": "2026-10-24T07:00:02Z"
 }
 ```
-* `box` = `[x1, y1, x2, y2]` theo pixel của ảnh gốc, **trước** khi nới `padding`. UI dùng đúng các box này để vẽ preview trên canvas.
-* Với `image-render`: `detections` là các `boxes` đã nhận, `counts` chỉ gồm `redacted`.
+* `box` = `[x1, y1, x2, y2]` theo pixel của ảnh gốc, **trước** khi nới `padding`. UI dùng các box này để liệt kê/đánh dấu phát hiện trên ảnh.
 * `model` cho biết model nào đã chạy (pretrained `yolov8n-oiv7` ở Phase 1, model fine-tune sau này), để báo cáo ghi rõ.
 
 ### C. `FAILED`
@@ -321,7 +303,6 @@ Frontend
    +--> POST /api/batches            (tải bộ ảnh + cấu hình + ảnh whitelist)
    +--> GET  /api/batches/:id        (trạng thái batch + các job)
    +--> GET  /api/batches/:id/report (báo cáo JSON)
-   +--> POST /api/jobs/:id/render    (che lại với cấu hình mới)
    +--> GET  /api/jobs/:id
    +--> GET  /api/system/stats
 ```

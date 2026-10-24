@@ -24,7 +24,7 @@ NATS JetStream (hàng đợi), MinIO (object storage), PostgreSQL (trạng thái
 | :--- | :--- | :--- |
 | **Ẩn danh hoá ảnh** | JPG/PNG/WEBP. Che mặt và/hoặc biển số. Blur, Pixelate (mosaic), Blackout. Thanh trượt Before/After | **1** |
 | **Xử lý hàng loạt** | Tải lên bộ ảnh (batch), theo dõi trạng thái từng ảnh, thử lại ảnh lỗi mà không làm lại cả bộ | **1** |
-| **Cấu hình theo job** | Chọn đối tượng che, style, độ mạnh blur/kích thước ô pixel. UI xem trước và chỉnh trước khi áp dụng | **1** |
+| **Cấu hình theo job** | Chọn đối tượng che, style, độ mạnh blur/kích thước ô pixel. Form cấu hình có **ảnh mẫu** đổi ngay theo lựa chọn để người dùng thấy trước hiệu ứng | **1** |
 | **Whitelist khuôn mặt** | Tải ảnh chân dung mẫu. Face embedding + cosine similarity giữ nguyên người quen, che người lạ | **1** |
 | **Báo cáo** | Số khuôn mặt/biển số, danh sách phát hiện confidence thấp để tự kiểm tra lại. Xuất JSON và xem trên web | **1** (PDF: **2**) |
 | **Ẩn danh hoá video** | MP4 H.264, 15–60s. Tách khung hình, che, ByteTrack để vết che không nhấp nháy, FFmpeg giữ nguyên âm thanh | **2** |

@@ -1,172 +1,80 @@
-# Kế hoạch Web (Frontend + Backend)
+# Kế hoạch Web (Frontend + Backend): Cloud-Native Privacy Service
 
-Tài liệu này chia việc của team Web theo thứ tự thời gian, cùng format milestone → task → kiểm chứng như `infra/AGENTS.md`.
-Tác vụ nào cần hỏi/phối hợp team khác thì được ghi rõ ngay trong task:
+Đề tài: `docs/report-material/de-tai.md`. Contract (nguồn sự thật): `docs/integration-contracts.md`. Tiến độ chung: `docs/milestones.md`.
+Ký hiệu trong task:
+- **[Cần Engine]**: phải thống nhất với Huy Đức trước.
+- **[Cần Infra]**: nhờ Đạt.
+- **[Đổi contract]**: thay đổi `docs/integration-contracts.md`, phải báo cả nhóm.
 
-- **[Cần Engine]**: phải thống nhất với Huy Đức (engine/worker) trước khi làm.
-- **[Cần Infra]**: phải nhờ Đạt (infra/cluster).
-- **[Đổi contract]**: thay đổi `docs/integration-contracts.md`, phải báo cả nhóm, không để AI tự ý sửa.
-
-Nguồn tham chiếu chính xác: `docs/integration-contracts.md` (contract message), `infra/docs/endpoints.md` (DNS, stream, secret, URL public — nếu mâu thuẫn với contract thì file này đúng).
-
----
-
-## Hiện trạng (17/10)
-
-Đã có: skeleton Express + React. `POST /api/jobs` (multipart → MinIO `uploads` → PG `PENDING` → publish NATS → `QUEUED`),
-`GET /api/jobs`, `GET /api/jobs/:id`, `GET /api/system/stats`, consumer `backend-job-events` cập nhật trạng thái, UI một trang polling 3s.
-
-Lỗ hổng cần xử lý trong Phase 1:
-
-| # | Vấn đề | Ở đâu |
-|---|---|---|
-| G1 | Backend tự tạo stream NATS (`ensureStream`) và bucket MinIO (`ensureBuckets`), trong khi Infra mới là chủ sở hữu (stream/consumer có `ack_wait`, `max_deliver` riêng). Backend tạo trước có thể ra cấu hình sai. | `messaging.ts`, `storage.ts` |
-| G2 | Event không hợp lệ không bao giờ được ack → bị giao lại tới `max_deliver` (10 lần) và chặn log. Event chưa được validate bằng schema. | `messaging.ts`, `db.ts` |
-| G3 | `.env.example` (`postgres/image_processing`, `minioadmin`) không khớp `infra/docker-compose.yaml` (db/user `imgproc`). | `web/.env.example` |
-| G4 | Chưa có `web/Dockerfile`; `npm start` chỉ chạy API, không serve frontend đã build. | — |
-| G5 | Chưa rõ UI/API Phase 1 gồm những tính năng gì. | — |
-| G6 | Schema PG được tạo trong code (`CREATE TABLE IF NOT EXISTS`), `CHECK` cứng 2 loại job, không có migration. | `db.ts` |
-| G7 | ~~Đường dẫn kết quả không thống nhất giữa các docs~~ (đã xử lý, xem bên dưới) | docs |
-
-**Quyết định cho G7 (đã ghi vào docs):** dùng `<jobId>/result.<ext>`, xem `docs/integration-contracts.md` §5 (`docs/milestones.md` đã khớp). Prefix theo user được xem lại ở Phase 2 (M7) khi có auth.
+## Hiện trạng (24/10)
+Đã có từ MVP cũ: Express + React. Backend tách lớp (`routes/`, `controllers/`, `services/`, `repositories/`, `schemas/`), migration SQL, consumer `jobs.events` validate bằng zod, `/health` + `/ready`,
+backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, `JobCard`, `api.ts`.
+→ Phần "đường ống" (upload → MinIO → PG → NATS → event → UI) đã chạy. Việc còn lại là **đổi nghiệp vụ** từ `object-detection`/`image-convert` sang **ẩn danh hoá bộ ảnh**.
 
 ---
 
-# Phase 1: PoC tối thiểu (17/10 → 31/10)
+# Phase 1: Ẩn danh hoá bộ ảnh (24/10 → 07/11)
+**Hoàn thành khi:** trên `https://imgproc.sock1000kg.io.vn`, người dùng tải lên một bộ ảnh + ảnh chân dung whitelist, chọn cách che → thấy từng ảnh chạy → xem before/after → chỉnh độ mạnh/bật tắt box → áp dụng → tải ảnh và báo cáo JSON.
 
-**Định nghĩa hoàn thành Phase 1:** Web chạy trong `imgproc` trên lab, truy cập public tại `https://imgproc.sock1000kg.io.vn`.
-Người dùng upload ảnh → worker **thật** của engine xử lý → xem và tải được kết quả, với **1 loại job AI + 1 loại job xử lý ảnh thường**.
-
-## Milestone 1: Căn chỉnh với Infra và Contract (17/10 → 20/10)
-**Mục tiêu:** Backend chạy được trên `infra/docker-compose.yaml` mà không tự tạo tài nguyên của Infra, và chỉ chấp nhận đúng các message trong contract.
+## Milestone 1: Mô hình dữ liệu batch (24/10 → 27/10)
 * **Tasks:**
-    - [ ] Bỏ `ensureStream` / `ensureBuckets`. Thay bằng **kiểm tra lúc khởi động**: stream `AI_JOBS`, `IMAGE_JOBS`, `JOB_EVENTS`, consumer `backend-job-events` và bucket `uploads`, `results` phải tồn tại. Nếu thiếu thì log lỗi rõ ràng và thoát (fail fast). Log chỉ nêu cái gì thiếu và ở đâu (ví dụ `stream JOB_EVENTS not found on nats://...`), không chứa hướng dẫn sửa riêng cho môi trường nào. (G1)
-    - [ ] `web/README.md` link tới mục "Dev hằng ngày" trong `docs/phân-công-và-guideline.md` (cách dựng môi trường local và chạy lại setup), không chép lại nội dung. Trên cluster mà thiếu stream/bucket thì báo Infra.
-    - [ ] Validate mọi event `jobs.events` bằng `zod` theo đúng contract mục 3 (`status`, `progress`, `stage`, `result`, `resultSummary`, `error.code`). Event sai schema hoặc `jobId` không tồn tại thì log + `term()` (không giao lại). Lỗi tạm thời (mất kết nối PG) thì `nak()` có delay. (G2)
-    - [ ] Giữ idempotency theo contract mục 8. NATS giao **ít nhất một lần**, nên cùng một event có thể đến 2 lần hoặc đến trễ, sai thứ tự (ví dụ backend crash trước khi ack). Backend phải luôn ra đúng kết quả: progress chỉ tăng (`80%` rồi `40%` đến trễ thì giữ `80%`), job đã `COMPLETED`/`FAILED` thì không event nào ghi đè được nữa, và event `PROCESSING` đến sau trạng thái kết thúc thì bỏ qua. `applyJobEvent` hiện đã làm gần đủ. Viết vài unit test cho các trường hợp trùng, đến trễ và sau trạng thái kết thúc để giữ đúng như vậy.
-    - [ ] Sửa `.env.example` theo `infra/.env.example` + `infra/docs/endpoints.md`. Cập nhật `web/README.md`: dev local dùng `infra/docker-compose.yaml` (không còn `engine/docker-compose.local.yml` + PG riêng). (G3)
-    - [ ] Quản lý schema bằng migration thay vì `CREATE TABLE` trong code. Dùng ORM/query builder nếu quen tay (Prisma, Drizzle, TypeORM, Knex... đều được, miễn có migration chạy lặp lại an toàn), hoặc file SQL thuần (`backend/migrations/001_init.sql` + `npm run migrate`). Bỏ `CHECK` cứng trên `type`, validate loại job ở tầng API. (G6)
-    - [ ] Chốt danh sách loại job Phase 1. Contract có 4 loại, nhưng Phase 1 chỉ cần 1 loại AI + 1 loại ảnh thường. Không làm form cho loại engine chưa chạy được. **[Cần Engine]**: hỏi Huy Đức loại nào sẽ chạy được trước 28/10 (engine hiện chỉ có `yolo_detector.py` và `image_converter.py`, nên nhiều khả năng là `object-detection` + `image-convert`), và `params` nào worker thực sự đọc (ví dụ `image-convert` có dùng `width`/`height`/`quality` không), để UI chỉ hiện các trường có tác dụng.
-* **Kiểm chứng:**
-    - [ ] `docker compose -f infra/docker-compose.yaml up -d` + setup jobs → `npm run dev:backend` khởi động OK. Xoá một stream thì backend thoát với thông báo rõ ràng.
-    - [ ] Publish tay một event sai schema bằng `nats pub jobs.events '{...}'` → bị `term`, không lặp lại trong log.
-    - [ ] Unit test `applyJobEvent` pass (trùng `COMPLETED`, `PROCESSING` đến sau `COMPLETED`, progress giảm).
+    - [ ] Migration mới: bảng `batches` (id, trạng thái tổng, cấu hình che mặc định, danh sách key ảnh whitelist, created_at) và `jobs` thêm `batch_id`, `params` (JSONB), `detections` (lấy từ `resultSummary`), `parent_job_id` (cho job `image-render` tạo từ job `image-redact`). Bỏ các loại job cũ khỏi validate.
+    - [ ] Đường dẫn object theo contract §5: `uploads/<batchId>/<jobId>/input.<ext>`, `uploads/<batchId>/whitelist/face-<n>.<ext>`, `results/<batchId>/<jobId>/result.<ext>`.
+    - [ ] Command `image-redact` / `image-render` đúng contract §2 (zod schema cho `params.redaction`, `whitelist`, `boxes`). Event `COMPLETED` lưu `resultSummary` (`counts`, `detections`, `model`).
+    - [ ] Trạng thái batch suy ra từ các job: `PROCESSING` khi còn job chưa xong, `COMPLETED` khi tất cả xong, `PARTIAL` khi có job `FAILED`. Không lưu trùng logic ở hai nơi.
+    - [ ] Giữ idempotency (contract §8). Event `PROCESSING` đến sau trạng thái kết thúc thì bỏ qua. Viết vài unit test cho trường hợp trùng/đến trễ.
+* **Kiểm chứng:** tạo batch 3 ảnh bằng API → 3 message trên `jobs.image` (xem bằng `nats sub` hoặc `nats stream view IMAGE_JOBS`). Publish tay 3 event `COMPLETED` → batch chuyển `COMPLETED`.
 
-## Milestone 2: Tính năng Web Phase 1 (20/10 → 24/10)
-**Mục tiêu:** Có đủ tính năng tối thiểu cho demo. Bám đúng contract (`docs/integration-contracts.md`) thì khi ghép với engine sẽ chạy, nên không cần dựng mock worker hay bộ test E2E tự động.
-
-* **Giao diện (frontend):**
-    - [ ] **Form tạo job:** chọn file ảnh, chọn loại job (chỉ các loại đã chốt ở M1), các trường `params` tương ứng với từng loại (ví dụ `image-convert`: định dạng đích + quality, `object-detection`: ngưỡng confidence). Có preview ảnh đã chọn, kiểm tra loại/kích thước file ngay trên trình duyệt, và nút gửi bị khoá trong lúc upload.
-    - [ ] **Danh sách job:** mới nhất ở trên. Mỗi job hiện tên file, loại job, trạng thái (badge màu theo `QUEUED`/`PROCESSING`/`COMPLETED`/`FAILED`), thanh progress, `stage` và thời gian tạo. Tự cập nhật (polling vài giây là đủ cho Phase 1).
-    - [ ] **Xem kết quả:** job `COMPLETED` hiện ảnh kết quả (`resultUrl`), nút tải về, và `resultSummary` dạng dễ đọc (`object-detection`: danh sách label + confidence, `image-convert`: kích thước/dung lượng trước và sau).
-    - [ ] **Lỗi:** job `FAILED` hiện `error.code` + message. Lỗi API (file quá lớn, sai định dạng, hàng đợi không sẵn sàng) hiện thông báo rõ ràng trên form, không chỉ log console.
-    - [ ] Refresh trang không mất gì: mọi trạng thái đều lấy từ API (PostgreSQL), không giữ trong state trình duyệt.
-    - [ ] Dev local: proxy `/results` → `localhost:9000` trong Vite (cạnh proxy `/api`), để URL kết quả giống hệt trên lab (same-origin).
-
-* **Backend / API:**
-    - [ ] `POST /api/jobs`: nhận multipart `file` + `type` + `params`. Validate MIME ảnh (`image/jpeg`, `image/png`, `image/webp`), kích thước tối đa (`UPLOAD_MAX_BYTES`), `type` thuộc danh sách Phase 1, `params` đúng kiểu cho từng loại (`zod`). Sai thì trả 4xx với message rõ ràng (`{ "error": "..." }`). Đúng thì lưu MinIO → PG `PENDING` → publish → `QUEUED`, và trả `202` kèm job.
-    - [ ] `GET /api/jobs` (mới nhất, có giới hạn số lượng) và `GET /api/jobs/:id` (404 nếu không có). Response dùng camelCase, không lộ tên cột DB.
-    - [ ] `GET /api/system/stats`: số job theo trạng thái (dùng cho demo).
-    - [ ] Consumer `jobs.events` cập nhật trạng thái theo contract §3 + idempotency (M1). `resultUrl` = `/results/<output.key>` (contract §5).
-    - [ ] Format lỗi thống nhất cho mọi endpoint. Log mỗi job tạo ra/đổi trạng thái kèm `jobId`.
-
-* **Cấu trúc code (gợi ý, không bắt buộc):**
-    - Backend tách theo trách nhiệm: `routes/` (HTTP), `services/` (tạo job, áp dụng event), `db/` (truy vấn hoặc ORM + migration), `messaging/` (NATS), `storage/` (MinIO), `config.ts` (đọc env, validate bằng `zod`). Không để logic nghiệp vụ trong route handler.
-    - Frontend tách `main.tsx` thành component (`UploadForm`, `JobList`, `JobCard`, `ResultView`) và một file `api.ts` gom các lời gọi API + type dùng chung.
-    - Type của message (job command, event) đặt một chỗ và khớp đúng contract §2/§3.
-
-* **Kiểm chứng (thủ công, trên `infra/docker-compose.yaml`):**
-    - [ ] Upload ảnh hợp lệ → job hiện `QUEUED`. Upload file sai định dạng/quá lớn → thông báo lỗi rõ ràng.
-    - [ ] Chưa có engine thì giả lập worker bằng tay, publish event theo contract §3: `nats pub jobs.events '{"jobId":"<id>","status":"COMPLETED","progress":100,"stage":"DONE","result":{"bucket":"results","key":"<id>/result.jpg"}}'`. UI phải chuyển `COMPLETED` (ảnh kết quả 404 là bình thường vì chưa có file thật). Làm tương tự với `FAILED`.
-    - [ ] Gửi lại cùng event `COMPLETED` 2 lần, rồi một event `PROCESSING` → trạng thái vẫn `COMPLETED`.
-
-## Milestone 3: Đóng gói và deploy lên `imgproc` (24/10 → 28/10)
-**Mục tiêu:** Image Web chạy trên lab, truy cập được qua hostname public.
+## Milestone 2: API (26/10 → 30/10)
+Đường dẫn cụ thể do Web quyết định. Contract §9 chỉ liệt kê khả năng cần có.
 * **Tasks:**
-    - [ ] `web/Dockerfile` multi-stage: build backend + frontend, image runtime chạy non-root, chỉ chứa `node_modules` production. Backend serve `frontend/dist` bằng `express.static` + fallback SPA về `index.html`. (G4)
-    - [ ] Endpoint `/health` (liveness) và `/ready` (readiness: PG, NATS, MinIO đều kết nối được).
-    - [ ] Graceful shutdown: dừng nhận request, drain NATS, đóng pool PG khi nhận `SIGTERM`.
-    - [ ] Toàn bộ cấu hình qua env, không hardcode. Liệt kê đầy đủ biến env trong `web/README.md` cho Infra.
-    - [ ] **[Cần Infra]** Đạt: CI build/push `socknot1000kg/imgproc-web` (tag SHA + `main`). Tạo Deployment + Service `web` trong `imgproc`. Tạo Secret cho web (`DATABASE_URL` user `imgproc`, MinIO credentials — **nên là user MinIO riêng** chỉ có quyền `uploads` RW + `results` RW, không dùng root). HTTPRoute `/api` và `/` → `web`, giữ nguyên `/results/` → MinIO. Đặt memory limit cho web trong budget (gợi ý: 256Mi, Web đo thực tế rồi báo lại).
-    - [ ] Đặt `UPLOAD_MAX_BYTES` khớp giới hạn body của Traefik/Cloudflare (Cloudflare free giới hạn 100MB). **[Cần Infra]**: xác nhận giới hạn trên Gateway.
-* **Kiểm chứng:**
-    - [ ] `docker build web/` + chạy container với compose local → làm lại các bước kiểm chứng M2 trên image.
-    - [ ] Trên lab: `https://imgproc.sock1000kg.io.vn` mở được UI, `/api/system/stats` trả JSON, pod `web` Ready.
-    - [ ] Upload trên lab → job vào `QUEUED`, worker engine nhận và xử lý (nếu engine đã sẵn sàng), kết quả xem được qua `/results/...`.
+    - [ ] Tạo batch: multipart nhiều `files` (JPG/PNG/WEBP, giới hạn số lượng + dung lượng mỗi file), 0..n `whitelist` (ảnh chân dung), `config` (targets, style, strength, padding, confidenceThreshold, reviewThreshold, similarityThreshold). Validate rõ ràng, lỗi 4xx kèm message.
+    - [ ] Xem batch: thông tin batch + danh sách job (trạng thái, progress, `counts`, `resultUrl`).
+    - [ ] Ảnh gốc cho thanh trượt: endpoint trả ảnh gốc từ `uploads` (stream qua backend, hoặc presigned URL ngắn hạn). Bucket `uploads` là private.
+    - [ ] Render lại: nhận cấu hình mới + danh sách box được bật → tạo job `image-render` (cùng batch, `parent_job_id`). Kết quả mới thay kết quả hiển thị của ảnh đó.
+    - [ ] Thử lại ảnh `FAILED`: tạo job `image-redact` mới cho đúng ảnh đó. Input vẫn còn trong TTL 24h, hết hạn thì trả 410.
+    - [ ] Báo cáo batch (JSON): tổng số ảnh, số khuôn mặt/biển số, đã che, được whitelist, danh sách phát hiện `lowConfidence` (ảnh nào, box nào, confidence), model đã dùng, thời gian xử lý. Format do Web đặt và ghi vào `web/README.md`.
+* **Kiểm chứng:** gọi API bằng curl/HTTP client cho từng trường hợp. Sai định dạng/quá dung lượng → 4xx có message.
 
-## Milestone 4: Tích hợp engine thật và demo (28/10 → 31/10)
-**Mục tiêu:** Luồng E2E với worker thật trên `imgproc`, sẵn sàng demo trên lớp.
+## Milestone 3: Giao diện (28/10 → 05/11)
 * **Tasks:**
-    - [ ] **[Cần Engine]** Chạy E2E với worker thật cho từng loại job Phase 1. Ghi lại mọi chỗ lệch contract (tên field, `resultSummary`, `error.code`) và sửa ở phía chịu trách nhiệm theo contract mục 6, không vá ở Web nếu lỗi nằm ở Engine.
-    - [ ] Hiển thị `resultSummary` dạng dễ đọc: danh sách label + confidence cho `object-detection`, kích thước/dung lượng trước và sau cho `image-convert`.
-    - [ ] Script `web/scripts/burst.ts` submit N job liên tiếp (chọn loại), để demo KEDA scale up/down. **[Cần Infra]**: thống nhất N và loại job với kịch bản scaling của Infra (M4 infra).
-    - [ ] Viết checklist demo (`web/docs/demo.md`): thứ tự thao tác, job mẫu, ảnh mẫu, cách xử lý nếu worker đang scale từ 0 (cold start chậm → UI vẫn hiển thị `QUEUED`).
-* **Kiểm chứng:**
-    - [ ] Trên lab: 1 job AI + 1 job ảnh thường đi từ `QUEUED` → `PROCESSING` → `COMPLETED`, kết quả tải được qua hostname public.
-    - [ ] Job lỗi (ảnh hỏng) hiển thị `FAILED` + mã lỗi trên UI.
-    - [ ] Burst 20 job → tất cả hoàn tất, không job nào kẹt ở `QUEUED`/`PROCESSING`.
+    - [ ] **Trang tạo batch:** kéo-thả nhiều ảnh (preview thumbnail, bỏ từng ảnh), khu vực "Người cần giữ nguyên" để thêm ảnh chân dung whitelist, chọn đối tượng che (mặt/biển số), style (Blur/Pixelate/Blackout) với ảnh minh hoạ nhỏ, độ mạnh. Có "Nâng cao" cho các ngưỡng. Kiểm tra định dạng/dung lượng ngay trên trình duyệt.
+    - [ ] **Trang batch:** lưới ảnh với trạng thái từng ảnh (badge + progress), tiến độ tổng (x/N xong), nút thử lại ảnh lỗi, nút tải báo cáo JSON, "Tải tất cả" (link từng ảnh, zip để Phase 2). Tự cập nhật (polling vài giây là đủ).
+    - [ ] **Xem một ảnh:** thanh trượt before/after (ảnh gốc ↔ kết quả). Danh sách phát hiện (mặt/biển số, confidence, cảnh báo `lowConfidence`, nhãn "whitelist").
+    - [ ] **Chỉnh trước khi áp dụng:** vẽ lại vùng che trên `<canvas>` từ `detections` (blur/pixelate/blackout bằng JS) khi kéo thanh độ mạnh hoặc đổi style. Click một box để bật/tắt che (ví dụ bỏ che biển số của mình). Nút "Áp dụng" gọi API render lại. Preview chỉ là xấp xỉ, kết quả thật do worker render.
+    - [ ] **Báo cáo trên web:** bảng tổng hợp + danh sách ảnh có phát hiện confidence thấp để người dùng kiểm tra lại.
+    - [ ] Lỗi API và job `FAILED` (`error.code` + message) hiện rõ trên UI, không chỉ log console.
+* **Kiểm chứng (thủ công):** chạy compose local + engine local (hoặc publish event tay theo contract §3), đi hết luồng trên với 5–10 ảnh có mặt người và xe.
+
+## Milestone 4: Deploy và demo (04/11 → 07/11)
+* **Tasks:**
+    - [ ] **[Cần Infra]** Deploy web lên `imgproc`: Deployment + Service + HTTPRoute `/` và `/api` (giữ `/results/` → MinIO), Secret (`DATABASE_URL`, MinIO credentials), memory limit. Image `socknot1000kg/imgproc-web` do CI build theo SHA.
+    - [ ] Toàn bộ cấu hình qua env. Liệt kê biến env trong `web/README.md`.
+    - [ ] `UPLOAD_MAX_BYTES` × số file tối đa phải nằm dưới giới hạn body của Cloudflare (100MB/request ở gói free). **[Cần Infra]** xác nhận giới hạn trên Gateway.
+    - [ ] **[Cần Engine]** Chạy luồng thật với worker engine trên lab. Ghi lại chỗ lệch contract và sửa ở phía chịu trách nhiệm (contract §6).
+    - [ ] Kịch bản demo (`web/docs/demo.md`): bộ ảnh mẫu (đường phố, sự kiện có người quen), các bước thao tác, chỗ nên dừng giải thích (whitelist, chỉnh độ mạnh, báo cáo).
+* **Kiểm chứng:** demo trọn luồng trên hostname public với bộ ảnh mẫu 20 ảnh. Không ảnh nào kẹt ở `QUEUED`/`PROCESSING`.
 
 ---
 
-# Phase 2: Hoàn thiện và tính năng (tháng 11)
+# Phase 2: Video, PDF và hoàn thiện (08/11 → 30/11)
+Tier: **[Must]** phải có, **[Should]** nên có, **[Could]** nếu còn thời gian.
 
-Mỗi mục được gắn tier để nhóm có thể dừng ở bất kỳ điểm nào: **[Must]** phải có, **[Should]** nên có, **[Could]** nếu còn thời gian.
-Hướng tham khảo: các dịch vụ media trên cloud (Cloudinary, AWS Rekognition/S3/MediaConvert, imgix).
-
-## Milestone 5: Vòng đời job (1/11 → 7/11)
-**Mục tiêu:** Người dùng kiểm soát được job của mình và API an toàn khi gọi lại.
-* **Tasks:**
-    - [ ] **[Must]** Xoá job đã kết thúc: xoá dòng PG (hoặc soft delete) + object trong `uploads` và `results`. `DELETE /api/jobs/:id`.
-    - [ ] **[Must]** Huỷ job đang chờ/đang chạy: trạng thái mới `CANCELLED`. **[Đổi contract]** **[Cần Engine]**: cần thống nhất cơ chế. Gợi ý: backend publish `jobs.control.cancel` (hoặc worker kiểm tra trạng thái trước khi bắt đầu và trước khi upload), worker bỏ qua job và ack. Event `COMPLETED` đến sau `CANCELLED` phải bị bỏ qua (terminal-state protection) và backend dọn kết quả.
-    - [ ] **[Must]** Retry job `FAILED`: `POST /api/jobs/:id/retry` tạo job mới tham chiếu input cũ (input còn trong TTL 24h). Nếu input đã hết hạn thì trả 410.
-    - [ ] **[Should]** Header `Idempotency-Key` cho `POST /api/jobs` (giống Stripe/AWS): cùng key trong 24h trả lại cùng job, không tạo trùng.
-    - [ ] **[Should]** Hiển thị thời gian hết hạn kết quả (TTL 24h của Infra) trên UI. Job có kết quả đã hết hạn hiển thị "Đã hết hạn".
-* **Kiểm chứng:** huỷ job khi worker đang xử lý → trạng thái cuối `CANCELLED`, không có object trong `results`. Gửi 2 request cùng `Idempotency-Key` → 1 job.
-
-## Milestone 6: Trải nghiệm kết quả và thư viện media (5/11 → 14/11)
-**Mục tiêu:** Kết quả trông giống console của một dịch vụ cloud.
-* **Tasks:**
-    - [ ] **[Must]** Preview kết quả:
-        - `image-convert`, `background-removal`: thanh trượt so sánh trước/sau (before/after slider). Cần URL xem ảnh input: thêm `GET /api/jobs/:id/input` (stream từ `uploads`, bucket private) hoặc presigned GET (M7).
-        - `object-detection`, `text-recognition`: vẽ bounding box / khung OCR phía client từ `resultSummary` lên ảnh gốc, hover hiện label + confidence. Có bật/tắt overlay.
-        - Loại không preview được: hiện cấu hình đã gửi (`params`) + `resultSummary` dạng bảng, kèm nút tải.
-    - [ ] **[Must]** Tiến độ real-time bằng Server-Sent Events: `GET /api/jobs/:id/events` (và stream cho danh sách), thay polling 3s. Giữ polling làm fallback.
-    - [ ] **[Should]** Thư viện media: lưới thumbnail, lọc theo trạng thái/loại job, tìm theo tên file, phân trang (cursor theo `created_at`). Trang chi tiết job riêng (`/jobs/:id`), có link chia sẻ được.
-    - [ ] **[Could]** Thumbnail cho thư viện. **[Cần Engine]**: worker có thể tạo thêm `<jobId>/thumb.webp` không, hay Web tự dùng job `image-convert` sau khi xong?
-    - [ ] **[Could]** Metadata/EXIF của ảnh input (kích thước, định dạng, EXIF cơ bản). **[Cần Engine]** nếu muốn worker trả về trong `resultSummary`. Nếu không thì backend tự đọc header ảnh lúc upload.
-* **Kiểm chứng:** mở chi tiết một job `object-detection` → thấy box đúng vị trí. Tắt mạng 10s rồi bật lại → SSE tự kết nối lại, trạng thái đúng.
-
-## Milestone 7: Người dùng, quyền truy cập và lưu trữ an toàn (10/11 → 21/11)
-**Mục tiêu:** Mỗi người chỉ thấy job của mình, kết quả không còn public vô điều kiện.
-* **Tasks:**
-    - [ ] **[Should]** Auth đơn giản (email + mật khẩu hoặc OAuth GitHub/Google), session cookie `HttpOnly`. Bảng `users`, cột `jobs.user_id`. Mọi API job lọc theo user. Lịch sử job theo user.
-    - [ ] **[Should]** Quyết định có đổi key kết quả sang `<userId>/<jobId>/...` hay không (G7). Gợi ý: **giữ `<jobId>/...`** và kiểm tra quyền qua DB, để không phải đổi engine. **[Đổi contract]** **[Cần Engine]** nếu đổi.
-    - [ ] **[Should]** Presigned URL:
-        - Tải kết quả: backend cấp presigned GET ngắn hạn sau khi kiểm tra quyền. **[Cần Infra]**: chuyển bucket `results` sang private + bỏ/đổi HTTPRoute `/results/` (presigned URL ký theo host, nên cần thống nhất host public của MinIO hoặc giữ proxy qua backend).
-        - Upload trực tiếp từ trình duyệt bằng presigned PUT, để file lớn không đi qua backend. **[Cần Infra]**: cần route public ghi được vào MinIO (hiện chỉ cho GET/HEAD) + CORS. Nếu Infra không muốn mở ghi thì giữ upload qua backend.
-    - [ ] **[Could]** Quota + rate limiting theo user (ví dụ N job/giờ, tổng dung lượng/ngày), trả 429 kèm `Retry-After`. Cần auth trước.
-* **Kiểm chứng:** user A không đọc/xoá được job của user B (test API). URL kết quả hết hạn sau thời gian cấu hình.
-
-## Milestone 8: Batch, preset và công cụ benchmark (17/11 → 28/11)
-**Mục tiêu:** API dùng được cho khối lượng lớn và phục vụ đánh giá scaling của Infra.
-* **Tasks:**
-    - [ ] **[Should]** Batch job: `POST /api/batches` nhận nhiều file và/hoặc nhiều cấu hình biến đổi cho một file. Bảng `batches`, tiến độ tổng hợp, UI hiển thị nhóm.
-    - [ ] **[Should]** Preset biến đổi có tên (giống Cloudinary named transformations): ví dụ `thumbnail-webp-320`, `web-optimized-jpeg-85`. CRUD preset, chọn preset khi tạo job/batch.
-    - [ ] **[Should]** Công cụ benchmark: nâng `burst.ts` thành CLI có tham số (số job, tỉ lệ AI/ảnh, tốc độ gửi). Xuất CSV thời gian chờ (`QUEUED` → `PROCESSING`) và thời gian xử lý mỗi job. **[Cần Infra]**: thống nhất kịch bản và chỉ số để Đạt so sánh các chiến thuật scaling.
-    - [ ] **[Should]** Dashboard hệ thống: số job theo trạng thái, độ sâu hàng đợi mỗi pool, throughput, số worker đang chạy, để minh hoạ KEDA scale. **[Cần Infra]**: backend đọc lag qua NATS monitoring `nats:8222/jsz`. Số replica worker cần quyền đọc Kubernetes API (ServiceAccount + Role `get/list` deployments trong namespace), hoặc Infra cung cấp nguồn khác (VictoriaMetrics).
-    - [ ] **[Could]** API key cho truy cập bằng chương trình + trang tài liệu OpenAPI/Swagger.
-* **Kiểm chứng:** batch 50 ảnh × 1 preset hoàn tất trên `imgproc`, dashboard thấy queue tăng rồi về 0 và worker scale tương ứng. CSV benchmark được Infra dùng trong báo cáo.
+- [ ] **[Must]** Video: tải lên MP4 H.264 15–60s (kiểm tra thời lượng/codec), dùng chung cấu hình che + whitelist, publish `video-redact` lên `jobs.video`, theo dõi progress (worker gửi % theo khung hình), xem/tải video kết quả. **[Cần Engine]** chốt `resultSummary` của video (contract §2C).
+- [ ] **[Must]** Xuất báo cáo PDF từ báo cáo JSON (render phía server hoặc in từ trang báo cáo).
+- [ ] **[Should]** Whitelist biển số: nhập danh sách biển số. **[Cần Engine]** cần OCR. **[Đổi contract]** thêm `whitelist.plates`.
+- [ ] **[Should]** Tải cả batch dạng zip. Xoá batch thủ công (xoá object MinIO + dòng PG).
+- [ ] **[Should]** Tiến độ real-time bằng SSE thay polling.
+- [ ] **[Could]** Tài khoản người dùng + lưu "người cần giữ nguyên" để dùng lại (thay vì tải lại mỗi batch).
+- [ ] **[Could]** Trang thống kê hệ thống cho buổi bảo vệ: số job theo trạng thái, độ dài hàng đợi từng pool, số worker. **[Cần Infra]** nguồn số liệu (NATS monitoring/KEDA).
 
 ---
 
 ## Tổng hợp việc cần phối hợp
-
 | Khi nào | Với ai | Việc |
 |---|---|---|
-| M1 (trước 20/10) | Engine | Loại job Phase 1, `params` thực tế |
-| M3 (trước 26/10) | Infra | CI image `imgproc-web`, Deployment/Service/HTTPRoute, Secret + MinIO user riêng cho web, memory limit, giới hạn body upload |
-| M4 (28/10) | Engine + Infra | E2E worker thật, kịch bản burst cho demo KEDA |
-| M5 | Engine | Cơ chế huỷ job + trạng thái `CANCELLED` (đổi contract) |
-| M6 | Engine | Thumbnail / EXIF (tuỳ chọn) |
-| M7 | Infra (+ Engine nếu đổi key) | Bucket `results` private, presigned URL, route/CORS cho upload trực tiếp |
-| M8 | Infra | Kịch bản benchmark, quyền đọc replica/NATS monitoring cho dashboard |
+| M1 (27/10) | Engine | Xác nhận contract §2/§3 mới (`image-redact`, `image-render`, `detections`, `counts`) trước khi code |
+| M2 (30/10) | Engine | Chốt ngưỡng mặc định (`confidenceThreshold`, `reviewThreshold`, `similarityThreshold`) sau khi engine thử |
+| M4 (04/11) | Infra | Deploy web, Secret, HTTPRoute, giới hạn upload, CI image |
+| M4 (05/11) | Engine + Infra | Chạy luồng thật trên lab |
+| Phase 2 | Engine | `resultSummary` của video, OCR cho whitelist biển số |

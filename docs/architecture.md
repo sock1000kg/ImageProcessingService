@@ -1,8 +1,8 @@
-# Cloud-Native Elastic AI Processing Platform
+# Cloud-Native Privacy Service: Architecture
 
 ## 1. Architecture Overview
 
-**Objective:** Build a scalable, event-driven image-processing platform demonstrating dynamic worker scaling via KEDA and NATS JetStream, optimized for a constrained 4-core / 12GB RAM Kubernetes node.
+**Objective:** Build a scalable, event-driven service that automatically detects and redacts faces and license plates in images and videos, demonstrating dynamic worker scaling via KEDA and NATS JetStream on a constrained 2C/4T / 12GB RAM Kubernetes node. Project scope: `docs/report-material/de-tai.md`.
 
 The architecture deliberately avoids a custom Kubernetes Operator/CRD. Kubernetes-native resources, KEDA, PostgreSQL, MinIO, and NATS JetStream are sufficient for the project's scaling and integration requirements.
 
@@ -35,9 +35,9 @@ The architecture deliberately avoids a custom Kubernetes Operator/CRD. Kubernete
 
 * **Worker Deployments**
 
-  * Purpose-built pools such as AI and FFmpeg/video workers.
+  * Two pools split by media: **image** redaction workers (many small jobs) and **video** redaction workers (YOLO + ByteTrack + FFmpeg, long jobs; Phase 2).
   * Long-running processes consume multiple jobs.
-  * AI workers load model weights once at startup.
+  * Workers load model weights (detector, face-embedding model) once at startup.
 
 See `integration-contracts.md` for message formats, subjects, ownership rules, and component interfaces.
 
@@ -68,14 +68,14 @@ Workers do not need direct PostgreSQL access. The frontend communicates with the
 To optimize bandwidth and memory on the constrained node, the system completely bypasses the backend for serving large result files. 
 
 ### Storage Separation
-*   **MinIO (Heavy Data):** Stores the raw binary output (e.g., processed images.png,...).
-*   **PostgreSQL (Metadata):** Stores only lightweight JSON summaries (e.g., file size, object counts, id) for quick API retrieval and display.
+*   **MinIO (Heavy Data):** Stores originals, whitelist reference photos and redacted outputs.
+*   **PostgreSQL (Metadata):** Stores batches, jobs and lightweight JSON summaries (detections, counts) used for previews and reports.
 
 ### Direct Delivery via Gateway API
 *   **Public Read Access:** The MinIO `results` bucket is configured for public read-only access.
 *   **Same-Origin Routing:** The Kubernetes Gateway API (HTTPRoute) combined with a Cloudflare Tunnel exposes MinIO on the same domain as the frontend using path-based routing (e.g., `yourdomain.com/results/`).
 *   **Frontend Integration:** Because the files are served same-origin, the frontend can natively display media (`<img src="/results/...">`) and trigger native browser downloads (`<a href="/results/..." download>`) without CORS issues or complex backend proxying.
-*   **Security:** Job IDs rely strictly on UUIDs (e.g., `/results/<uuid>/output.jpg`), utilizing unguessable paths to prevent directory enumeration in the absence of user authentication.
+*   **Security:** Results use unguessable UUID paths (`/results/<batchId>/<jobId>/result.jpg`) and the bucket denies listing. Originals and whitelist photos stay private in `uploads`.
 
 ### Data deletion (MVP)
 Given the lack of user authentication and the need to preserve disk space in, all user data is treated as ephemeral.
@@ -137,18 +137,12 @@ NATS JetStream and KEDA provide durable asynchronous messaging and event-driven 
 
 ```text
 project-root/
-├── web/
-│   ├── frontend/
-│   └── backend/
-├── engine/
-│   ├── ai-worker/
-│   └── video-worker/
+├── docs/          # shared source of truth: contracts, milestones, report material
+├── web/           # frontend + backend
+├── engine/        # Python workers (image redaction; video in Phase 2)
 ├── infra/
-│   ├── k8s/
-│   ├── keda/
-│   ├── nats/
-│   ├── minio/
-│   └── postgres/
+│   ├── app/       # the imgproc environment: nats, postgresql, minio, engine-workers
+│   └── cluster/   # KEDA (installed once per cluster)
 └── README.md
 ```
 
@@ -163,8 +157,8 @@ project-root/
 ### Person 2 — Engine
 
 * Python processing engine.
-* AI model loading and inference.
-* Image/video processing.
+* Face/plate detection, redaction styles, face-embedding whitelist, model fine-tuning.
+* Image redaction (Phase 1) and video redaction with ByteTrack + FFmpeg (Phase 2).
 * NATS and MinIO integration.
 * Progress reporting, retries, and idempotency.
 
@@ -212,7 +206,7 @@ The architecture is designed to demonstrate:
 * Kubernetes workload orchestration and event-driven autoscaling.
 * Independent worker pools.
 * Persistent job state and object storage.
-* AI/media processing.
+* AI-based privacy redaction of images and videos.
 * Resource-aware scaling on constrained hardware.
 
 The implementation is scoped for a six-week student project while retaining clear separation between application logic, processing workloads, and infrastructure.
@@ -245,7 +239,7 @@ The resulting architecture has four distinct responsibilities:
                                    v
                           ┌─────────────────┐
                           │ Worker Pool     │
-                          │ AI / FFmpeg     │
+                          │ image / video   │
                           └───────┬─────────┘
                                   │
                               object I/O

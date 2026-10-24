@@ -1,49 +1,39 @@
 # Milestones
-File này có mục đích chia các lượt công việc và theo dõi tiến độ project
+File này chia các lượt công việc và theo dõi tiến độ. Đề tài: `docs/report-material/de-tai.md`. Contract: `docs/integration-contracts.md`.
+Kế hoạch chi tiết từng team: `web/docs/plan.md`, `engine/docs/plan.md`, `infra/AGENTS.md`.
 
-## MVP (Tối thiểu cần có để demo trên lớp) - Cuối tháng 10
-1. Web / Backend (Giao diện & API) - Anh Nguyễn Đức Huy
-[ ] Quản lý tệp đầu vào: Nhận ảnh/video từ người dùng qua API và lưu trữ trực tiếp vào kho chứa MinIO.
+## Phase 1: Ẩn danh hoá bộ ảnh (24/10 → 07/11)
+Demo được: tải lên một bộ ảnh + ảnh chân dung whitelist, chọn cách che, xem before/after, chỉnh độ mạnh, tải kết quả và báo cáo JSON. Chạy trên `https://imgproc.sock1000kg.io.vn`.
 
-[ ] Khởi tạo Job: Tạo bản ghi công việc mới trong PostgreSQL với trạng thái ban đầu là PENDING.
+1. Web / Backend: Nguyễn Đức Huy
+- [ ] Tạo batch: tải lên nhiều ảnh + 0..n ảnh whitelist + cấu hình che. Lưu MinIO, tạo batch và **một job cho mỗi ảnh** trong PostgreSQL, publish lên `jobs.image`.
+- [ ] Theo dõi batch: trạng thái từng ảnh và tiến độ tổng. Thử lại ảnh `FAILED` riêng lẻ.
+- [ ] Xem kết quả: thanh trượt before/after. Preview chỉnh style/độ mạnh trên trình duyệt từ `detections`, bật/tắt từng box. "Áp dụng" gửi job `image-render`.
+- [ ] Báo cáo: tổng số khuôn mặt/biển số/đã che/whitelist, danh sách phát hiện confidence thấp. Xem trên web và tải JSON.
+- [ ] Đồng bộ trạng thái từ `jobs.events` (idempotent, contract §8).
 
-[ ] Phân phối tác vụ: Đẩy lệnh xử lý (chứa định danh jobId và đường dẫn tệp trong MinIO) vào các chủ đề (subject) tương ứng trên NATS JetStream (ví dụ: jobs.ai hoặc jobs.image) -> Update trạng thái thành QUEUED trong PostgreSQL.
+2. Engine / Workers: Huy Đức
+- [ ] `image-redact`: phát hiện face + plate (pretrained `yolov8n-oiv7`), che blur/pixelate/blackout theo `params.redaction`, trả `detections` + `counts` theo contract §3.
+- [ ] Whitelist khuôn mặt: embedding ảnh mẫu (cache theo key), cosine similarity, không che khi ≥ ngưỡng.
+- [ ] `image-render`: che theo `boxes` có sẵn, không phát hiện lại.
+- [ ] Đánh dấu `lowConfidence` theo `reviewThreshold`.
+- [ ] Song song: chuẩn bị dataset (WIDER FACE + biển số VN) và fine-tune YOLOv8n 2 nhãn. Thay model qua env khi đạt mAP@50 ≥ 85%.
 
-[ ] Đồng bộ trạng thái: Lắng nghe các sự kiện tiến độ từ NATS (chủ đề jobs.events) để cập nhật trạng thái thực tế (PROCESSING, COMPLETED, FAILED là tối thiểu, hiện phần trăm thì tuỳ 2 Huy có thích làm ko) vào PostgreSQL. Khi job xong thì cung cấp URL public thẳng đến `/results/<jobId>/result.<ext>` (xem `docs/integration-contracts.md` §5) cho user xem/tải (MinIO sẽ expose ra cho public bởi Infra để tiết kiệm tgian).
+3. Infrastructure: Đạt
+- [ ] Môi trường `imgproc` chạy và public. Smoke test pass.
+- [ ] Đổi stream theo contract mục 4: `IMAGE_JOBS` cho ảnh, thêm `VIDEO_JOBS`/`jobs.video`, bỏ `AI_JOBS`. Worker `image-worker` + KEDA chỉnh theo RAM đo được của model.
+- [ ] CI build image `imgproc-engine` / `imgproc-web` theo commit SHA. Deploy web (Deployment, Service, HTTPRoute `/` và `/api`).
 
-[ ] Cung cấp REST API: Cho phép frontend gửi yêu cầu tạo công việc mới, kiểm tra tiến độ liên tục, và nhận đường dẫn để tải kết quả.
+## Phase 2: Video + benchmark (08/11 → 30/11)
+1. Web
+- [ ] Tải lên video (MP4 H.264, 15–60s), theo dõi tiến độ, xem/tải kết quả. Dùng chung cấu hình che và whitelist.
+- [ ] Xuất báo cáo PDF. Whitelist biển số (nhập danh sách biển).
 
-2. Engine / Workers (Động cơ xử lý) - Huy Đức
-[ ] Kết nối hàng đợi: Liên tục lắng nghe và nhận các công việc được giao từ NATS JetStream.
-
-[ ] Tối ưu hóa khởi động: Tải mô hình AI hoặc các thư viện xử lý nặng vào bộ nhớ duy nhất một lần khi khởi động để tối ưu hiệu suất xử lý cho chuỗi nhiều công việc liên tiếp.
-
-[ ] Xử lý dữ liệu: Nhận thông tin, tải tệp nguồn từ MinIO, thực hiện tác vụ xử lý (nhận diện hình ảnh, chuyển mã video), và tải tệp kết quả ngược lại lên MinIO.
-
-[ ] Báo cáo tiến trình: Gửi các sự kiện cập nhật trạng thái về NATS JetStream để backend nắm bắt mà không cần kết nối trực tiếp vào PostgreSQL. Tối thiểu là sự kiện ACK hoàn thành job và sự kiện nhận job (có thể ko cần progress phần trăm). Khi job xong thì cung cấp URL public thẳng đến `/results/<jobId>/result.<ext>` (xem `docs/integration-contracts.md` §5) để Backend lấy về.
-
-[ ] Xác nhận an toàn (Acknowledgement): Chỉ báo cáo hoàn tất (ACK) với NATS JetStream sau khi toàn bộ quá trình xử lý và tải kết quả lên MinIO đã thành công. Nếu xảy ra lỗi giữa chừng, NATS sẽ giao lại công việc đó.
-
-3. Infrastructure - Đạt
-[ ] Triển khai dịch vụ cốt lõi: Cài đặt và vận hành ổn định PostgreSQL (quản lý trạng thái), MinIO (lưu trữ tệp lớn), và NATS JetStream (vận chuyển thông điệp) trên Kubernetes.
-
-[ ] Tự động mở rộng (Autoscaling) với KEDA: Cấu hình KEDA ScaledObject để liên tục theo dõi lượng công việc tồn đọng (consumer lag) trong NATS. Tự động tăng số lượng Pod của Worker khi hàng đợi dài ra, và thu hẹp về 0 khi hệ thống rảnh rỗi.
-
-[ ] Quản lý tài nguyên: Thiết lập giới hạn sử dụng CPU và RAM tối đa cho các Worker Deployment để đảm bảo hệ thống không bị quá tải trên phần cứng giới hạn (4-core / 12GB RAM).
-
-
-## Day 2 Features (nếu có thì tốt, không thì thôi, lúc này rảnh thì làm chung cũng đc) - Tháng 11 
-1. Web / Backend (Giao diện & API)
-[ ] Luồng xoá ngay trên web job khi job đã hoàn thành hoặc job đang chạy dở (MVP thì là xoá tự động)
-
-[ ] User auth, lưu lịch sử các job đã tạo
-
-[ ] Presigned URL cho MinIO
-
-2. Engine / Workers (Động cơ xử lý)
-[ ] Tối ưu hoá thời gian xử lý
-
-[ ] Thêm các loại job tiên tiến hơn
+2. Engine
+- [ ] `video-redact`: tách khung hình, phát hiện + ByteTrack, che, ghép lại bằng FFmpeg giữ nguyên âm thanh.
+- [ ] Whitelist biển số (OCR biển VN 2 dòng).
+- [ ] ONNX + OpenVINO (INT8 có điều kiện). Benchmark so với PyTorch CPU.
 
 3. Infrastructure
-[ ] Triển khai và đánh giá các chiến thuật scaling và xử lý job khác nhau
+- [ ] Pool `video-worker` + KEDA (mỗi video một pod).
+- [ ] Benchmark trên môi trường đã deploy: monolith vs phân tán, các chiến thuật scale, thông lượng/độ trễ/RAM. Số liệu cho báo cáo.

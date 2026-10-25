@@ -20,11 +20,13 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 * **Tasks:**
     - [ ] Processor `image-redact`: dùng `yolov8n-oiv7`, chỉ giữ 2 lớp `Human face` → `face`, `Vehicle registration plate` → `plate` (map tên lớp qua config, để đổi sang model fine-tune 2 nhãn chỉ cần đổi env `YOLO_MODEL_NAME` + bảng map). Lọc theo `params.redaction.targets` và `confidenceThreshold`.
     - [ ] Ba style che theo `params.redaction`: `blur` (Gaussian, bán kính = `strength`), `pixelate` (thu nhỏ rồi phóng lại theo ô `strength`px), `blackout` (tô đen). Nới box theo `padding`, cắt trong biên ảnh. Che **sau** khi đã quyết định whitelist.
-    - [ ] Giữ định dạng ảnh đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
+    - [ ] Giữ định dạng ảnh đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP) và **giữ nguyên độ phân giải**. Nén theo `params.output.quality` (mặc định 95, đặt rõ khi encode, không dùng mặc định thư viện: Pillow mặc định 75). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
+    - [ ] Phân loại lỗi theo contract §4 "Khi worker chết giữa chừng": lỗi input → `FAILED` + ack; lỗi tạm thời (MinIO/NATS) → `nak(delay)` không gửi `FAILED`, trừ lượt giao cuối (`msg.metadata.num_delivered` ≥ `MAX_DELIVER`, env mặc định 5) thì `FAILED` + ack. Hiện tại mọi lỗi đều ack nên lỗi mạng thoáng qua là hỏng hẳn job.
+    - [ ] SIGTERM khi job chưa xong trong grace period (60s): `nak()` job đang chạy trước khi thoát, để worker khác nhận ngay.
     - [ ] `resultSummary` đúng contract §3B: `imageSize`, `counts`, `detections` (box **trước** padding, `lowConfidence` theo `reviewThreshold`), `redaction`, `model`, `processingTimeMs`.
     - [ ] Gỡ `object-detection` / `image-convert` khỏi registry. Pool `jobs.image` chỉ đăng ký `image-redact`. Loại khác → `UNSUPPORTED_JOB_TYPE`.
     - [ ] Ảnh hỏng hoặc không đọc được → `INVALID_INPUT_FILE` (không để thành `INTERNAL_WORKER_ERROR`).
-* **Kiểm chứng:** `engine/tests/` có test cho 3 style (vùng trong box bị đổi, ngoài box giữ nguyên), map lớp, `padding` ở mép ảnh. Chạy với compose local + publish tay 1 command `image-redact` theo contract §2A → ảnh kết quả trong `results`, event `COMPLETED` đúng shape.
+* **Kiểm chứng:** `engine/tests/` có test cho 3 style (vùng trong box bị đổi, ngoài box giữ nguyên), map lớp, `padding` ở mép ảnh, kích thước đầu ra = đầu vào, phân loại ack/nak theo mã lỗi. Thử `kill -9` worker khi đang xử lý → job được giao lại và hoàn tất. Chạy với compose local + publish tay 1 command `image-redact` theo contract §2A → ảnh kết quả trong `results`, event `COMPLETED` đúng shape.
 
 ## Milestone 2: Whitelist khuôn mặt (01/11 → 08/11)
 * **Tasks:**
@@ -52,7 +54,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 ---
 
 # Phase 2: Video + tối ưu (16/11 → 29/11)
-- [ ] **[Must]** `video-redact` trên pool `jobs.video` (worker riêng, contract §2C): tách khung hình (FFmpeg/OpenCV), phát hiện + **ByteTrack** để giữ id đối tượng giữa các khung (vết che không nhấp nháy, có thể nội suy khi mất phát hiện vài khung), che, ghép lại MP4 H.264, **copy nguyên audio gốc** bằng FFmpeg. Gửi progress theo % khung hình. Heartbeat `in_progress()` (ack_wait 5m). **[Đổi contract]** chốt `resultSummary` video với Web (số đối tượng duy nhất theo track id, khung có confidence thấp...).
+- [ ] **[Must]** `video-redact` trên pool `jobs.video` (worker riêng, contract §2C): tách khung hình (FFmpeg/OpenCV), phát hiện + **ByteTrack** để giữ id đối tượng giữa các khung (vết che không nhấp nháy, có thể nội suy khi mất phát hiện vài khung), che, ghép lại MP4 H.264 (CRF map từ `params.output.quality`, giữ độ phân giải + fps gốc), **copy nguyên audio gốc** bằng FFmpeg. Gửi progress theo % khung hình. Heartbeat `in_progress()` (ack_wait 5m). **[Đổi contract]** chốt `resultSummary` video với Web (số đối tượng duy nhất theo track id, khung có confidence thấp...).
 - [ ] **[Must]** Whitelist khuôn mặt cho video: so embedding theo **track**, không theo từng khung (một lần mỗi track, ổn định hơn và nhanh hơn).
 - [ ] **[Should]** ONNX + OpenVINO trên CPU Intel. Benchmark với PyTorch CPU: throughput, latency, RAM, mAP. INT8 chỉ dùng nếu nhanh hơn rõ rệt (mục tiêu 2–3 lần) mà mAP/recall vẫn đạt.
 - [ ] **[Should]** Whitelist biển số: OCR biển VN 2 dòng (ví dụ PaddleOCR/EasyOCR), so khớp với `whitelist.plates`. **[Đổi contract]** **[Cần Web]**.
@@ -63,7 +65,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 ## Tổng hợp việc cần phối hợp
 | Khi nào | Với ai | Việc |
 |---|---|---|
-| M1 (28/10) | Web | Xác nhận contract §2/§3 mới trước khi code |
+| M1 (28/10) | Web | Xác nhận contract §2/§3 mới (kể cả `params.output.quality`) và cách xử lý worker chết / `JOB_TIMEOUT` (§4) trước khi code |
 | M2 (06/11) | Web | Ngưỡng mặc định `similarityThreshold`, `reviewThreshold` |
 | M3 (09/11) | Infra | RAM/CPU đo được → memory limit, max replicas, CI image |
 | M3 (12/11) | Web + Infra | Chạy luồng thật trên lab |

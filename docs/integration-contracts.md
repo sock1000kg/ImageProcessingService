@@ -49,6 +49,14 @@ Tất cả stream, consumer và bucket do **Infra tạo sẵn** (xem mục 4). A
 | `strength` | số nguyên | blur: 25, pixelate: 12 | Bán kính blur hoặc kích thước ô pixel. Bỏ qua với `blackout`. |
 | `padding` | số thực 0–0.5 | 0.1 | Nới rộng box theo tỉ lệ để che kín mép. |
 
+### Chất lượng đầu ra (`params.output`, dùng chung cho mọi loại)
+| Trường | Kiểu | Mặc định | Ý nghĩa |
+| :--- | :--- | :--- | :--- |
+| `quality` | số nguyên 1–100 | 95 | Chất lượng nén JPEG/WEBP (video: map sang CRF ở Phase 2). PNG luôn lossless nên bỏ qua. |
+
+* Kết quả **giữ nguyên độ phân giải** ảnh gốc và định dạng theo đuôi của `output.key`. Ngoài vùng bị che, ảnh chỉ khác ảnh gốc do nén lại theo `quality`.
+* EXIF/GPS bị xoá khỏi kết quả (ảnh public không mang vị trí chụp).
+
 ### A. `image-redact` (subject `jobs.image`)
 Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh kết quả + danh sách phát hiện.
 ```json
@@ -60,6 +68,7 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
   "output": { "bucket": "results", "key": "0f1e2d3c-4b5a-4697-8877-665544332211/a1b2c3d4-5678-40ab-8def-112233445566/result.jpg" },
   "params": {
     "redaction": { "targets": ["face", "plate"], "style": "pixelate", "strength": 12, "padding": 0.1 },
+    "output": { "quality": 95 },
     "confidenceThreshold": 0.35,
     "reviewThreshold": 0.5,
     "whitelist": {
@@ -129,6 +138,7 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
 * `WHITELIST_REFERENCE_ERROR`: ảnh mẫu whitelist không đọc được hoặc không có khuôn mặt.
 * `MODEL_INFERENCE_ERROR`: lỗi khi chạy model hoặc khi che.
 * `STORAGE_UPLOAD_ERROR`: không tải được kết quả lên MinIO.
+* `JOB_TIMEOUT`: **do Backend đặt, không phải worker.** Job không nhận event nào quá lâu (worker chết, hết lượt redelivery). Xem mục 4 "Khi worker chết giữa chừng".
 
 ---
 
@@ -147,6 +157,13 @@ Cùng hai script đó chạy ở **cả local lẫn cluster**, nên code chạy 
 - Mọi consumer dùng explicit ack. Worker ack sau khi upload kết quả xong. Job xử lý lâu hơn `ack_wait` phải gửi `in_progress()` định kỳ.
 - Bucket MinIO: `uploads` (private), `results` (public chỉ đọc qua `/results/<key>`). Cả hai tự xoá object sau **24 giờ**.
 - Mỗi worker Deployment chỉ phục vụ **một pool** (một stream + một consumer, cấu hình qua env), để KEDA scale từng pool độc lập.
+
+**Khi worker chết giữa chừng / lỗi tạm thời:**
+- Worker chết (OOMKill, pod bị xoá, node restart) trước khi ack → heartbeat dừng → NATS giao lại message sau `ack_wait`, tối đa `max_deliver` lần. Key kết quả cố định nên chạy lại chỉ ghi đè cùng object. Backend đã chịu được event trùng (mục 8).
+- Lỗi do **input** (`INVALID_INPUT_FILE`, `WHITELIST_REFERENCE_ERROR`, `UNSUPPORTED_JOB_TYPE`): worker gửi `FAILED` rồi **ack** (chạy lại cũng không khỏi).
+- Lỗi **tạm thời** (`STORAGE_DOWNLOAD_ERROR`, `STORAGE_UPLOAD_ERROR`, mất kết nối): worker **`nak()` có delay** (vài giây) để NATS giao lại, **không** gửi `FAILED`. Ở lượt giao cuối (`num_delivered` ≥ `max_deliver`) thì gửi `FAILED` + ack như lỗi thường.
+- Nhận SIGTERM khi đang xử lý mà không kịp xong trong grace period: worker `nak()` job đang chạy để worker khác nhận ngay, không phải chờ hết `ack_wait`.
+- Worker chết ở lượt giao cuối thì không ai gửi `FAILED`. Vì vậy **Backend có watchdog**: job `PROCESSING` không nhận event nào quá ngưỡng (env, gợi ý 10 phút cho ảnh, 30 phút cho video) → `FAILED` với `JOB_TIMEOUT`. Nếu sau đó vẫn nhận `COMPLETED` thì nhận (kết quả thật thắng timeout), đây là ngoại lệ duy nhất của terminal-state protection (mục 8).
 
 **Quy tắc:**
 - **Backend và Worker không được tự tạo, sửa hay xoá stream/consumer/bucket** (không `add_stream`, không `ensureStream`/`ensureBuckets`, không tạo durable mới). Chỉ bind vào consumer có sẵn (ví dụ Python: `js.pull_subscribe(subject="jobs.image", durable="image-workers", stream="IMAGE_JOBS")` với consumer đã có). Nếu thiếu thì log lỗi và thoát.
@@ -172,6 +189,11 @@ Không dùng file compose riêng của từng team cho NATS/MinIO, vì chúng kh
 - URL public của kết quả: `/results/<key trong bucket results>`. `batchId`/`jobId` là UUID v4, khó đoán, và đó là cơ chế bảo vệ link public duy nhất ở Phase 1.
 - Ảnh gốc ở `uploads` là private. UI cần hiển thị ảnh gốc (thanh trượt before/after) thì Backend cung cấp qua API (stream hoặc presigned URL ngắn hạn).
 - Mọi object tự xoá sau 24 giờ (mục 4).
+
+**Xoá dữ liệu** (đề tài: "xoá dữ liệu sau khi xử lý theo hạn hoặc khi người dùng yêu cầu"):
+- **Theo hạn:** MinIO lifecycle xoá object sau 24h. Backend xoá (hoặc đánh dấu `EXPIRED`) batch/job quá 24h trong PostgreSQL, để UI không trỏ tới object đã mất.
+- **Khi người dùng yêu cầu:** Backend xoá prefix `uploads/<batchId>/` và `results/<batchId>/` trên MinIO, rồi xoá dòng PG. Phase 1 không có tài khoản, nên ai có link batch (UUID) thì được xoá.
+- **Ảnh mẫu whitelist** là dữ liệu sinh trắc: Backend xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch đã kết thúc, không đợi 24h. Sau đó thử lại ảnh lỗi của batch có whitelist trả 410 (không được chạy lại mà thiếu whitelist, vì sẽ che cả người quen). Người dùng tạo batch mới.
 
 ---
 
@@ -301,6 +323,7 @@ Frontend
    +--> POST /api/batches            (tải bộ ảnh + cấu hình + ảnh whitelist)
    +--> GET  /api/batches/:id        (trạng thái batch + các job)
    +--> GET  /api/batches/:id/report (báo cáo JSON)
+   +--> DELETE /api/batches/:id      (xoá batch theo yêu cầu, mục 5)
    +--> GET  /api/jobs/:id
    +--> GET  /api/system/stats
 ```

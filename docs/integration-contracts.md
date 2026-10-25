@@ -138,7 +138,7 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
 * `WHITELIST_REFERENCE_ERROR`: ảnh mẫu whitelist không đọc được hoặc không có khuôn mặt.
 * `MODEL_INFERENCE_ERROR`: lỗi khi chạy model hoặc khi che.
 * `STORAGE_UPLOAD_ERROR`: không tải được kết quả lên MinIO.
-* `JOB_TIMEOUT`: **do Backend đặt, không phải worker.** Job không nhận event nào quá lâu (worker chết, hết lượt redelivery). Xem mục 4 "Khi worker chết giữa chừng".
+* `WORKER_CRASHED`: job đã làm worker chết (hoặc quá hạn xử lý) `MAX_ATTEMPTS` lần liên tiếp. Xem mục 4 "Khi worker chết giữa chừng".
 
 ---
 
@@ -161,9 +161,13 @@ Cùng hai script đó chạy ở **cả local lẫn cluster**, nên code chạy 
 **Khi worker chết giữa chừng / lỗi tạm thời:**
 - Worker chết (OOMKill, pod bị xoá, node restart) trước khi ack → heartbeat dừng → NATS giao lại message sau `ack_wait`, tối đa `max_deliver` lần. Key kết quả cố định nên chạy lại chỉ ghi đè cùng object. Backend đã chịu được event trùng (mục 8).
 - Lỗi do **input** (`INVALID_INPUT_FILE`, `WHITELIST_REFERENCE_ERROR`, `UNSUPPORTED_JOB_TYPE`): worker gửi `FAILED` rồi **ack** (chạy lại cũng không khỏi).
-- Lỗi **tạm thời** (`STORAGE_DOWNLOAD_ERROR`, `STORAGE_UPLOAD_ERROR`, mất kết nối): worker **`nak()` có delay** (vài giây) để NATS giao lại, **không** gửi `FAILED`. Ở lượt giao cuối (`num_delivered` ≥ `max_deliver`) thì gửi `FAILED` + ack như lỗi thường.
-- Nhận SIGTERM khi đang xử lý mà không kịp xong trong grace period: worker `nak()` job đang chạy để worker khác nhận ngay, không phải chờ hết `ack_wait`.
-- Worker chết ở lượt giao cuối thì không ai gửi `FAILED`. Vì vậy **Backend có watchdog**: job `PROCESSING` không nhận event nào quá ngưỡng (env, gợi ý 10 phút cho ảnh, 30 phút cho video) → `FAILED` với `JOB_TIMEOUT`. Nếu sau đó vẫn nhận `COMPLETED` thì nhận (kết quả thật thắng timeout), đây là ngoại lệ duy nhất của terminal-state protection (mục 8).
+- Lỗi **tạm thời** (`STORAGE_DOWNLOAD_ERROR`, `STORAGE_UPLOAD_ERROR`, mất kết nối): worker **`nak()` có delay** (vài giây) để NATS giao lại, **không** gửi `FAILED`. Ở lượt xử lý cuối (`num_delivered` = `MAX_ATTEMPTS`) thì gửi `FAILED` với mã lỗi thật + ack.
+- **Mọi job đều kết thúc bằng một event `FAILED` hoặc `COMPLETED` do worker gửi.** Backend chỉ nghe event, không tự đặt timeout. Để chắc chắn có người báo `FAILED` kể cả khi worker chết ở lượt cuối:
+  - Worker (env `MAX_ATTEMPTS`, mặc định **3**) chỉ **xử lý** khi `msg.metadata.num_delivered` ≤ `MAX_ATTEMPTS`. Stream để `max_deliver` = **5**, luôn lớn hơn `MAX_ATTEMPTS`, nên còn dư lượt giao.
+  - Nhận message có `num_delivered` > `MAX_ATTEMPTS` nghĩa là các lượt trước đều chết giữa chừng. Worker **không xử lý** (không tải file, không chạy model), gửi ngay `FAILED` với `WORKER_CRASHED` rồi ack. Việc này nhẹ nên gần như không thể chết, và vẫn còn một lượt dự phòng.
+  - Job dài vẫn an toàn: heartbeat `in_progress()` giữ message, nên không giới hạn thời gian tổng ở Backend.
+  - Worker bị **treo** (heartbeat vẫn chạy nhưng xử lý không tiến triển) sẽ giữ message mãi. Vì vậy mỗi pool có hạn xử lý một job (env `JOB_DEADLINE_SECONDS`, gợi ý ảnh 300, video 3600). Quá hạn thì worker ngừng heartbeat và **tự thoát** (pod restart). Lượt đó được tính như một lần chết, và rơi vào luật trên.
+- Nhận SIGTERM (KEDA scale down) khi đang xử lý mà không kịp xong trong grace period: worker `nak()` job đang chạy để worker khác nhận ngay, không phải chờ hết `ack_wait`. Lượt này cũng tính vào `num_delivered`.
 
 **Quy tắc:**
 - **Backend và Worker không được tự tạo, sửa hay xoá stream/consumer/bucket** (không `add_stream`, không `ensureStream`/`ensureBuckets`, không tạo durable mới). Chỉ bind vào consumer có sẵn (ví dụ Python: `js.pull_subscribe(subject="jobs.image", durable="image-workers", stream="IMAGE_JOBS")` với consumer đã có). Nếu thiếu thì log lỗi và thoát.

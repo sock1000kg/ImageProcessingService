@@ -22,8 +22,7 @@ backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, 
     - [ ] Đường dẫn object theo contract §5: `uploads/<batchId>/<jobId>/input.<ext>`, `uploads/<batchId>/whitelist/face-<n>.<ext>`, `results/<batchId>/<jobId>/result.<ext>`.
     - [ ] Command `image-redact` đúng contract §2 (zod schema cho `params.redaction`, `whitelist`). Event `COMPLETED` lưu `resultSummary` (`counts`, `detections`, `model`).
     - [ ] Trạng thái batch suy ra từ các job: `PROCESSING` khi còn job chưa xong, `COMPLETED` khi tất cả xong, `PARTIAL` khi có job `FAILED`. Không lưu trùng logic ở hai nơi.
-    - [ ] Giữ idempotency (contract §8). Event `PROCESSING` đến sau trạng thái kết thúc thì bỏ qua. Viết vài unit test cho trường hợp trùng/đến trễ.
-    - [ ] **Watchdog** (contract §4 "Khi worker chết giữa chừng"): job `PROCESSING` không có event quá `JOB_TIMEOUT_MS` (env, mặc định 10 phút cho ảnh) → `FAILED` với `JOB_TIMEOUT`. `COMPLETED` đến muộn sau `JOB_TIMEOUT` vẫn được nhận. Unit test cho cả hai trường hợp.
+    - [ ] Giữ idempotency (contract §8). Event `PROCESSING` đến sau trạng thái kết thúc thì bỏ qua. Viết vài unit test cho trường hợp trùng/đến trễ. Hiển thị `WORKER_CRASHED` như lỗi thường (có nút thử lại). Backend **không** tự đặt timeout cho job (contract §4).
 * **Kiểm chứng:** tạo batch 3 ảnh bằng API → 3 message trên `jobs.image` (xem bằng `nats sub` hoặc `nats stream view IMAGE_JOBS`). Publish tay 3 event `COMPLETED` → batch chuyển `COMPLETED`.
 
 ## Milestone 2: API (28/10 → 04/11)
@@ -75,7 +74,7 @@ Tier: **[Must]** phải có, **[Should]** nên có, **[Could]** nếu còn thờ
 ## Tổng hợp việc cần phối hợp
 | Khi nào | Với ai | Việc |
 |---|---|---|
-| M1 (28/10) | Engine | Xác nhận contract §2/§3 mới (`image-redact`, `detections`, `counts`, `params.output.quality`) và cách xử lý worker chết / `JOB_TIMEOUT` (§4) trước khi code |
+| M1 (28/10) | Engine | Xác nhận contract §2/§3 mới (`image-redact`, `detections`, `counts`, `params.output.quality`) và cách xử lý worker chết (§4: worker luôn gửi event kết thúc, `WORKER_CRASHED`) trước khi code |
 | M2 (04/11) | Engine | Chốt ngưỡng mặc định (`confidenceThreshold`, `reviewThreshold`, `similarityThreshold`) sau khi engine thử |
 | M4 (10/11) | Infra | Deploy web, Secret, HTTPRoute, giới hạn upload, CI image |
 | M4 (12/11) | Engine + Infra | Chạy luồng thật trên lab |

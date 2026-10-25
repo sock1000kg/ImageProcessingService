@@ -18,6 +18,7 @@ backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, 
 
 ## Milestone 1: Mô hình dữ liệu batch (24/10 → 30/10)
 * **Tasks:**
+    - [ ] **[Bug, làm trước]** Backend ngừng nhận event sau batch đầu tiên. Trong `consumeEvents` (`backend/src/messaging.ts`), `pull()` chỉ được gọi một lần: `for await (const message of subscription)` không bao giờ thoát sau khi batch hết/expire, nên không tới được lần `pull()` tiếp theo. Trên lab (25/10): consumer `backend-job-events` có `last_active` = lúc pod khởi động, event `COMPLETED` nằm lại trong `JOB_EVENTS`, UI không cập nhật. Sửa bằng API consumer của nats.js (`jetStream.consumers.get("JOB_EVENTS", "backend-job-events")` → `consumer.consume()`, thư viện tự pull liên tục), hoặc gọi `pull()` theo timer ngoài vòng lặp. **Kiểm chứng:** chạy backend, đợi > 30s, rồi publish tay vài event → tất cả đều được áp dụng. Lặp lại sau vài phút.
     - [ ] Migration mới: bảng `batches` (id, trạng thái tổng, cấu hình che mặc định, danh sách key ảnh whitelist, created_at) và `jobs` thêm `batch_id`, `params` (JSONB), `detections` (lấy từ `resultSummary`). Bỏ các loại job cũ khỏi validate.
     - [ ] Đường dẫn object theo contract §5: `uploads/<batchId>/<jobId>/input.<ext>`, `uploads/<batchId>/whitelist/face-<n>.<ext>`, `results/<batchId>/<jobId>/result.<ext>`.
     - [ ] Command `image-redact` đúng contract §2 (zod schema cho `params.redaction`, `whitelist`). Event `COMPLETED` lưu `resultSummary` (`counts`, `detections`, `model`).

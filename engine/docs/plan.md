@@ -20,7 +20,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 * **Tasks:**
     - [ ] Processor `image-redact`: dùng `yolov8n-oiv7`, chỉ giữ 2 lớp `Human face` → `face`, `Vehicle registration plate` → `plate` (map tên lớp qua config, để đổi sang model fine-tune 2 nhãn chỉ cần đổi env `YOLO_MODEL_NAME` + bảng map). Lọc theo `params.redaction.targets` và `confidenceThreshold`.
     - [ ] Ba style che theo `params.redaction`: `blur` (Gaussian, bán kính = `strength`), `pixelate` (thu nhỏ rồi phóng lại theo ô `strength`px), `blackout` (tô đen). Nới box theo `padding`, cắt trong biên ảnh. Che **sau** khi đã quyết định whitelist.
-    - [ ] Giữ định dạng ảnh đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP) và **giữ nguyên độ phân giải**. Nén theo `params.output.quality` (mặc định 95, đặt rõ khi encode, không dùng mặc định thư viện: Pillow mặc định 75). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
+    - [ ] Định dạng đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP, có thể khác ảnh gốc; alpha → JPG thì ghép nền trắng) và **giữ nguyên độ phân giải**. Nén theo mức `params.output.quality` với bảng map trong contract §2 (`standard`/`high`/`max`, mặc định `high`; đặt rõ tham số khi encode, không dùng mặc định của thư viện). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
     - [ ] Phân loại lỗi theo contract §4 "Khi worker chết giữa chừng": lỗi input → `FAILED` + ack; lỗi tạm thời (MinIO/NATS) → `nak(delay)` không gửi `FAILED`, trừ lượt xử lý cuối (`num_delivered` = `MAX_ATTEMPTS`) thì `FAILED` + ack. Hiện tại mọi lỗi đều ack nên lỗi mạng thoáng qua là hỏng hẳn job.
     - [ ] Giới hạn lượt: env `MAX_ATTEMPTS` (mặc định 3, phải < `max_deliver` 5 của stream). Message có `num_delivered` > `MAX_ATTEMPTS` → không xử lý, gửi `FAILED` `WORKER_CRASHED` + ack ngay.
     - [ ] **Heartbeat phải chạy thật:** hiện `storage.download_file`, `processor.process`, `storage.upload_file` là hàm đồng bộ gọi thẳng trên event loop, nên task heartbeat (và handler SIGTERM) không chạy được trong lúc xử lý. Job > 60s (`ack_wait`) bị giao lại dù worker vẫn sống, tốn lượt, và tới lượt 4 sẽ thành `FAILED` `WORKER_CRASHED` sai trong khi job vẫn đang chạy. Bọc cả ba bằng `await asyncio.to_thread(...)`.
@@ -35,7 +35,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 * **Tasks:**
     - [ ] Chọn model face embedding chạy tốt trên CPU (ví dụ ArcFace/InsightFace dạng ONNX, hoặc model nhẹ tương đương). Ghi lý do chọn + RAM/tốc độ đo được vào `engine/docs/`.
     - [ ] Whitelist: với mỗi ảnh mẫu trong `params.whitelist.faces`, phát hiện khuôn mặt (lấy khuôn mặt lớn nhất), tính embedding và **cache theo key** (cùng batch dùng lại, không tính lại mỗi ảnh). Ảnh mẫu không có mặt → `WHITELIST_REFERENCE_ERROR`.
-    - [ ] Với mỗi khuôn mặt phát hiện: cosine similarity với từng mẫu. ≥ `similarityThreshold` → `whitelisted: true`, `redacted: false`, kèm `similarity`. Khi phân vân thì **che**.
+    - [ ] Với mỗi khuôn mặt phát hiện: cosine similarity với từng mẫu. ≥ `similarityThreshold` → `whitelisted: true`, `redacted: false`, kèm `whitelistRef` (vị trí mẫu khớp). Mọi khuôn mặt đều có `similarity` (cao nhất so với các mẫu), kể cả khi không khớp (contract §3B). Khi phân vân thì **che**.
     - [ ] Hiệu chỉnh ngưỡng: thử trên vài bộ ảnh có người quen/người lạ, đề xuất `similarityThreshold` mặc định (ưu tiên không nhận nhầm người lạ) và `reviewThreshold`. **[Cần Web]** báo giá trị để Web đặt mặc định.
 * **Kiểm chứng:** test whitelist với 2 người (một trong whitelist, một không) → chỉ người lạ bị che.
 
@@ -68,7 +68,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 ## Tổng hợp việc cần phối hợp
 | Khi nào | Với ai | Việc |
 |---|---|---|
-| M1 (28/10) | Web | Xác nhận contract §2/§3 mới (kể cả `params.output.quality`) và cách xử lý worker chết (§4: `MAX_ATTEMPTS`, `WORKER_CRASHED`, hạn xử lý) trước khi code |
+| M1 (28/10) | Web | Xác nhận contract §2/§3 mới (kể cả `params.output.quality` dạng mức, định dạng theo `output.key`, `whitelistRef`) và cách xử lý worker chết (§4: `MAX_ATTEMPTS`, `WORKER_CRASHED`, hạn xử lý) trước khi code |
 | M2 (06/11) | Web | Ngưỡng mặc định `similarityThreshold`, `reviewThreshold` |
 | M3 (09/11) | Infra | RAM/CPU đo được → memory limit, max replicas, CI image |
 | M3 (12/11) | Web + Infra | Chạy luồng thật trên lab |

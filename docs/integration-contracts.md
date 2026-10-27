@@ -52,9 +52,17 @@ Tất cả stream, consumer và bucket do **Infra tạo sẵn** (xem mục 4). A
 ### Chất lượng đầu ra (`params.output`, dùng chung cho mọi loại)
 | Trường | Kiểu | Mặc định | Ý nghĩa |
 | :--- | :--- | :--- | :--- |
-| `quality` | số nguyên 1–100 | 95 | Chất lượng nén JPEG/WEBP (video: map sang CRF ở Phase 2). PNG luôn lossless nên bỏ qua. |
+| `quality` | `"standard"` \| `"high"` \| `"max"` | `"high"` | Mức chất lượng nén. Mỗi encoder có thang riêng, nên contract chỉ chốt **mức**, Engine map sang tham số thật (bảng dưới). |
 
-* Kết quả **giữ nguyên độ phân giải** ảnh gốc và định dạng theo đuôi của `output.key`. Ngoài vùng bị che, ảnh chỉ khác ảnh gốc do nén lại theo `quality`.
+| Mức | JPEG (Pillow) | WEBP (Pillow) | PNG | Video H.264 (Phase 2) |
+| :--- | :--- | :--- | :--- | :--- |
+| `standard` | quality 80 | quality 75 | lossless | CRF 28 |
+| `high` | quality 90 | quality 85 | lossless | CRF 23 |
+| `max` | quality 95, chroma 4:4:4 | lossless | lossless | CRF 18 |
+
+* JPEG trên 95 gần như không đẹp hơn mà file to hơn nhiều, nên `max` dừng ở 95. Con số cụ thể là của Engine, đổi được mà không cần đổi contract, miễn thứ tự `standard` < `high` < `max` giữ nguyên.
+* **Định dạng đầu ra** = đuôi của `output.key` (`.jpg`, `.png`, `.webp`), có thể khác định dạng ảnh gốc. Backend chọn đuôi theo lựa chọn của người dùng (mặc định: giữ như ảnh gốc). Ảnh có kênh alpha xuất ra JPG thì Engine ghép lên nền trắng.
+* Kết quả **giữ nguyên độ phân giải** ảnh gốc (không có tuỳ chọn đổi kích thước: box trong `detections` luôn khớp với cả ảnh gốc lẫn kết quả).
 * EXIF/GPS bị xoá khỏi kết quả (ảnh public không mang vị trí chụp).
 
 ### A. `image-redact` (subject `jobs.image`)
@@ -68,7 +76,7 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
   "output": { "bucket": "results", "key": "0f1e2d3c-4b5a-4697-8877-665544332211/a1b2c3d4-5678-40ab-8def-112233445566/result.jpg" },
   "params": {
     "redaction": { "targets": ["face", "plate"], "style": "pixelate", "strength": 12, "padding": 0.1 },
-    "output": { "quality": 95 },
+    "output": { "quality": "high" },
     "confidenceThreshold": 0.35,
     "reviewThreshold": 0.5,
     "whitelist": {
@@ -110,9 +118,9 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
     "imageSize": [1920, 1080],
     "counts": { "face": 3, "plate": 1, "whitelistedFace": 1, "redacted": 3, "lowConfidence": 1 },
     "detections": [
-      { "label": "face",  "confidence": 0.92, "box": [34, 12, 120, 250],  "redacted": true,  "whitelisted": false, "lowConfidence": false },
-      { "label": "face",  "confidence": 0.88, "box": [400, 40, 480, 160], "redacted": false, "whitelisted": true,  "similarity": 0.71 },
-      { "label": "face",  "confidence": 0.41, "box": [600, 90, 640, 140], "redacted": true,  "whitelisted": false, "lowConfidence": true },
+      { "label": "face",  "confidence": 0.92, "box": [34, 12, 120, 250],  "redacted": true,  "whitelisted": false, "lowConfidence": false, "similarity": 0.18 },
+      { "label": "face",  "confidence": 0.88, "box": [400, 40, 480, 160], "redacted": false, "whitelisted": true,  "similarity": 0.71, "whitelistRef": 0 },
+      { "label": "face",  "confidence": 0.41, "box": [600, 90, 640, 140], "redacted": true,  "whitelisted": false, "lowConfidence": true,  "similarity": 0.55 },
       { "label": "plate", "confidence": 0.81, "box": [220, 300, 310, 340], "redacted": true,  "whitelisted": false, "lowConfidence": false }
     ],
     "redaction": { "style": "pixelate", "strength": 12, "padding": 0.1 },
@@ -123,6 +131,7 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
 }
 ```
 * `box` = `[x1, y1, x2, y2]` theo pixel của ảnh gốc, **trước** khi nới `padding`. UI dùng các box này để liệt kê/đánh dấu phát hiện trên ảnh.
+* `whitelistRef`: vị trí (từ 0) của ảnh mẫu trong `params.whitelist.faces` khớp với khuôn mặt này. Chỉ có khi `whitelisted: true`. Dùng để báo cáo "người X xuất hiện trong N ảnh". `similarity` (giá trị cao nhất so với các mẫu) có ở **mọi** khuôn mặt khi batch có whitelist, kể cả khuôn mặt không khớp, để Web biết khuôn mặt nào sát ngưỡng.
 * `model` cho biết model nào đã chạy (pretrained `yolov8n-oiv7` ở Phase 1, model fine-tune sau này), để báo cáo ghi rõ.
 
 ### C. `FAILED`
@@ -328,6 +337,7 @@ Frontend
    +--> GET  /api/batches/:id        (trạng thái batch + các job)
    +--> GET  /api/batches/:id/report (báo cáo JSON)
    +--> DELETE /api/batches/:id      (xoá batch theo yêu cầu, mục 5)
+   +--> (Phase 2) đăng ký/đăng nhập, thư viện media, DELETE /api/jobs/:id
    +--> GET  /api/jobs/:id
    +--> GET  /api/system/stats
 ```

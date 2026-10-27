@@ -25,6 +25,7 @@ Demo được: tải lên một bộ ảnh + ảnh chân dung whitelist, chọn 
 
 ## Phase 2: Video + benchmark (16/11 → 29/11)
 1. Web
+- [ ] Đầu Phase 2: tài khoản (JWT + refresh, rate-limit, đăng ký bằng mã `REGISTER_KEY`), sau đó thư viện media (xem/xoá từng ảnh hoặc batch, vẫn tự xoá 24h).
 - [ ] Tải lên video (MP4 H.264, 15–60s), theo dõi tiến độ, xem/tải kết quả. Dùng chung cấu hình che và whitelist.
 - [ ] Xuất báo cáo PDF. Whitelist biển số (nhập danh sách biển).
 

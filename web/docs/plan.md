@@ -29,21 +29,25 @@ backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, 
 ## Milestone 2: API (28/10 → 04/11)
 Đường dẫn cụ thể do Web quyết định. Contract §9 chỉ liệt kê khả năng cần có.
 * **Tasks:**
-    - [ ] Tạo batch: multipart nhiều `files` (JPG/PNG/WEBP, giới hạn số lượng + dung lượng mỗi file), 0..n `whitelist` (ảnh chân dung), `config` (targets, style, strength, padding, `quality` → `params.output.quality`, confidenceThreshold, reviewThreshold, similarityThreshold). Validate rõ ràng, lỗi 4xx kèm message.
+    - [ ] Tạo batch: multipart nhiều `files` (JPG/PNG/WEBP, giới hạn số lượng + dung lượng mỗi file), 0..n `whitelist` (ảnh chân dung), `config` (targets, style, strength, padding, `quality` (`standard`/`high`/`max`) → `params.output.quality`, `format` (`original`/`jpg`/`png`/`webp`) → đuôi của `output.key`, confidenceThreshold, reviewThreshold, similarityThreshold). Validate rõ ràng, lỗi 4xx kèm message.
     - [ ] Xem batch: thông tin batch + danh sách job (trạng thái, `counts`, `resultUrl`).
     - [ ] Ảnh gốc cho thanh trượt: endpoint trả ảnh gốc từ `uploads` (stream qua backend, hoặc presigned URL ngắn hạn). Bucket `uploads` là private.
     - [ ] Thử lại ảnh `FAILED`: tạo job `image-redact` mới cho đúng ảnh đó. Input vẫn còn trong TTL 24h, hết hạn thì trả 410. Batch có whitelist mà ảnh mẫu đã bị xoá cũng trả 410 (contract §5).
     - [ ] **Xoá dữ liệu** (contract §5): `DELETE` batch xoá prefix `uploads/<batchId>/` + `results/<batchId>/` trên MinIO rồi xoá dòng PG. Xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch kết thúc. Tác vụ định kỳ xoá (hoặc đánh dấu `EXPIRED`) batch quá 24h. Xem batch đã xoá/hết hạn → 404/410 kèm message.
-    - [ ] Báo cáo batch (JSON): tổng số ảnh, số khuôn mặt/biển số, đã che, được whitelist, danh sách phát hiện `lowConfidence` (ảnh nào, box nào, confidence), model đã dùng, thời gian xử lý. Format do Web đặt và ghi vào `web/README.md`.
+    - [ ] Báo cáo batch (JSON): tổng số ảnh, số khuôn mặt/biển số, đã che, được whitelist, danh sách phát hiện `lowConfidence` (ảnh nào, box nào, confidence), model đã dùng, thời gian xử lý. Format do Web đặt và ghi vào `web/README.md`. Thêm:
+        - **Điểm tin cậy mỗi ảnh** = confidence thấp nhất trong các box đã che (ảnh không có phát hiện thì để trống, không phải 100%).
+        - **Cần kiểm tra** (`needsReview`) khi ảnh có phát hiện `lowConfidence`, **hoặc** có khuôn mặt sát ngưỡng whitelist (`similarity` trong khoảng ±0.05 quanh `similarityThreshold`). Khuôn mặt được giữ nguyên mà chỉ vừa qua ngưỡng là rủi ro lớn nhất (có thể để lộ người lạ), nên ghi rõ lý do.
+        - **Theo từng người trong whitelist** (`whitelistRef`): xuất hiện trong bao nhiêu ảnh, ảnh nào.
+        - Ảnh `FAILED` kèm mã lỗi.
 * **Kiểm chứng:** gọi API bằng curl/HTTP client cho từng trường hợp. Sai định dạng/quá dung lượng → 4xx có message.
 
 ## Milestone 3: Giao diện (01/11 → 12/11)
 * **Tasks:**
-    - [ ] **Trang tạo batch:** kéo-thả nhiều ảnh (preview thumbnail, bỏ từng ảnh), khu vực "Người cần giữ nguyên" để thêm ảnh chân dung whitelist, chọn đối tượng che (mặt/biển số), style (Blur/Pixelate/Blackout), độ mạnh. Có "Nâng cao" cho các ngưỡng và chất lượng ảnh xuất (`quality`, mặc định 95). Kiểm tra định dạng/dung lượng ngay trên trình duyệt.
+    - [ ] **Trang tạo batch:** kéo-thả nhiều ảnh (preview thumbnail, bỏ từng ảnh), khu vực "Người cần giữ nguyên" để thêm ảnh chân dung whitelist, chọn đối tượng che (mặt/biển số), style (Blur/Pixelate/Blackout), độ mạnh. Chọn định dạng xuất (Giữ nguyên/JPG/PNG/WEBP) và chất lượng (Tiêu chuẩn/Cao/Tối đa, mặc định Cao). Có "Nâng cao" cho các ngưỡng. Kiểm tra định dạng/dung lượng ngay trên trình duyệt.
     - [ ] **Trang batch:** dropdown (hoặc danh sách thu gọn) liệt kê các ảnh trong batch, mỗi ảnh hiện trạng thái hiện tại (`QUEUED`/`PROCESSING`/`COMPLETED`/`FAILED`). Chọn một ảnh để mở phần xem kết quả bên dưới. Không cần lưới ảnh hay thanh progress. Kèm số ảnh đã xong (x/N), nút thử lại ảnh lỗi, nút tải báo cáo JSON, "Tải tất cả" (link từng ảnh, zip để Phase 2), nút **"Xoá dữ liệu"** (có xác nhận) và dòng "tự xoá lúc <giờ>". Trạng thái tự cập nhật (polling vài giây là đủ).
     - [ ] **Xem một ảnh:** thanh trượt before/after (ảnh gốc ↔ kết quả). Danh sách phát hiện (mặt/biển số, confidence, cảnh báo `lowConfidence`, nhãn "whitelist").
     - [ ] **Ảnh mẫu xem trước:** cạnh form cấu hình có một ảnh mẫu cố định (ví dụ cảnh đường phố có người và xe) với các vùng mặt/biển số đánh dấu sẵn trong code. Khi người dùng đổi style, độ mạnh hoặc bỏ chọn mặt/biển số, ảnh mẫu vẽ lại ngay trên `<canvas>` (blur: `ctx.filter = "blur(Npx)"` trong vùng box; pixelate: vẽ thu nhỏ rồi phóng lại với `imageSmoothingEnabled = false`; blackout: `fillRect`). Không gọi server, không chạy AI. Kết quả thật của từng ảnh trả về đã đúng style đã chọn.
-    - [ ] **Báo cáo trên web:** bảng tổng hợp + danh sách ảnh có phát hiện confidence thấp để người dùng kiểm tra lại.
+    - [ ] **Báo cáo trên web:** bảng tổng hợp (mặt/biển số tìm thấy, đã che, giữ nguyên theo whitelist, từng người whitelist xuất hiện mấy ảnh). Danh sách ảnh **sắp xếp ảnh `needsReview` lên đầu, tô đỏ**, kèm lý do ("confidence 0.41", "khuôn mặt giữ nguyên sát ngưỡng 0.62"), sau đó theo điểm tin cậy tăng dần. Dropdown ảnh ở trang batch dùng cùng thứ tự và màu.
     - [ ] Lỗi API và job `FAILED` (`error.code` + message) hiện rõ trên UI, không chỉ log console.
 * **Kiểm chứng (thủ công):** chạy compose local + engine local (hoặc publish event tay theo contract §3), đi hết luồng trên với 5–10 ảnh có mặt người và xe.
 
@@ -61,13 +65,20 @@ backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, 
 # Phase 2: Video, PDF và hoàn thiện (16/11 → 29/11)
 Tier: **[Must]** phải có, **[Should]** nên có, **[Could]** nếu còn thời gian.
 
+- [ ] **[Must, làm đầu tiên]** Xác thực cơ bản:
+    - Đăng ký/đăng nhập. JWT access token ngắn hạn + refresh token (httpOnly cookie, xoay vòng khi refresh, thu hồi khi đăng xuất).
+    - Đăng ký cần **mã đăng ký** (env `REGISTER_KEY`), nhập trên form đăng ký: chỉ người trong nhóm tạo được tài khoản. Thiếu env → tắt đăng ký.
+    - Rate-limit: chặt cho đăng nhập/đăng ký (chống dò mật khẩu/mã), vừa phải cho tạo batch/upload.
+    - Batch/job gắn với user. API chỉ trả và cho xoá dữ liệu của chính user đó. Link `/results/<key>` vẫn là UUID khó đoán như Phase 1.
+    - **[Cần Infra]** Secret cho `JWT_SECRET` và `REGISTER_KEY`.
+- [ ] **[Must]** Thư viện media (sau khi có tài khoản): liệt kê batch và ảnh/video của user (thumbnail, trạng thái, còn bao lâu tự xoá). Xoá từng ảnh hoặc cả batch (`DELETE /api/jobs/:id`, `DELETE /api/batches/:id`: xoá object MinIO + dòng PG). Vẫn giữ tự xoá 24h; người dùng xoá sớm được.
 - [ ] **[Must]** Video: tải lên MP4 H.264 15–60s (kiểm tra thời lượng/codec), dùng chung cấu hình che + whitelist, publish `video-redact` lên `jobs.video`, theo dõi progress (worker gửi % theo khung hình), xem/tải video kết quả. **[Cần Engine]** chốt `resultSummary` của video (contract §2C).
 - [ ] **[Must]** Xuất báo cáo PDF từ báo cáo JSON (render phía server hoặc in từ trang báo cáo).
 - [ ] **[Should]** Whitelist biển số: nhập danh sách biển số. **[Cần Engine]** cần OCR. **[Đổi contract]** thêm `whitelist.plates`.
 - [ ] **[Could]** Chỉnh lại một ảnh đã xong (đổi style/độ mạnh, bật/tắt từng box) mà không chạy lại AI. **[Cần Engine]** **[Đổi contract]** cần thêm job chỉ render theo box có sẵn.
 - [ ] **[Should]** Tải cả batch dạng zip.
 - [ ] **[Should]** Cập nhật trạng thái real-time bằng SSE thay polling.
-- [ ] **[Could]** Tài khoản người dùng + lưu "người cần giữ nguyên" để dùng lại (thay vì tải lại mỗi batch).
+- [ ] **[Could]** Lưu "người cần giữ nguyên" theo tài khoản để dùng lại (thay vì tải lại mỗi batch).
 - [ ] **[Could]** Trang thống kê hệ thống cho buổi bảo vệ: số job theo trạng thái, độ dài hàng đợi từng pool, số worker. **[Cần Infra]** nguồn số liệu (NATS monitoring/KEDA).
 
 ---
@@ -79,4 +90,5 @@ Tier: **[Must]** phải có, **[Should]** nên có, **[Could]** nếu còn thờ
 | M2 (04/11) | Engine | Chốt ngưỡng mặc định (`confidenceThreshold`, `reviewThreshold`, `similarityThreshold`) sau khi engine thử |
 | M4 (10/11) | Infra | Deploy web, Secret, HTTPRoute, giới hạn upload, CI image |
 | M4 (12/11) | Engine + Infra | Chạy luồng thật trên lab |
+| Phase 2 (16/11) | Infra | Secret `JWT_SECRET`, `REGISTER_KEY` |
 | Phase 2 | Engine | `resultSummary` của video, OCR cho whitelist biển số |

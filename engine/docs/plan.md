@@ -18,12 +18,12 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 
 ## Milestone 1: `image-redact` không whitelist (24/10 → 01/11)
 * **Tasks:**
-    - [ ] Processor `image-redact`: dùng `yolov8n-oiv7`, chỉ giữ 2 lớp `Human face` → `face`, `Vehicle registration plate` → `plate` (map tên lớp qua config, để đổi sang model fine-tune 2 nhãn chỉ cần đổi env `YOLO_MODEL_NAME` + bảng map). Lọc theo `params.redaction.targets` và `confidenceThreshold`.
-    - [ ] Ba style che theo `params.redaction`: `blur` (Gaussian, bán kính = `strength`), `pixelate` (thu nhỏ rồi phóng lại theo ô `strength`px), `blackout` (tô đen). Nới box theo `padding`, cắt trong biên ảnh. Che **sau** khi đã quyết định whitelist.
-    - [ ] Giữ định dạng ảnh đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
-    - [ ] `resultSummary` đúng contract §3B: `imageSize`, `counts`, `detections` (box **trước** padding, `lowConfidence` theo `reviewThreshold`), `redaction`, `model`, `processingTimeMs`.
-    - [ ] Gỡ `object-detection` / `image-convert` khỏi registry. Pool `jobs.image` chỉ đăng ký `image-redact`. Loại khác → `UNSUPPORTED_JOB_TYPE`.
-    - [ ] Ảnh hỏng hoặc không đọc được → `INVALID_INPUT_FILE` (không để thành `INTERNAL_WORKER_ERROR`).
+    - [x] Processor `image-redact`: dùng `yolov8n-oiv7`, chỉ giữ 2 lớp `Human face` → `face`, `Vehicle registration plate` → `plate` (map tên lớp qua config, để đổi sang model fine-tune 2 nhãn chỉ cần đổi env `YOLO_MODEL_NAME` + bảng map). Lọc theo `params.redaction.targets` và `confidenceThreshold`.
+    - [x] Ba style che theo `params.redaction`: `blur` (Gaussian, bán kính = `strength`), `pixelate` (thu nhỏ rồi phóng lại theo ô `strength`px), `blackout` (tô đen). Nới box theo `padding`, cắt trong biên ảnh. Che **sau** khi đã quyết định whitelist.
+    - [x] Giữ định dạng ảnh đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
+    - [x] `resultSummary` đúng contract §3B: `imageSize`, `counts`, `detections` (box **trước** padding, `lowConfidence` theo `reviewThreshold`), `redaction`, `model`, `processingTimeMs`.
+    - [x] Gỡ `object-detection` / `image-convert` khỏi registry. Pool `jobs.image` chỉ đăng ký `image-redact`. Loại khác → `UNSUPPORTED_JOB_TYPE`.
+    - [x] Ảnh hỏng hoặc không đọc được → `INVALID_INPUT_FILE` (không để thành `INTERNAL_WORKER_ERROR`).
 * **Kiểm chứng:** `engine/tests/` có test cho 3 style (vùng trong box bị đổi, ngoài box giữ nguyên), map lớp, `padding` ở mép ảnh. Chạy với compose local + publish tay 1 command `image-redact` theo contract §2A → ảnh kết quả trong `results`, event `COMPLETED` đúng shape.
 
 ## Milestone 2: Whitelist khuôn mặt (01/11 → 08/11)

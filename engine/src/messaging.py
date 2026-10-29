@@ -27,7 +27,7 @@ class MessagingClient:
             await self.nc.drain()
             logger.info("NATS connection closed.")
 
-    async def emit_progress_event(self, job_id: str, progress: int = 30, stage: str = "PROCESSING"):
+    async def emit_progress_event(self, job_id: str, progress: int = 30, stage: str = "PROCESSING", batch_id: str = None):
         """Emit PROCESSING event to jobs.events."""
         payload = {
             "jobId": job_id,
@@ -36,10 +36,12 @@ class MessagingClient:
             "stage": stage,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        if batch_id:
+            payload["batchId"] = batch_id
         await self.js.publish(settings.nats_events_subject, json.dumps(payload).encode())
         logger.debug(f"Emitted PROGRESS event for {job_id} ({progress}%)")
 
-    async def emit_completion_event(self, job_id: str, output_bucket: str, output_key: str, result_summary: dict):
+    async def emit_completion_event(self, job_id: str, output_bucket: str, output_key: str, result_summary: dict, batch_id: str = None):
         """Emit COMPLETED event to jobs.events."""
         payload = {
             "jobId": job_id,
@@ -53,10 +55,12 @@ class MessagingClient:
             "resultSummary": result_summary,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        if batch_id:
+            payload["batchId"] = batch_id
         await self.js.publish(settings.nats_events_subject, json.dumps(payload).encode())
         logger.info(f"Emitted COMPLETED event for {job_id}")
 
-    async def emit_failure_event(self, job_id: str, error_code: str, error_message: str, stage: str = "PROCESSING"):
+    async def emit_failure_event(self, job_id: str, error_code: str, error_message: str, stage: str = "PROCESSING", batch_id: str = None):
         """Emit FAILED event to jobs.events."""
         payload = {
             "jobId": job_id,
@@ -69,5 +73,7 @@ class MessagingClient:
             },
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        if batch_id:
+            payload["batchId"] = batch_id
         await self.js.publish(settings.nats_events_subject, json.dumps(payload).encode())
         logger.error(f"Emitted FAILED event for {job_id}: [{error_code}] {error_message}")

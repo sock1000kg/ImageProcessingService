@@ -1,263 +1,203 @@
 # Job Specifications & Processing Engines
+## Cloud-Native Privacy Service
 
 > **Đặc tả chi tiết các tác vụ xử lý (Jobs) của Engine**  
-> Định nghĩa đầu vào (`input`), đầu ra (`output`), tham số cấu hình (`params`), thư viện mã nguồn mở tương ứng và định dạng kết quả (`resultSummary`).
+> Định nghĩa chi tiết cấu trúc dữ liệu đầu vào (`input`), đầu ra (`output`), tham số cấu hình (`params`), định dạng kết quả (`resultSummary`) và danh mục mã lỗi chuẩn hóa cho dịch vụ ẩn danh hóa.
 
 ---
 
 ## 1. Bảng tổng hợp các loại Job
 
-| Job `type` | Mục đích | Thư viện / Model | Mức ưu tiên | Mức RAM ước tính | Thời gian xử lý (CPU) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `object-detection` | Nhận diện & đóng khung vật thể | `ultralytics` (`yolov8n.pt`) | **MVP (Bắt buộc)** | ~300MB – 400MB | 150ms – 300ms |
-| `image-convert` | Đổi đuôi ảnh, resize, nén | `Pillow` (PIL) | **MVP (Bắt buộc)** | < 50MB | 10ms – 50ms |
-| `background-removal` | Tách nền ảnh trong suốt | `rembg` (`u2netp`) | **Pha 2 (Khuyên dùng)** | ~300MB – 500MB | 0.8s – 1.8s |
-| `image-sharpening` | Làm nét, nâng độ phân giải | `opencv-python-headless` | **Pha 2** | ~150MB – 250MB | 200ms – 500ms |
-| `text-recognition` | Trích xuất chữ trong ảnh (OCR) | `easyocr` / `pytesseract` | **Pha 2 (Rất hữu ích)** | ~300MB – 500MB | 0.5s – 1.5s |
-| `video-transcribe` | Tạo phụ đề video clip ngắn | `openai-whisper` (`tiny`) | **Pha 2 (Tùy chọn)** | ~1GB – 1.5GB | 15s – 35s (video 15s) |
+| Job `type` | Subject NATS | Consumer NATS | Thư viện / Model | Giai đoạn | Thời gian xử lý (CPU) | Mục đích |
+| :--- | :--- | :--- | :--- | :---: | :--- | :--- |
+| **`image-redact`** | `jobs.image` | `image-workers` | `ultralytics` (`yolov8n-oiv7.pt`), OpenCV, Pillow | **Phase 1 (MVP)** | 200ms – 450ms / ảnh 1080p | Phát hiện và che khuôn mặt, biển số trên ảnh tĩnh; hỗ trợ Whitelist người quen. |
+| **`video-redact`** | `jobs.video` | `video-workers` | `ultralytics` + ByteTrack, OpenCV, FFmpeg | **Phase 2** | 15s – 40s / video 30s | Ẩn danh hóa video MP4, chống nhấp nháy, giữ nguyên 100% âm thanh gốc. |
 
 ---
 
-## 2. Đặc tả chi tiết từng Job
+## 2. Đặc tả chi tiết: `image-redact` (Ẩn danh hóa hình ảnh)
 
-### 2.1. `object-detection` (Nhận diện vật thể)
-Nhận diện các đối tượng trong ảnh, vẽ khung bao (bounding box), nhãn tên và % tin cậy lên ảnh đầu ra; đồng thời xuất danh sách thống kê metadata.
-
-* **NATS Subject:** `jobs.ai`
-* **Mô hình mã nguồn mở:** `yolov8n.pt` (tự động tải ~6MB từ Ultralytics, miễn phí 100%).
-* **Cấu hình `params`:**
-  * `confidenceThreshold` *(float, optional, mặc định `0.45`)*: Ngưỡng tin cậy tối thiểu để hiển thị nhãn.
-* **Mẫu Job Message nhận từ NATS:**
-  ```json
-  {
-    "jobId": "e1f2a3b4-5678-90ab-cdef-1234567890ab",
-    "type": "object-detection",
-    "input": {
-      "bucket": "uploads",
-      "key": "e1f2a3b4-5678-90ab-cdef-1234567890ab/input.jpg"
-    },
-    "output": {
-      "bucket": "results",
-      "key": "e1f2a3b4-5678-90ab-cdef-1234567890ab/result.jpg"
-    },
-    "params": {
-      "confidenceThreshold": 0.45
-    }
-  }
-  ```
-* **Mẫu `resultSummary` trả về:**
-  ```json
-  {
-    "objectsDetected": 3,
-    "labels": ["person", "dog", "car"],
-    "details": [
-      {"label": "person", "confidence": 0.92, "box": [34, 12, 120, 250]},
-      {"label": "dog", "confidence": 0.85, "box": [130, 80, 200, 220]},
-      {"label": "car", "confidence": 0.78, "box": [220, 100, 380, 280]}
-    ],
-    "processingTimeMs": 235
-  }
-  ```
-
----
-
-### 2.2. `image-convert` (Chuyển đổi định dạng & Thay đổi kích thước)
-Xử lý chuyển đổi qua lại giữa JPG, PNG, WEBP, thay đổi kích thước ảnh theo tỷ lệ hoặc nén chất lượng để tối ưu dung lượng.
+Tác vụ nhận một file ảnh từ MinIO, sử dụng YOLOv8 để nhận diện khuôn mặt và biển số xe, áp dụng Whitelist (nếu có), thực hiện che mờ/che đen theo cấu hình, xóa thông tin vị trí EXIF và lưu ảnh kết quả vào MinIO.
 
 * **NATS Subject:** `jobs.image`
-* **Thư viện:** `Pillow`
-* **Cấu hình `params`:**
-  * `targetFormat` *(string, bắt buộc)*: `"JPEG"`, `"PNG"`, hoặc `"WEBP"`.
-  * `width` *(int, optional)*: Chiều rộng mong muốn.
-  * `height` *(int, optional)*: Chiều cao mong muốn.
-  * `quality` *(int, optional, mặc định `85`)*: Mức nén chất lượng ảnh (1-100).
-* **Mẫu Job Message nhận từ NATS:**
-  ```json
-  {
-    "jobId": "a9b8c7d6-1122-3344-5566-778899aabbcc",
-    "type": "image-convert",
-    "input": {
-      "bucket": "uploads",
-      "key": "a9b8c7d6-1122-3344-5566-778899aabbcc/input.png"
-    },
-    "output": {
-      "bucket": "results",
-      "key": "a9b8c7d6-1122-3344-5566-778899aabbcc/result.webp"
-    },
-    "params": {
-      "targetFormat": "WEBP",
-      "width": 1280,
-      "height": 720,
-      "quality": 80
-    }
-  }
-  ```
-* **Mẫu `resultSummary` trả về:**
-  ```json
-  {
-    "originalFormat": "PNG",
-    "targetFormat": "WEBP",
-    "originalDimensions": [1920, 1080],
-    "outputDimensions": [1280, 720],
-    "originalSizeBytes": 2048500,
-    "outputSizeBytes": 320140,
-    "processingTimeMs": 42
-  }
-  ```
+* **NATS Stream:** `IMAGE_JOBS` (Consumer: `image-workers`)
+* **Định dạng hỗ trợ:** JPG, JPEG, PNG, WEBP.
+* **Mô hình AI sử dụng:**
+  * *Phase 1:* `yolov8n-oiv7.pt` (sử dụng 2 lớp: `Human face` $\rightarrow$ `face`, `Vehicle registration plate` $\rightarrow$ `plate`).
+  * *Phase 2 / Sau fine-tune:* `yolov8n-privacy.pt` (model 2 lớp chuyên biệt cho bối cảnh Việt Nam).
 
----
+### 2.1. Cấu hình tham số (`params`)
 
-### 2.3. `background-removal` (Tách nền ảnh)
-Xóa phông nền của ảnh chân dung, sản phẩm hoặc động vật, trả về file ảnh PNG có nền trong suốt (alpha channel).
+| Tham số | Kiểu dữ liệu | Mặc định | Ý nghĩa |
+| :--- | :--- | :--- | :--- |
+| **`redaction.targets`** | `list[str]` | `["face", "plate"]` | Danh sách đối tượng cần che (`face`, `plate` hoặc cả hai). |
+| **`redaction.style`** | `str` | `"blur"` | Phong cách che: `"blur"` (Gaussian), `"pixelate"` (Mosaic), hoặc `"blackout"` (Tô đen). |
+| **`redaction.strength`** | `int` | `25` (blur), `12` (pixelate) | Bán kính làm mờ hoặc kích thước khối pixel. Bỏ qua nếu chọn `blackout`. |
+| **`redaction.padding`** | `float` (0.0 – 0.5) | `0.1` | Tỷ lệ nới rộng khung bao (`box`) để đảm bảo che kín viền mặt/biển số (cắt trong biên ảnh). |
+| **`confidenceThreshold`** | `float` (0.0 – 1.0) | `0.35` | Ngưỡng tin cậy tối thiểu; đối tượng dưới ngưỡng này sẽ bị bỏ qua. |
+| **`reviewThreshold`** | `float` (0.0 – 1.0) | `0.50` | Ngưỡng đánh giá rủi ro; phát hiện có confidence < `reviewThreshold` vẫn được che nhưng đánh dấu `lowConfidence: true`. |
+| **`whitelist.faces`** | `list[object]` | `[]` *(tuỳ chọn)* | Danh sách các ảnh chân dung mẫu `{bucket, key}` của chủ thể/người quen cần giữ lại. |
+| **`whitelist.similarityThreshold`**| `float` (0.0 – 1.0) | `0.60` | Ngưỡng tương đồng Cosine tối thiểu để xem là cùng 1 người. Ưu tiên tránh nhận nhầm người lạ (phân vân thì che). |
 
-* **NATS Subject:** `jobs.ai`
-* **Thư viện mã nguồn mở:** `rembg` (chỉ định session sử dụng model `u2netp` nhẹ ~4MB).
-* **Cấu hình `params`:**
-  * `alphaMatting` *(bool, optional, mặc định `false`)*: Bật tinh chỉnh viền tóc (nếu cần sắc nét hơn).
-* **Mẫu Job Message nhận từ NATS:**
-  ```json
-  {
-    "jobId": "f1e2d3c4-9988-7766-5544-33221100aabb",
-    "type": "background-removal",
-    "input": {
-      "bucket": "uploads",
-      "key": "f1e2d3c4-9988-7766-5544-33221100aabb/input.jpg"
-    },
-    "output": {
-      "bucket": "results",
-      "key": "f1e2d3c4-9988-7766-5544-33221100aabb/result.png"
-    },
-    "params": {
-      "alphaMatting": false
-    }
-  }
-  ```
-* **Mẫu `resultSummary` trả về:**
-  ```json
-  {
-    "modelUsed": "u2netp",
-    "transparentFormat": "PNG",
-    "processingTimeMs": 1150
-  }
-  ```
-
----
-
-### 2.4. `image-sharpening` (Làm nét & Cải thiện chi tiết)
-Sử dụng thuật toán làm nét Unsharp Masking hoặc FSRCNN để làm rõ ảnh mờ/nhiễu mà không gây tốn nhiều CPU.
-
-* **NATS Subject:** `jobs.image` hoặc `jobs.ai`
-* **Thư viện:** `opencv-python-headless`
-* **Cấu hình `params`:**
-  * `mode` *(string, optional, `"unsharp"` hoặc `"fsrcnn"`)*: Mặc định `"unsharp"`.
-  * `strength` *(float, optional, mặc định `1.5`)*: Độ sắc nét áp dụng.
-* **Mẫu `resultSummary` trả về:**
-  ```json
-  {
-    "appliedFilter": "unsharp_mask",
-    "strength": 1.5,
-    "processingTimeMs": 180
-  }
-  ```
-
----
-
-### 2.5. `video-transcribe` (Tạo phụ đề video clip ngắn - Day 2 Feature)
-Trích xuất âm thanh từ video ngắn (dưới 20s) và chuyển đổi thành văn bản phụ đề (SRT / JSON) bằng Whisper offline.
-
-* **NATS Subject:** `jobs.ai`
-* **Thư viện:** `openai-whisper` (model `tiny`), kết hợp `ffmpeg` để extract audio WAV 16kHz.
-* **Cấu hình `params`:**
-  * `language` *(string, optional, ví dụ `"en"` hoặc `"vi"`)*.
-* **Mẫu `resultSummary` trả về:**
-  ```json
-  {
-    "detectedLanguage": "vi",
-    "durationSeconds": 14.5,
-    "textSegmentCount": 3,
-    "fullText": "Xin chào các bạn, đây là video thử nghiệm hệ thống...",
-    "processingTimeMs": 18500
-  }
-  ```
-
----
-
-### 2.6. `text-recognition` (Trích xuất văn bản trong ảnh / OCR)
-Nhận diện và đọc toàn bộ chữ (text) xuất hiện trong ảnh (tài liệu, hóa đơn, biển hiệu, nhãn chai lọ...), vẽ khung viền quanh các khối chữ lên ảnh kết quả và xuất toàn bộ nội dung text cùng vị trí tọa độ.
-
-* **NATS Subject:** `jobs.ai`
-* **Thư viện:** `easyocr` (hỗ trợ 80+ ngôn ngữ, bao gồm tiếng Việt và tiếng Anh, tự tải weights ~40MB, chạy mượt trên CPU) hoặc `pytesseract`.
-* **Cấu hình `params`:**
-  * `languages` *(list of string, optional, mặc định `["en"]`)*: Ngôn ngữ cần nhận diện, ví dụ `["en", "vi"]`.
-  * `drawBoxes` *(bool, optional, mặc định `true`)*: Vẽ khung viền quanh các đoạn chữ phát hiện được lên ảnh kết quả.
-* **Mẫu Job Message nhận từ NATS:**
-  ```json
-  {
-    "jobId": "d3e4f5a6-7890-12bc-defa-445566778899",
-    "type": "text-recognition",
-    "input": {
-      "bucket": "uploads",
-      "key": "d3e4f5a6-7890-12bc-defa-445566778899/input.jpg"
-    },
-    "output": {
-      "bucket": "results",
-      "key": "d3e4f5a6-7890-12bc-defa-445566778899/result.jpg"
-    },
-    "params": {
-      "languages": ["en", "vi"],
-      "drawBoxes": true
-    }
-  }
-  ```
-* **Mẫu `resultSummary` trả về:**
-  ```json
-  {
-    "detectedBlockCount": 4,
-    "fullText": "ĐẠI HỌC QUỐC GIA HÀ NỘI TRƯỜNG ĐẠI HỌC CÔNG NGHỆ",
-    "blocks": [
-      {
-        "text": "ĐẠI HỌC",
-        "confidence": 0.98,
-        "box": [[45, 30], [180, 30], [180, 75], [45, 75]]
-      },
-      {
-        "text": "QUỐC GIA HÀ NỘI",
-        "confidence": 0.95,
-        "box": [[195, 30], [450, 30], [450, 75], [195, 75]]
-      },
-      {
-        "text": "TRƯỜNG ĐẠI HỌC CÔNG NGHỆ",
-        "confidence": 0.93,
-        "box": [[45, 90], [520, 90], [520, 140], [45, 140]]
-      }
-    ],
-    "processingTimeMs": 680
-  }
-  ```
-
----
-
-## 3. Quy chuẩn mã lỗi xử lý thất bại (Standardized Error Codes)
-
-Khi xử lý gặp sự cố, Worker bắt buộc phải bắt ngoại lệ (try-except) và phát ra event `status: "FAILED"` với mã lỗi rõ ràng:
-
+### 2.2. Mẫu Job Command nhận từ NATS (`jobs.image`)
 ```json
 {
-  "jobId": "e1f2a3b4-5678-90ab-cdef-1234567890ab",
-  "status": "FAILED",
-  "progress": 0,
-  "stage": "INFERENCE",
-  "error": {
-    "code": "MODEL_INFERENCE_ERROR",
-    "message": "Corrupted image data or unsupported channels"
+  "jobId": "a1b2c3d4-5678-40ab-8def-112233445566",
+  "batchId": "0f1e2d3c-4b5a-4697-8877-665544332211",
+  "type": "image-redact",
+  "input": {
+    "bucket": "uploads",
+    "key": "0f1e2d3c-4b5a-4697-8877-665544332211/a1b2c3d4-5678-40ab-8def-112233445566/input.jpg"
   },
-  "timestamp": "2026-09-21T07:05:10Z"
+  "output": {
+    "bucket": "results",
+    "key": "0f1e2d3c-4b5a-4697-8877-665544332211/a1b2c3d4-5678-40ab-8def-112233445566/result.jpg"
+  },
+  "params": {
+    "redaction": {
+      "targets": ["face", "plate"],
+      "style": "pixelate",
+      "strength": 12,
+      "padding": 0.1
+    },
+    "confidenceThreshold": 0.35,
+    "reviewThreshold": 0.5,
+    "whitelist": {
+      "faces": [
+        {
+          "bucket": "uploads",
+          "key": "0f1e2d3c-4b5a-4697-8877-665544332211/whitelist/face-1.jpg"
+        }
+      ],
+      "similarityThreshold": 0.6
+    }
+  }
 }
 ```
 
-### Danh mục mã lỗi chuẩn:
-* `STORAGE_DOWNLOAD_ERROR`: Không tìm thấy file trong MinIO hoặc lỗi mạng S3.
-* `INVALID_INPUT_FILE`: File tải về không phải là file ảnh/video hợp lệ hoặc bị hỏng (corrupted).
-* `UNSUPPORTED_JOB_TYPE`: Giá trị `type` trong job không nằm trong danh sách hỗ trợ.
-* `MODEL_INFERENCE_ERROR`: Lỗi phát sinh trong quá trình chạy YOLO hoặc thuật toán xử lý ảnh.
-* `STORAGE_UPLOAD_ERROR`: Lỗi khi lưu file kết quả ngược lại lên MinIO.
+### 2.3. Mẫu `resultSummary` trả về trong sự kiện `COMPLETED`
+```json
+{
+  "jobId": "a1b2c3d4-5678-40ab-8def-112233445566",
+  "batchId": "0f1e2d3c-4b5a-4697-8877-665544332211",
+  "status": "COMPLETED",
+  "progress": 100,
+  "stage": "DONE",
+  "result": {
+    "bucket": "results",
+    "key": "0f1e2d3c-4b5a-4697-8877-665544332211/a1b2c3d4-5678-40ab-8def-112233445566/result.jpg"
+  },
+  "resultSummary": {
+    "imageSize": [1920, 1080],
+    "counts": {
+      "face": 3,
+      "plate": 1,
+      "whitelistedFace": 1,
+      "redacted": 3,
+      "lowConfidence": 1
+    },
+    "detections": [
+      {
+        "label": "face",
+        "confidence": 0.92,
+        "box": [34, 12, 120, 250],
+        "redacted": true,
+        "whitelisted": false,
+        "lowConfidence": false
+      },
+      {
+        "label": "face",
+        "confidence": 0.88,
+        "box": [400, 40, 480, 160],
+        "redacted": false,
+        "whitelisted": true,
+        "similarity": 0.71
+      },
+      {
+        "label": "face",
+        "confidence": 0.41,
+        "box": [600, 90, 640, 140],
+        "redacted": true,
+        "whitelisted": false,
+        "lowConfidence": true
+      },
+      {
+        "label": "plate",
+        "confidence": 0.81,
+        "box": [220, 300, 310, 340],
+        "redacted": true,
+        "whitelisted": false,
+        "lowConfidence": false
+      }
+    ],
+    "redaction": {
+      "style": "pixelate",
+      "strength": 12,
+      "padding": 0.1
+    },
+    "model": "yolov8n-oiv7",
+    "processingTimeMs": 420
+  },
+  "timestamp": "2026-10-24T07:00:02Z"
+}
+```
+* **Lưu ý quan trọng về `box`:** Tọa độ `box = [x1, y1, x2, y2]` phải là tọa độ gốc của ảnh **trước khi nới padding**, để UI frontend hiển thị đúng khung nhận diện.
+
+---
+
+## 3. Đặc tả: `video-redact` (Ẩn danh hóa Video — Phase 2)
+
+* **NATS Subject:** `jobs.video`
+* **NATS Stream:** `VIDEO_JOBS` (Consumer: `video-workers`)
+* **Định dạng:** MP4 (chuẩn H.264). Thời lượng hỗ trợ: 15s – 60s.
+* **Nguyên tắc kỹ thuật:**
+  * Giải mã và đọc từng frame qua OpenCV/FFmpeg.
+  * Tích hợp **ByteTrack** để gán `track_id` cho từng đối tượng qua các frame, loại bỏ hiện tượng nhấp nháy (flickering).
+  * So khớp Whitelist theo từng chuỗi track (chỉ cần so khớp 1 lần trên khuôn mặt rõ nhất của track đó).
+  * Mã hóa lại video và dùng **FFmpeg copy nguyên luồng âm thanh gốc** (`-c:a copy`), không làm mất tiếng của video.
+  * Worker định kỳ phát tín hiệu `in_progress()` (heartbeat) về NATS với `ack_wait` là 5 phút.
+
+---
+
+## 4. Chi tiết triển khai 3 phong cách che (Redaction Styles)
+
+Mọi thao tác che được thực hiện trên ma trận ảnh NumPy / OpenCV:
+
+1. **Gaussian Blur (`style: "blur"`):**
+   * Bán kính làm mờ = `strength` (nếu là số chẵn thì cộng thêm 1 để đảm bảo số lẻ cho kernel size).
+   * Thực hiện: `cv2.GaussianBlur(roi, (ksize, ksize), 0)`.
+2. **Pixelate / Mosaic (`style: "pixelate"`):**
+   * Kích thước khối = `strength` (ví dụ `12px`).
+   * Thực hiện: Thu nhỏ vùng ROI về kích thước `(max(1, w // strength), max(1, h // strength))` bằng `cv2.INTER_LINEAR`, sau đó phóng to trở lại kích thước `(w, h)` bằng `cv2.INTER_NEAREST`.
+3. **Blackout Box (`style: "blackout"`):**
+   * Tô màu đen tuyệt đối: `roi[:] = (0, 0, 0)` hoặc `cv2.rectangle(...)`.
+
+---
+
+## 5. Quy chuẩn Mã Lỗi Chuẩn Hóa (Standardized Error Codes)
+
+Khi xử lý gặp sự cố, Worker bắt buộc phải bắt ngoại lệ (`try...except`) và phát ra event `status: "FAILED"` kèm mã lỗi chuẩn:
+
+```json
+{
+  "jobId": "a1b2c3d4-5678-40ab-8def-112233445566",
+  "batchId": "0f1e2d3c-4b5a-4697-8877-665544332211",
+  "status": "FAILED",
+  "progress": 0,
+  "stage": "DETECTING",
+  "error": {
+    "code": "INVALID_INPUT_FILE",
+    "message": "cannot identify image file"
+  },
+  "timestamp": "2026-10-24T07:00:02Z"
+}
+```
+
+| Mã lỗi (`error.code`) | Tình huống phát sinh |
+| :--- | :--- |
+| **`STORAGE_DOWNLOAD_ERROR`** | Không tải được tệp từ MinIO bucket `uploads` (sai key, mất kết nối MinIO). |
+| **`INVALID_INPUT_FILE`** | Tệp tải về bị hỏng, rỗng 0 bytes, hoặc không đọc được dạng ảnh/video (Pillow/OpenCV raise exception). |
+| **`UNSUPPORTED_JOB_TYPE`** | Loại job nhận được không được hỗ trợ bởi pool này (ví dụ nhận nhầm job cũ). |
+| **`WHITELIST_REFERENCE_ERROR`** | Ảnh mẫu trong `whitelist.faces` bị lỗi hoặc không tìm thấy khuôn mặt nào để trích xuất embedding. |
+| **`MODEL_INFERENCE_ERROR`** | Lỗi nội bộ khi chạy suy luận YOLOv8 hoặc khi xử lý thuật toán che. |
+| **`STORAGE_UPLOAD_ERROR`** | Xử lý xong nhưng không tải được tệp kết quả lên MinIO bucket `results`. |

@@ -17,3 +17,6 @@ __pycache__/
 
 # IDE
 .vscode/
+
+# Model caches
+engine/models/models/

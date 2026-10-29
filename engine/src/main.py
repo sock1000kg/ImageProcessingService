@@ -9,7 +9,7 @@ import nats.errors
 from .config import settings
 from .storage import StorageClient
 from .messaging import MessagingClient
-from .processors import get_processor_registry
+from .processors import get_processor_registry, InvalidInputFileError
 
 # Configure logging
 logging.basicConfig(
@@ -30,7 +30,10 @@ class EngineWorker:
     async def handle_job(self, msg):
         """Process a single job message received from NATS JetStream."""
         job_id = "unknown"
+        batch_id = None
 
+        # Background heartbeat: send msg.in_progress() periodically so JetStream
+        # does not re-deliver long-running AI / image jobs before ack_wait expires.
         async def heartbeat():
             try:
                 while True:
@@ -47,72 +50,107 @@ class EngineWorker:
         try:
             payload = json.loads(msg.data.decode("utf-8"))
             job_id = payload.get("jobId", "unknown")
+            batch_id = payload.get("batchId")
             job_type = payload.get("type")
             input_spec = payload.get("input", {})
             output_spec = payload.get("output", {})
             params = payload.get("params", {})
 
-            logger.info(f"==> [RECEIVED JOB] ID: {job_id} | Type: {job_type}")
+            logger.info(f"==> [RECEIVED JOB] ID: {job_id} | Batch: {batch_id} | Type: {job_type}")
 
-            # 1. Emit PROCESSING event
-            await self.messaging.emit_progress_event(job_id=job_id, progress=10, stage="DOWNLOADING_INPUT")
+            # 1. Emit PROCESSING event (DOWNLOADING_INPUT)
+            await self.messaging.emit_progress_event(
+                job_id=job_id, progress=10, stage="DOWNLOADING_INPUT", batch_id=batch_id
+            )
 
             # 2. Download input file from MinIO
             in_bucket = input_spec.get("bucket", "uploads")
             in_key = input_spec.get("key")
             if not in_key:
-                raise ValueError("Missing 'input.key' in job command")
-
-            try:
-                input_bytes = self.storage.download_file(in_bucket, in_key)
-            except Exception as e:
-                await self.messaging.emit_failure_event(job_id, "STORAGE_DOWNLOAD_ERROR", str(e), stage="DOWNLOADING_INPUT")
-                await msg.ack()
-                return
-
-            # 3. Find processor
-            processor = self.processors.get(job_type)
-            if not processor:
                 await self.messaging.emit_failure_event(
-                    job_id, "UNSUPPORTED_JOB_TYPE", f"Job type '{job_type}' is not supported.", stage="INFERENCE"
+                    job_id, "INVALID_INPUT_FILE", "Missing 'input.key' in job command", stage="DOWNLOADING_INPUT", batch_id=batch_id
                 )
                 await msg.ack()
                 return
 
-            # 4. Process the data
-            await self.messaging.emit_progress_event(job_id=job_id, progress=40, stage="PROCESSING")
             try:
-                output_bytes, result_summary, content_type = processor.process(input_bytes, params)
+                input_bytes = self.storage.download_file(in_bucket, in_key)
             except Exception as e:
-                logger.exception(f"Inference error on job {job_id}: {e}")
-                await self.messaging.emit_failure_event(job_id, "MODEL_INFERENCE_ERROR", str(e), stage="PROCESSING")
+                await self.messaging.emit_failure_event(
+                    job_id, "STORAGE_DOWNLOAD_ERROR", str(e), stage="DOWNLOADING_INPUT", batch_id=batch_id
+                )
                 await msg.ack()
                 return
 
-            # 5. Upload output file to MinIO
+            # 3. Find processor in registry
+            processor = self.processors.get(job_type)
+            if not processor:
+                await self.messaging.emit_failure_event(
+                    job_id, "UNSUPPORTED_JOB_TYPE", f"Job type '{job_type}' is not supported by this worker pool.", stage="PROCESSING", batch_id=batch_id
+                )
+                await msg.ack()
+                return
+
+            # 4. Validate output specification
             out_bucket = output_spec.get("bucket", "results")
             out_key = output_spec.get("key")
             if not out_key:
-                raise ValueError("Missing 'output.key' in job command")
-
-            await self.messaging.emit_progress_event(job_id=job_id, progress=85, stage="UPLOADING_OUTPUT")
-            try:
-                self.storage.upload_file(out_bucket, out_key, output_bytes, content_type=content_type)
-            except Exception as e:
-                await self.messaging.emit_failure_event(job_id, "STORAGE_UPLOAD_ERROR", str(e), stage="UPLOADING_OUTPUT")
+                await self.messaging.emit_failure_event(
+                    job_id, "INVALID_INPUT_FILE", "Missing 'output.key' in job command", stage="PROCESSING", batch_id=batch_id
+                )
                 await msg.ack()
                 return
 
-            # 6. Emit COMPLETED event
-            await self.messaging.emit_completion_event(job_id, out_bucket, out_key, result_summary)
+            # 5. Process data in worker thread so CPU-heavy inference doesn't block asyncio event loop
+            await self.messaging.emit_progress_event(
+                job_id=job_id, progress=40, stage="PROCESSING", batch_id=batch_id
+            )
+            try:
+                output_bytes, result_summary, content_type = await asyncio.to_thread(
+                    processor.process, input_bytes, params, out_key
+                )
+            except InvalidInputFileError as e:
+                logger.warning(f"Invalid input file on job {job_id}: {e}")
+                await self.messaging.emit_failure_event(
+                    job_id, "INVALID_INPUT_FILE", str(e), stage="PROCESSING", batch_id=batch_id
+                )
+                await msg.ack()
+                return
+            except Exception as e:
+                logger.exception(f"Inference error on job {job_id}: {e}")
+                await self.messaging.emit_failure_event(
+                    job_id, "MODEL_INFERENCE_ERROR", str(e), stage="PROCESSING", batch_id=batch_id
+                )
+                await msg.ack()
+                return
 
-            # 7. ACK to JetStream only after everything is successful!
+            # 6. Upload output file to MinIO
+            await self.messaging.emit_progress_event(
+                job_id=job_id, progress=85, stage="UPLOADING_OUTPUT", batch_id=batch_id
+            )
+            try:
+                self.storage.upload_file(out_bucket, out_key, output_bytes, content_type=content_type)
+            except Exception as e:
+                await self.messaging.emit_failure_event(
+                    job_id, "STORAGE_UPLOAD_ERROR", str(e), stage="UPLOADING_OUTPUT", batch_id=batch_id
+                )
+                await msg.ack()
+                return
+
+            # 7. Emit COMPLETED event
+            await self.messaging.emit_completion_event(
+                job_id, out_bucket, out_key, result_summary, batch_id=batch_id
+            )
+
+            # 8. ACK to JetStream only after everything is successful!
             await msg.ack()
             logger.info(f"<== [JOB COMPLETED & ACKED] ID: {job_id}")
 
         except Exception as e:
             logger.exception(f"Unexpected fatal error handling job {job_id}: {e}")
-            await self.messaging.emit_failure_event(job_id, "INTERNAL_WORKER_ERROR", str(e))
+            await self.messaging.emit_failure_event(
+                job_id, "INTERNAL_WORKER_ERROR", str(e), stage="PROCESSING", batch_id=batch_id
+            )
             await msg.ack()
         finally:
             hb_task.cancel()
@@ -127,21 +165,20 @@ class EngineWorker:
         js = self.messaging.js
 
         logger.info(
-            f"Worker [{settings.worker_id}] binding to stream '{settings.nats_stream_name}', "
-            f"consumer '{settings.nats_consumer_name}', subjects: {settings.nats_subjects}..."
+            f"Worker [{settings.worker_id}] binding to pre-provisioned consumer '{settings.nats_consumer_name}' "
+            f"on stream '{settings.nats_stream_name}'..."
         )
 
-        # Bind to pre-provisioned durable consumer created by Infra
-        subject = settings.nats_subjects[0] if settings.nats_subjects else ""
+        # Strictly bind to pre-provisioned durable consumer created by Infra
         try:
-            sub = await js.pull_subscribe(
-                subject=subject,
-                durable=settings.nats_consumer_name,
+            sub = await js.pull_subscribe_bind(
+                consumer=settings.nats_consumer_name,
                 stream=settings.nats_stream_name,
             )
         except Exception as e:
             logger.error(
-                f"Failed to bind to consumer '{settings.nats_consumer_name}' on stream '{settings.nats_stream_name}': {e}"
+                f"Failed to bind to pre-provisioned consumer '{settings.nats_consumer_name}' "
+                f"on stream '{settings.nats_stream_name}': {e}. Ensure infra setup has run."
             )
             raise
 
@@ -161,6 +198,7 @@ class EngineWorker:
                     logger.error(f"Error fetching messages: {e}")
                     await asyncio.sleep(1)
 
+        # Graceful shutdown: wait for in-flight job to finish before exiting
         while self.is_processing:
             logger.info("Graceful shutdown: waiting for in-flight job to finish...")
             await asyncio.sleep(0.5)
@@ -169,7 +207,7 @@ class EngineWorker:
         await self.messaging.close()
 
     def stop(self):
-        logger.info("Termination signal received. Shutting down worker...")
+        logger.info("Termination signal (SIGTERM/SIGINT) received. Finishing active job and shutting down...")
         self.running = False
 
 

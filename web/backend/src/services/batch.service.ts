@@ -2,123 +2,58 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { config } from "../config";
 import {
+  countNonTerminalJobs,
   deleteBatchRow,
   getBatch,
   getJob,
   getJobsByBatchId,
   insertBatchAndJobs,
+  markBatchWhitelistDeleted,
   updateJobQueued,
-} from "../db";
+  updateJobState,
+} from "../repositories/job.repository";
 import { publishJob } from "../messaging";
-import { storage, RESULTS_BUCKET, UPLOADS_BUCKET } from "../storage";
-import { BatchConfig, BatchRow, JobRow } from "../types";
+import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
+import { BatchConfig } from "../types";
+import { JobStatus } from "../generated/prisma/client";
 import {
   buildImageRedactCommand,
-  deriveBatchStatus,
-  parseBatchConfigJson,
+  calculateNextJobState,
+  JobState,
   resolveOutputExtension,
-} from "../batch-logic";
+} from "../domain";
+import {
+  BatchResponseDTO,
+  JobResponseDTO,
+  parseBatchConfigJson,
+  ReportResponseDTO,
+  toBatchResponse,
+  toJobResponse,
+  toReportResponse,
+  ValidatedJobEvent,
+} from "../dto";
+import { badRequest, payloadTooLarge, unavailable } from "../errors";
 
-export function serializeJob(job: JobRow | null) {
-  if (!job) return null;
-  return {
-    id: job.id,
-    batchId: job.batch_id,
-    originalFilename: job.original_filename,
-    status: job.status,
-    progress: job.progress,
-    stage: job.stage,
-    resultUrl: job.result_url,
-    resultSummary: job.result_summary,
-    error: job.error,
-    createdAt: job.created_at,
-    updatedAt: job.updated_at,
-  };
-}
-
-export function serializeBatch(batch: BatchRow, jobs: JobRow[]) {
-  return {
-    id: batch.id,
-    status: deriveBatchStatus(jobs.map((j) => j.status)),
-    config: batch.config,
-    whitelistKeys: batch.whitelist_keys,
-    whitelistDeletedAt: batch.whitelist_deleted_at,
-    createdAt: batch.created_at,
-    jobs: jobs.map(serializeJob),
-  };
-}
-
-export function buildBatchReport(batch: BatchRow, jobs: JobRow[]) {
-  let images = jobs.length;
-  let completed = 0;
-  let failed = 0;
-  let faces = 0;
-  let plates = 0;
-  let redacted = 0;
-  let whitelisted = 0;
-  let lowConfidence = 0;
-
-  const perImage = jobs.map((job) => {
-    if (job.status === "COMPLETED") completed++;
-    if (job.status === "FAILED") failed++;
-
-    const summaryCounts = (job.result_summary?.counts as Record<string, number> | undefined) ?? undefined;
-    if (summaryCounts) {
-      if (typeof summaryCounts.face === "number") faces += summaryCounts.face;
-      if (typeof summaryCounts.plate === "number") plates += summaryCounts.plate;
-      if (typeof summaryCounts.redacted === "number") redacted += summaryCounts.redacted;
-      const wl = summaryCounts.whitelistedFace ?? summaryCounts.whitelisted ?? 0;
-      if (typeof wl === "number") whitelisted += wl;
-      if (typeof summaryCounts.lowConfidence === "number") lowConfidence += summaryCounts.lowConfidence;
-    }
-
-    return {
-      jobId: job.id,
-      originalFilename: job.original_filename,
-      status: job.status,
-      counts: summaryCounts ?? null,
-      error: job.error,
-    };
-  });
-
-  return {
-    batchId: batch.id,
-    status: deriveBatchStatus(jobs.map((j) => j.status)),
-    totals: {
-      images,
-      completed,
-      failed,
-      faces,
-      plates,
-      redacted,
-      whitelisted,
-      lowConfidence,
-    },
-    images: perImage,
-  };
-}
+export { toBatchResponse, toJobResponse, toReportResponse };
+export const serializeJob = toJobResponse;
+export const serializeBatch = toBatchResponse;
+export const buildBatchReport = toReportResponse;
 
 export async function createBatch(options: {
   files: Express.Multer.File[];
   whitelist?: Express.Multer.File[];
   rawConfig?: unknown;
-}) {
+}): Promise<BatchResponseDTO> {
   const { files, whitelist = [], rawConfig } = options;
 
   if (!files || files.length === 0) {
-    throw Object.assign(new Error("At least one image file is required"), { statusCode: 400 });
+    throw badRequest("At least one image file is required");
   }
   if (files.length > config.BATCH_MAX_FILES) {
-    throw Object.assign(
-      new Error(`Too many files: maximum allowed is ${config.BATCH_MAX_FILES}`),
-      { statusCode: 400 },
-    );
+    throw badRequest(`Too many files: maximum allowed is ${config.BATCH_MAX_FILES}`);
   }
   if (whitelist.length > 5) {
-    throw Object.assign(
-      new Error("Too many whitelist files: maximum allowed is 5"),
-      { statusCode: 400 },
-    );
+    throw badRequest("Too many whitelist files: maximum allowed is 5");
   }
 
   const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp"];
@@ -127,15 +62,14 @@ export async function createBatch(options: {
   for (const file of files) {
     totalBytes += file.size;
     if (file.size > config.UPLOAD_MAX_BYTES) {
-      throw Object.assign(
-        new Error(`File ${file.originalname} exceeds limit of ${config.UPLOAD_MAX_BYTES} bytes`),
-        { statusCode: 413 },
+      throw payloadTooLarge(
+        `File ${file.originalname} exceeds limit of ${config.UPLOAD_MAX_BYTES} bytes`,
+        "FILE_TOO_LARGE",
       );
     }
     if (!allowedMimeTypes.includes(file.mimetype)) {
-      throw Object.assign(
-        new Error(`File ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`),
-        { statusCode: 400 },
+      throw badRequest(
+        `File ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
       );
     }
   }
@@ -143,36 +77,26 @@ export async function createBatch(options: {
   for (const file of whitelist) {
     totalBytes += file.size;
     if (file.size > config.UPLOAD_MAX_BYTES) {
-      throw Object.assign(
-        new Error(`Whitelist file ${file.originalname} exceeds limit of ${config.UPLOAD_MAX_BYTES} bytes`),
-        { statusCode: 413 },
+      throw payloadTooLarge(
+        `Whitelist file ${file.originalname} exceeds limit of ${config.UPLOAD_MAX_BYTES} bytes`,
+        "FILE_TOO_LARGE",
       );
     }
     if (!allowedMimeTypes.includes(file.mimetype)) {
-      throw Object.assign(
-        new Error(`Whitelist file ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`),
-        { statusCode: 400 },
+      throw badRequest(
+        `Whitelist file ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
       );
     }
   }
 
   if (totalBytes > config.BATCH_MAX_BYTES) {
-    throw Object.assign(
-      new Error(`Total upload size exceeds ${config.BATCH_MAX_BYTES} bytes`),
-      { statusCode: 413 },
+    throw payloadTooLarge(
+      `Total upload size exceeds ${config.BATCH_MAX_BYTES} bytes`,
+      "FILE_TOO_LARGE",
     );
   }
 
-  let batchConfig: BatchConfig;
-  try {
-    batchConfig = parseBatchConfigJson(rawConfig);
-  } catch (error) {
-    throw Object.assign(
-      new Error(error instanceof Error ? error.message : "Invalid batch config"),
-      { statusCode: 400 },
-    );
-  }
-
+  const batchConfig: BatchConfig = parseBatchConfigJson(rawConfig);
   const batchId = randomUUID();
 
   // Upload whitelist files
@@ -236,27 +160,27 @@ export async function createBatch(options: {
       await updateJobQueued(job.id);
     } catch (error) {
       console.error(`Failed to publish command for job ${job.id}`, error);
-      throw Object.assign(new Error("Job queue is unavailable"), { statusCode: 503 });
+      throw unavailable("Job queue is unavailable");
     }
   }
 
   const createdBatch = await getBatch(batchId);
   const createdJobs = await getJobsByBatchId(batchId);
-  return serializeBatch(createdBatch!, createdJobs);
+  return toBatchResponse(createdBatch!, createdJobs);
 }
 
-export async function getBatchById(id: string) {
+export async function getBatchById(id: string): Promise<BatchResponseDTO | null> {
   const batch = await getBatch(id);
   if (!batch) return null;
   const jobs = await getJobsByBatchId(id);
-  return serializeBatch(batch, jobs);
+  return toBatchResponse(batch, jobs);
 }
 
-export async function getBatchReportById(id: string) {
+export async function getBatchReportById(id: string): Promise<ReportResponseDTO | null> {
   const batch = await getBatch(id);
   if (!batch) return null;
   const jobs = await getJobsByBatchId(id);
-  return buildBatchReport(batch, jobs);
+  return toReportResponse(batch, jobs);
 }
 
 export async function deleteBatchById(id: string): Promise<boolean> {
@@ -269,18 +193,67 @@ export async function deleteBatchById(id: string): Promise<boolean> {
   return true;
 }
 
-export async function getJobById(id: string) {
+export async function getJobById(id: string): Promise<JobResponseDTO | null> {
   const job = await getJob(id);
-  return serializeJob(job);
+  return toJobResponse(job);
 }
 
 export async function getJobOriginalStream(id: string) {
   const job = await getJob(id);
   if (!job) return null;
-  const streamInfo = await storage.getObjectStream(UPLOADS_BUCKET, job.input_key);
+  const streamInfo = await storage.getObjectStream(UPLOADS_BUCKET, job.inputKey);
   if (!streamInfo) return null;
   return {
     ...streamInfo,
-    filename: job.original_filename,
+    filename: job.originalFilename,
   };
+}
+
+export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
+  const current = await getJob(event.jobId);
+  if (!current) return;
+
+  const currentState: JobState = {
+    status: current.status as any,
+    progress: current.progress,
+    stage: current.stage,
+    resultUrl: current.resultUrl,
+    resultSummary: current.resultSummary as Record<string, unknown> | null,
+    error: current.error as { code: string; message: string } | null,
+  };
+
+  const nextState = calculateNextJobState(currentState, event, config.PUBLIC_RESULTS_BASE_URL);
+
+  await updateJobState(event.jobId, {
+    status: nextState.status as JobStatus,
+    progress: nextState.progress,
+    stage: nextState.stage,
+    resultUrl: nextState.resultUrl,
+    resultSummary: nextState.resultSummary,
+    error: nextState.error,
+  });
+}
+
+export async function checkAndCleanBatchWhitelist(batchId: string): Promise<void> {
+  const remainingNonTerminal = await countNonTerminalJobs(batchId);
+  if (remainingNonTerminal > 0) {
+    return;
+  }
+
+  const batch = await getBatch(batchId);
+  if (!batch || batch.whitelistDeletedAt !== null) {
+    return;
+  }
+
+  try {
+    await storage.deletePrefix(UPLOADS_BUCKET, `${batchId}/whitelist/`);
+  } catch (error) {
+    console.error(`Failed to delete S3 whitelist objects for batch ${batchId}`, error);
+  }
+
+  try {
+    await markBatchWhitelistDeleted(batchId);
+  } catch (error) {
+    console.error(`Failed to update whitelistDeletedAt for batch ${batchId}`, error);
+  }
 }

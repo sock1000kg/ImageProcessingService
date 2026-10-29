@@ -5,6 +5,7 @@ import {
   getBatchById,
   getBatchReportById,
 } from "../services/batch.service";
+import { notFound } from "../errors";
 
 export async function createBatchHandler(
   request: Request,
@@ -37,8 +38,7 @@ export async function getBatchHandler(
     const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
     const batch = await getBatchById(id);
     if (!batch) {
-      response.status(404).json({ error: "Batch not found" });
-      return;
+      throw notFound("Batch not found");
     }
     response.json({ batch });
   } catch (error) {
@@ -55,8 +55,7 @@ export async function getBatchReportHandler(
     const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
     const report = await getBatchReportById(id);
     if (!report) {
-      response.status(404).json({ error: "Batch not found" });
-      return;
+      throw notFound("Batch not found");
     }
     response.json({ report });
   } catch (error) {
@@ -73,8 +72,7 @@ export async function deleteBatchHandler(
     const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
     const deleted = await deleteBatchById(id);
     if (!deleted) {
-      response.status(404).json({ error: "Batch not found" });
-      return;
+      throw notFound("Batch not found");
     }
     response.status(204).end();
   } catch (error) {

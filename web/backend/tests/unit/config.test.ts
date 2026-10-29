@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBatchConfig, parseBatchConfigJson } from "../../src/batch-logic";
+import { parseBatchConfig, parseBatchConfigJson } from "../../src/dto";
 
 describe("Batch Config Schema and Defaults", () => {
   it("applies contract defaults when empty object provided", () => {

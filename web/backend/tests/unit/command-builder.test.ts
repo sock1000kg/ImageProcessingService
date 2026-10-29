@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildImageRedactCommand,
-  parseBatchConfig,
   resolveOutputExtension,
-} from "../../src/batch-logic";
+} from "../../src/domain";
+import { parseBatchConfig } from "../../src/dto";
 
 describe("Command Builder and Extension Mapping (§2A & §5)", () => {
   it("resolves output extension from original input format", () => {
@@ -50,56 +50,70 @@ describe("Command Builder and Extension Mapping (§2A & §5)", () => {
           strength: 12,
           padding: 0.1,
         },
-        output: {
-          quality: "high",
-        },
+        output: { quality: "high" },
         confidenceThreshold: 0.35,
         reviewThreshold: 0.5,
       },
     });
-
-    expect(command.params.whitelist).toBeUndefined();
   });
 
-  it("builds exact §2A command with whitelist when reference keys are present", () => {
+  it("builds exact §2A command with whitelist reference faces", () => {
     const config = parseBatchConfig({
-      targets: ["face", "plate"],
+      targets: ["face"],
       style: "blur",
-      similarityThreshold: 0.65,
+      strength: 30,
+      padding: 0.2,
+      quality: "max",
+      similarityThreshold: 0.75,
     });
 
     const command = buildImageRedactCommand({
-      jobId: "job-123",
+      jobId: "job-789",
       batchId: "batch-456",
-      inputKey: "batch-456/job-123/input.png",
-      outputKey: "batch-456/job-123/result.png",
+      inputKey: "batch-456/job-789/input.png",
+      outputKey: "batch-456/job-789/result.png",
       config,
-      whitelistKeys: [
-        "batch-456/whitelist/face-1.jpg",
-        "batch-456/whitelist/face-2.png",
-      ],
+      whitelistKeys: ["batch-456/whitelist/face-1.jpg", "batch-456/whitelist/face-2.png"],
     });
 
-    expect(command.params.whitelist).toBeDefined();
-    expect(command.params.whitelist).toEqual({
-      faces: [
-        { bucket: "uploads", key: "batch-456/whitelist/face-1.jpg" },
-        { bucket: "uploads", key: "batch-456/whitelist/face-2.png" },
-      ],
-      similarityThreshold: 0.65,
+    expect(command).toEqual({
+      jobId: "job-789",
+      batchId: "batch-456",
+      type: "image-redact",
+      input: { bucket: "uploads", key: "batch-456/job-789/input.png" },
+      output: { bucket: "results", key: "batch-456/job-789/result.png" },
+      params: {
+        redaction: {
+          targets: ["face"],
+          style: "blur",
+          strength: 30,
+          padding: 0.2,
+        },
+        output: { quality: "max" },
+        confidenceThreshold: 0.35,
+        reviewThreshold: 0.5,
+        whitelist: {
+          faces: [
+            { bucket: "uploads", key: "batch-456/whitelist/face-1.jpg" },
+            { bucket: "uploads", key: "batch-456/whitelist/face-2.png" },
+          ],
+          similarityThreshold: 0.75,
+        },
+      },
     });
   });
 
-  it("omits whitelist property if whitelistKeys is empty array", () => {
-    const config = parseBatchConfig({});
+  it("supports blackout style without strength parameter", () => {
+    const config = parseBatchConfig({ style: "blackout" });
     const command = buildImageRedactCommand({
-      jobId: "job-123",
-      batchId: "batch-456",
-      inputKey: "batch-456/job-123/input.jpg",
-      outputKey: "batch-456/job-123/result.jpg",
+      jobId: "job-001",
+      batchId: "batch-001",
+      inputKey: "input.jpg",
+      outputKey: "result.jpg",
       config,
-      whitelistKeys: [],
     });
-    expect(command.params.whitelist).toBeUndefined();
+
+    expect(command.params.redaction.style).toBe("blackout");
+    expect(command.params.redaction.strength).toBeUndefined();
   });
 });

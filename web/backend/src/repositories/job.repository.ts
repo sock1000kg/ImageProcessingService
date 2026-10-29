@@ -1,10 +1,6 @@
-import { QueryResultRow } from "pg";
-import { pool } from "../db/pool";
-import { config } from "../config";
-import { BatchConfig, BatchRow, JobRow } from "../types";
-import { ValidatedJobEvent } from "../schemas/job-event.schema";
-import { calculateNextJobState, JobState } from "../batch-logic";
-import { storage, UPLOADS_BUCKET } from "../storage";
+import { prisma } from "../db/prisma";
+import { BatchConfig } from "../types";
+import { JobStatus, Prisma } from "../generated/prisma/client";
 
 export async function insertBatchAndJobs(
   batch: {
@@ -19,148 +15,132 @@ export async function insertBatchAndJobs(
     outputKey: string;
   }>,
 ): Promise<void> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(
-      `INSERT INTO batches (id, config, whitelist_keys)
-       VALUES ($1, $2, $3)`,
-      [batch.id, JSON.stringify(batch.config), batch.whitelistKeys],
-    );
+  await prisma.$transaction(async (tx) => {
+    await tx.batch.create({
+      data: {
+        id: batch.id,
+        config: batch.config as unknown as Prisma.InputJsonValue,
+        whitelistKeys: batch.whitelistKeys,
+      },
+    });
 
-    for (const job of jobs) {
-      await client.query(
-        `INSERT INTO jobs (id, batch_id, original_filename, input_key, output_key, status)
-         VALUES ($1, $2, $3, $4, $5, 'PENDING')`,
-        [job.id, batch.id, job.originalFilename, job.inputKey, job.outputKey],
-      );
+    if (jobs.length > 0) {
+      await tx.job.createMany({
+        data: jobs.map((job) => ({
+          id: job.id,
+          batchId: batch.id,
+          originalFilename: job.originalFilename,
+          inputKey: job.inputKey,
+          outputKey: job.outputKey,
+          status: JobStatus.PENDING,
+        })),
+      });
     }
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function updateJobQueued(id: string): Promise<void> {
-  await pool.query(
-    `UPDATE jobs SET status = 'QUEUED', updated_at = NOW()
-     WHERE id = $1 AND status = 'PENDING'`,
-    [id],
-  );
+  await prisma.job.updateMany({
+    where: {
+      id,
+      status: JobStatus.PENDING,
+    },
+    data: {
+      status: JobStatus.QUEUED,
+    },
+  });
 }
 
-export async function getJob(id: string): Promise<JobRow | null> {
-  const result = await pool.query<JobRow>("SELECT * FROM jobs WHERE id = $1", [id]);
-  return result.rows[0] ?? null;
+export async function getJob(id: string) {
+  return prisma.job.findUnique({
+    where: { id },
+  });
 }
 
-export async function getBatch(id: string): Promise<BatchRow | null> {
-  const result = await pool.query<BatchRow>("SELECT * FROM batches WHERE id = $1", [id]);
-  return result.rows[0] ?? null;
+export async function getBatch(id: string) {
+  return prisma.batch.findUnique({
+    where: { id },
+  });
 }
 
-export async function getJobsByBatchId(batchId: string): Promise<JobRow[]> {
-  const result = await pool.query<JobRow>(
-    "SELECT * FROM jobs WHERE batch_id = $1 ORDER BY created_at ASC",
-    [batchId],
-  );
-  return result.rows;
+export async function getJobsByBatchId(batchId: string) {
+  return prisma.job.findMany({
+    where: { batchId },
+    orderBy: { createdAt: "asc" },
+  });
 }
 
 export async function deleteBatchRow(id: string): Promise<boolean> {
-  const result = await pool.query("DELETE FROM batches WHERE id = $1", [id]);
-  return (result.rowCount ?? 0) > 0;
+  const result = await prisma.batch.deleteMany({
+    where: { id },
+  });
+  return result.count > 0;
 }
 
-export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
-  const result = await pool.query<JobRow>(
-    "SELECT * FROM jobs WHERE id = $1",
-    [event.jobId],
-  );
-  const current = result.rows[0];
-  if (!current) return;
-
-  const currentState: JobState = {
-    status: current.status,
-    progress: current.progress,
-    stage: current.stage,
-    resultUrl: current.result_url,
-    resultSummary: current.result_summary,
-    error: current.error,
-  };
-
-  const nextState = calculateNextJobState(currentState, event, config.PUBLIC_RESULTS_BASE_URL);
-
-  await pool.query(
-    `UPDATE jobs
-     SET status = $2, progress = $3, stage = $4,
-         result_url = $5,
-         result_summary = $6,
-         error = $7,
-         updated_at = NOW()
-     WHERE id = $1 AND status NOT IN ('COMPLETED', 'FAILED')`,
-    [
-      event.jobId,
-      nextState.status,
-      nextState.progress,
-      nextState.stage,
-      nextState.resultUrl,
-      nextState.resultSummary ? JSON.stringify(nextState.resultSummary) : null,
-      nextState.error ? JSON.stringify(nextState.error) : null,
-    ],
-  );
+export async function updateJobState(
+  jobId: string,
+  state: {
+    status: JobStatus;
+    progress: number;
+    stage: string | null;
+    resultUrl: string | null;
+    resultSummary: Record<string, unknown> | null;
+    error: { code: string; message: string } | null;
+  },
+): Promise<void> {
+  await prisma.job.updateMany({
+    where: {
+      id: jobId,
+      status: { notIn: [JobStatus.COMPLETED, JobStatus.FAILED] },
+    },
+    data: {
+      status: state.status,
+      progress: state.progress,
+      stage: state.stage,
+      resultUrl: state.resultUrl,
+      resultSummary: state.resultSummary
+        ? (state.resultSummary as Prisma.InputJsonValue)
+        : Prisma.JsonNull,
+      error: state.error ? (state.error as Prisma.InputJsonValue) : Prisma.JsonNull,
+    },
+  });
 }
 
-export async function checkAndCleanBatchWhitelist(batchId: string): Promise<void> {
-  const countResult = await pool.query<{ count: string }>(
-    `SELECT COUNT(*)::int AS count FROM jobs
-     WHERE batch_id = $1 AND status NOT IN ('COMPLETED', 'FAILED')`,
-    [batchId],
-  );
-  const remainingNonTerminal = Number(countResult.rows[0]?.count ?? 0);
-  if (remainingNonTerminal > 0) {
-    return;
-  }
+export async function countNonTerminalJobs(batchId: string): Promise<number> {
+  return prisma.job.count({
+    where: {
+      batchId,
+      status: { notIn: [JobStatus.COMPLETED, JobStatus.FAILED] },
+    },
+  });
+}
 
-  const batchResult = await pool.query<BatchRow>(
-    "SELECT * FROM batches WHERE id = $1",
-    [batchId],
-  );
-  const batch = batchResult.rows[0];
-  if (!batch || batch.whitelist_deleted_at !== null) {
-    return;
-  }
-
-  try {
-    await storage.deletePrefix(UPLOADS_BUCKET, `${batchId}/whitelist/`);
-  } catch (error) {
-    console.error(`Failed to delete S3 whitelist objects for batch ${batchId}`, error);
-  }
-
-  try {
-    await pool.query(
-      `UPDATE batches SET whitelist_deleted_at = NOW()
-       WHERE id = $1 AND whitelist_deleted_at IS NULL`,
-      [batchId],
-    );
-  } catch (error) {
-    console.error(`Failed to update whitelist_deleted_at for batch ${batchId}`, error);
-  }
+export async function markBatchWhitelistDeleted(batchId: string): Promise<void> {
+  await prisma.batch.updateMany({
+    where: {
+      id: batchId,
+      whitelistDeletedAt: null,
+    },
+    data: {
+      whitelistDeletedAt: new Date(),
+    },
+  });
 }
 
 export async function cleanupExpiredBatches(): Promise<number> {
-  const result = await pool.query(
-    "DELETE FROM batches WHERE created_at < NOW() - INTERVAL '24 hours'",
-  );
-  return result.rowCount ?? 0;
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const result = await prisma.batch.deleteMany({
+    where: {
+      createdAt: { lt: cutoff },
+    },
+  });
+  return result.count;
 }
 
 export async function getStats(): Promise<Record<string, number>> {
-  const result = await pool.query<QueryResultRow>(
-    "SELECT status, COUNT(*)::int AS count FROM jobs GROUP BY status",
-  );
-  return Object.fromEntries(result.rows.map((row) => [row.status, row.count]));
+  const groups = await prisma.job.groupBy({
+    by: ["status"],
+    _count: { _all: true },
+  });
+  return Object.fromEntries(groups.map((group) => [group.status, group._count._all]));
 }

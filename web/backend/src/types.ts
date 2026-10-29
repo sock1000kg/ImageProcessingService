@@ -19,30 +19,6 @@ export interface BatchConfig {
   similarityThreshold: number;
 }
 
-export interface JobRow {
-  id: string;
-  batch_id: string;
-  original_filename: string;
-  input_key: string;
-  output_key: string;
-  status: JobStatus;
-  progress: number;
-  stage: string | null;
-  result_url: string | null;
-  result_summary: Record<string, unknown> | null;
-  error: { code: string; message: string } | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface BatchRow {
-  id: string;
-  config: BatchConfig;
-  whitelist_keys: string[];
-  whitelist_deleted_at: string | null;
-  created_at: string;
-}
-
 export interface JobEvent {
   jobId: string;
   batchId?: string;

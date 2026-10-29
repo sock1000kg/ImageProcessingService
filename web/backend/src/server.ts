@@ -1,7 +1,6 @@
 import { createApp } from "./app";
 import { config } from "./config";
 import { cleanupExpiredBatches, closeDatabase } from "./db";
-import { runMigrations } from "./db/migrate";
 import { closeMessaging, connectMessaging } from "./messaging";
 import { verifyBuckets } from "./storage";
 
@@ -23,7 +22,6 @@ function stopCleanupTimer(): void {
 }
 
 async function start(): Promise<void> {
-  await runMigrations();
   await verifyBuckets();
   await connectMessaging();
   startCleanupTimer();

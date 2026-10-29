@@ -116,10 +116,10 @@ Engine worker pools deployed in `imgproc` (agreeing with `docs/integration-contr
 
 | deployment | stream / consumer | min / max replicas | lag / activation | CPU req / limit | memory req / limit | peak RAM | image |
 |---|---|---|---|---|---|---|---|
-| `image-worker` | `IMAGE_JOBS` / `image-workers` | 0 / 3 | 5 / 0 | 250m / 1000m | 512Mi / 1536Mi | 4608Mi | `socknot1000kg/imgproc-engine:main` |
-| `video-worker` | `VIDEO_JOBS` / `video-workers` | 0 / 1 | 1 / 0 | 500m / 1500m | 768Mi / 2048Mi | 2048Mi | `socknot1000kg/imgproc-engine:main` |
+| `image-worker` | `IMAGE_JOBS` / `image-workers` | 0 / 3 | 5 / 0 | 250m / 1000m | 512Mi / 1536Mi | 4608Mi | `socknot1000kg/imgproc-engine:<pinned sha>` |
+| `video-worker` | `VIDEO_JOBS` / `video-workers` | 0 / 1 | 1 / 0 | 500m / 1500m | 768Mi / 2048Mi | 2048Mi | `socknot1000kg/imgproc-engine:<pinned sha>` |
 
-Total peak worker RAM: **6656Mi** (3×1536Mi + 1×2048Mi). Replicas are managed dynamically by KEDA ScaledObjects (omitted from Deployments). Images are built by `.github/workflows/images.yml` and pushed as `socknot1000kg/imgproc-engine:main` and `:<sha>`. Deployments use `:main` with `imagePullPolicy: Always`.
+Total peak worker RAM: **6656Mi** (3×1536Mi + 1×2048Mi). Replicas are managed dynamically by KEDA ScaledObjects (omitted from Deployments). Images are built by `.github/workflows/images.yml` and pushed as `socknot1000kg/imgproc-engine:main` and `:<sha>`. The workers are **pinned** to a SHA tag (currently `05760356e142`) in `infra/app/engine-workers/kustomization.yaml` (`images:`), with `imagePullPolicy: IfNotPresent` and `strategy: Recreate`. Change `newTag` to upgrade.
 
 
 ## Metrics

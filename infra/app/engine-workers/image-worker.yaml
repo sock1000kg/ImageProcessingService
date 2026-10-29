@@ -8,6 +8,10 @@ metadata:
     imgproc.io/pool: image
 spec:
   # Replicas managed by KEDA ScaledObject (min 0, max 3)
+  # Queue consumers: stop the old pod before starting the new one on updates. A rolling update
+  # would run two engine pods (two YOLO loads) at once; jobs simply wait in NATS meanwhile.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: image-worker
@@ -29,9 +33,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: image-worker
-          # socknot1000kg/imgproc-engine:main is the latest build of main; pods pick it up on restart. Pin a SHA by hand when you need an exact version.
+          # The tag is pinned in kustomization.yaml (images:); :main here is only the name it overrides.
           image: socknot1000kg/imgproc-engine:main
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
             - name: NATS_URL
               value: nats://nats:4222

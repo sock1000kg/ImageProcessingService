@@ -6,3 +6,9 @@ resources:
   - scaledobjects.yaml
   - video-worker.yaml
 
+# The engine image is pinned to a CI build (commit SHA tag). It is several GB, so tracking
+# :main made every new CI build trigger a full pull on the lab node at the next KEDA scale-up.
+# To upgrade: pick a tag from Docker Hub (socknot1000kg/imgproc-engine) and change newTag.
+images:
+  - name: socknot1000kg/imgproc-engine
+    newTag: 05760356e1420a07e32e9ff0c0296eefb5598187

@@ -39,18 +39,29 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          # The container runs `prisma migrate deploy` before the server starts, which is slow on
+          # the lab node. Liveness/readiness only begin once the startup probe passes (up to 150s).
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /health
               port: 3000
-            initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /ready
               port: 3000
-            initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

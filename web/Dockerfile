@@ -18,4 +18,4 @@ RUN addgroup -S app && adduser -S -G app -u 10001 app \
   && chown -R app:app /app
 USER 10001
 EXPOSE 3000
-CMD ["sh", "-c", "npx prisma migrate deploy && node backend/dist/server.js"]
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && exec node backend/dist/server.js"]

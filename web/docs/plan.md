@@ -79,12 +79,13 @@ Tier: **[Must]** phải có, **[Should]** nên có, **[Could]** nếu còn thờ
     - Rate-limit: chặt cho đăng nhập/đăng ký (chống dò mật khẩu/mã), vừa phải cho tạo batch/upload.
     - Batch/job gắn với user. API chỉ trả và cho xoá dữ liệu của chính user đó. Link `/results/<key>` vẫn là UUID khó đoán như Phase 1.
     - **[Cần Infra]** Secret cho `JWT_SECRET` và `REGISTER_KEY`.
+    - Bảng thống kê trang chủ ("Total jobs"...) chỉ đếm job của user đang đăng nhập (`GET /api/system/stats` thêm lọc `batch.userId`). Hiện tại nó đếm toàn bộ DB, không cần đăng nhập. Số liệu toàn hệ thống chỉ cho admin hoặc chuyển sang mục thống kê hệ thống bên dưới.
 - [ ] **[Must]** Thư viện media (sau khi có tài khoản): liệt kê batch và ảnh/video của user (thumbnail, trạng thái, còn bao lâu tự xoá). Xoá từng ảnh hoặc cả batch (`DELETE /api/jobs/:id`, `DELETE /api/batches/:id`: xoá object MinIO + dòng PG). Vẫn giữ tự xoá 24h; người dùng xoá sớm được.
 - [ ] **[Must]** Video: tải lên MP4 H.264 15–60s (kiểm tra thời lượng/codec), dùng chung cấu hình che + whitelist, publish `video-redact` lên `jobs.video`, theo dõi progress (worker gửi % theo khung hình), xem/tải video kết quả. **[Cần Engine]** chốt `resultSummary` của video (contract §2C).
 - [ ] **[Must]** Xuất báo cáo PDF từ báo cáo JSON (render phía server hoặc in từ trang báo cáo).
 - [ ] **[Should]** Whitelist biển số: nhập danh sách biển số. **[Cần Engine]** cần OCR. **[Đổi contract]** thêm `whitelist.plates`.
 - [ ] **[Could]** Chỉnh lại một ảnh đã xong (đổi style/độ mạnh, bật/tắt từng box) mà không chạy lại AI. **[Cần Engine]** **[Đổi contract]** cần thêm job chỉ render theo box có sẵn.
-- [ ] **[Should]** Tải cả batch dạng zip.
+- [ ] **[Should]** Tải cả batch dạng zip: `GET /api/batches/:id/download.zip` (chỉ chủ batch). Backend đọc từng kết quả `COMPLETED` từ MinIO và **stream** thẳng vào zip (`archiver`/`yazl`): không giữ trong RAM, không lưu file zip. Tên file trong zip theo tên ảnh gốc (trùng tên thì thêm hậu tố). Dùng chung cho trang batch và thư viện media. Giới hạn 100MB của Cloudflare chỉ áp cho body request nên tải về không bị ảnh hưởng.
 - [ ] **[Should]** Cập nhật trạng thái real-time bằng SSE thay polling.
 - [ ] **[Could]** Lưu "người cần giữ nguyên" theo tài khoản để dùng lại (thay vì tải lại mỗi batch).
 - [ ] **[Could]** Trang thống kê hệ thống cho buổi bảo vệ: số job theo trạng thái, độ dài hàng đợi từng pool, số worker. **[Cần Infra]** nguồn số liệu (NATS monitoring/KEDA).

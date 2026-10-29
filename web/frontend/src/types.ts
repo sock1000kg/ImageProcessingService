@@ -1,6 +1,6 @@
 export type Job = {
   id: string;
-  type: string;
+  batchId?: string;
   originalFilename: string;
   status: string;
   progress: number;
@@ -10,4 +10,14 @@ export type Job = {
   error: { code: string; message: string } | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type Batch = {
+  id: string;
+  status: string;
+  config: Record<string, unknown>;
+  whitelistKeys: string[];
+  whitelistDeletedAt: string | null;
+  createdAt: string;
+  jobs: Job[];
 };

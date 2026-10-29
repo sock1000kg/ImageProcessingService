@@ -1,13 +1,10 @@
 import "dotenv/config";
 
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-
 import { pool } from "../src/db/pool";
+import { runMigrations } from "../src/db/migrate";
 
 async function migrate(): Promise<void> {
-  const file = path.resolve(__dirname, "..", "migrations", "001_create_jobs.sql");
-  await pool.query(await readFile(file, "utf8"));
+  await runMigrations();
   await pool.end();
 }
 

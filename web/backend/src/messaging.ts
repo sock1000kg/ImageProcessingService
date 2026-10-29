@@ -1,21 +1,21 @@
 import {
   connect,
-  consumerOpts,
   JetStreamClient,
   JetStreamManager,
   JsMsg,
   NatsConnection,
   StringCodec,
 } from "nats";
+import { z } from "zod";
 
 import { config } from "./config";
-import { applyJobEvent, getJob } from "./db";
+import { applyJobEvent, checkAndCleanBatchWhitelist, getJob } from "./db";
 import { jobEventSchema } from "./schemas/job-event.schema";
 
 const codec = StringCodec();
 let connection: NatsConnection | null = null;
 let jetStream: JetStreamClient | null = null;
-let eventSubscription: (AsyncIterable<JsMsg> & { pull: (options: { batch: number; expires: number }) => void }) | null = null;
+let activeMessages: { close: () => Promise<void | Error> } | null = null;
 let consuming = false;
 
 export function isMessagingReady(): boolean {
@@ -23,7 +23,7 @@ export function isMessagingReady(): boolean {
 }
 
 async function verifyProvisionedResources(manager: JetStreamManager): Promise<void> {
-  for (const stream of ["AI_JOBS", "IMAGE_JOBS", "JOB_EVENTS"]) {
+  for (const stream of ["IMAGE_JOBS", "JOB_EVENTS"]) {
     await manager.streams.info(stream);
   }
   await manager.consumers.info("JOB_EVENTS", "backend-job-events");
@@ -42,19 +42,22 @@ export async function connectMessaging(): Promise<void> {
     throw new Error(`NATS provisioned resource check failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const options = consumerOpts();
-  options.durable("backend-job-events").ackExplicit().deliverAll();
-  eventSubscription = await jetStream.pullSubscribe("jobs.events", options);
+  const consumer = await jetStream.consumers.get("JOB_EVENTS", "backend-job-events");
+  const messages = await consumer.consume();
+  activeMessages = messages;
   consuming = true;
-  void consumeEvents(eventSubscription);
+  void consumeEvents(messages);
 }
 
-async function consumeEvents(subscription: AsyncIterable<JsMsg> & { pull: (options: { batch: number; expires: number }) => void }): Promise<void> {
-  while (consuming) {
-    subscription.pull({ batch: 10, expires: 30_000 });
-    for await (const message of subscription) {
+async function consumeEvents(messages: AsyncIterable<JsMsg>): Promise<void> {
+  try {
+    for await (const message of messages) {
       if (!consuming) break;
       await handleEventMessage(message);
+    }
+  } catch (error) {
+    if (consuming) {
+      console.error("Error in event consumption loop", error);
     }
   }
 }
@@ -71,23 +74,33 @@ async function handleEventMessage(message: JsMsg): Promise<void> {
 
   const validation = jobEventSchema.safeParse(parsed);
   if (!validation.success) {
-    console.error("Invalid worker event schema; terminating message", validation.error.flatten());
+    console.error("Invalid worker event schema; terminating message", z.flattenError(validation.error));
+    message.term();
+    return;
+  }
+
+  const job = await getJob(validation.data.jobId);
+  if (!job) {
+    console.error(`Worker event references unknown job ${validation.data.jobId}; terminating message`);
     message.term();
     return;
   }
 
   try {
-    const job = await getJob(validation.data.jobId);
-    if (!job) {
-      console.error(`Worker event references unknown job ${validation.data.jobId}; terminating message`);
-      message.term();
-      return;
-    }
     await applyJobEvent(validation.data);
     message.ack();
   } catch (error) {
     console.error("Failed to apply worker event; negatively acknowledging message", error);
     message.nak(5000);
+    return;
+  }
+
+  if (validation.data.status === "COMPLETED" || validation.data.status === "FAILED") {
+    try {
+      await checkAndCleanBatchWhitelist(job.batch_id);
+    } catch (error) {
+      console.error(`Failed to clean batch whitelist for ${job.batch_id}`, error);
+    }
   }
 }
 
@@ -98,7 +111,14 @@ export async function publishJob(subject: string, payload: Record<string, unknow
 
 export async function closeMessaging(): Promise<void> {
   consuming = false;
-  eventSubscription = null;
+  if (activeMessages) {
+    try {
+      await activeMessages.close();
+    } catch {
+      // Ignore errors on close
+    }
+    activeMessages = null;
+  }
   if (connection) {
     await connection.drain();
     connection = null;

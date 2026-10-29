@@ -3,12 +3,13 @@ import { z } from "zod";
 export const jobEventSchema = z.object({
   jobId: z.string().uuid(),
   status: z.enum(["PROCESSING", "COMPLETED", "FAILED"]),
-  progress: z.number().int().min(0).max(100).optional(),
-  stage: z.string().optional(),
-  result: z.object({ bucket: z.string().min(1), key: z.string().min(1) }).optional(),
-  resultSummary: z.record(z.unknown()).optional(),
-  error: z.object({ code: z.string().min(1), message: z.string().min(1) }).optional(),
-  timestamp: z.string().datetime({ offset: true }).optional(),
+  batchId: z.string().uuid().optional().catch(undefined),
+  progress: z.number().optional().catch(undefined),
+  stage: z.string().optional().catch(undefined),
+  result: z.object({ bucket: z.string(), key: z.string() }).optional().catch(undefined),
+  resultSummary: z.record(z.string(), z.unknown()).optional().catch(undefined),
+  error: z.object({ code: z.string(), message: z.string() }).optional().catch(undefined),
+  timestamp: z.string().optional().catch(undefined),
 });
 
 export type ValidatedJobEvent = z.infer<typeof jobEventSchema>;

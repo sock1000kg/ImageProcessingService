@@ -1,38 +1,49 @@
-import { Request, Response, NextFunction } from "express";
+import { NextFunction, Request, Response } from "express";
+import { getJobById, getJobOriginalStream } from "../services/batch.service";
 
-import { getJob, listJobs } from "../db";
-import { createJob, serializeJob } from "../services/job.service";
-
-export async function createJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
-  try {
-    if (!request.file) {
-      response.status(400).json({ error: "A file is required" });
-      return;
-    }
-    const job = await createJob(request.file, request.body.type, request.body.params);
-    response.status(202).json({ job: serializeJob(job) });
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function listJobsHandler(_request: Request, response: Response, next: NextFunction): Promise<void> {
-  try {
-    response.json({ jobs: (await listJobs()).map(serializeJob) });
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function getJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+export async function getJobHandler(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
   try {
     const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
-    const job = await getJob(id);
+    const job = await getJobById(id);
     if (!job) {
       response.status(404).json({ error: "Job not found" });
       return;
     }
-    response.json({ job: serializeJob(job) });
+    response.json({ job });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getJobOriginalHandler(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const streamInfo = await getJobOriginalStream(id);
+    if (!streamInfo) {
+      response.status(404).json({ error: "Job or original image not found" });
+      return;
+    }
+
+    if (streamInfo.contentType) {
+      response.setHeader("Content-Type", streamInfo.contentType);
+    }
+    if (streamInfo.contentLength !== undefined) {
+      response.setHeader("Content-Length", streamInfo.contentLength);
+    }
+
+    streamInfo.stream.on("error", (error) => {
+      next(error);
+    });
+
+    streamInfo.stream.pipe(response);
   } catch (error) {
     next(error);
   }

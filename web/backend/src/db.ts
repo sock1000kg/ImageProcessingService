@@ -1,9 +1,13 @@
 export { pool, closeDatabase } from "./db/pool";
 export {
   applyJobEvent,
+  checkAndCleanBatchWhitelist,
+  cleanupExpiredBatches,
+  deleteBatchRow,
+  getBatch,
   getJob,
+  getJobsByBatchId,
   getStats,
-  insertJob,
-  listJobs,
+  insertBatchAndJobs,
   updateJobQueued,
 } from "./repositories/job.repository";

@@ -20,6 +20,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 * **Tasks:**
     - [x] Processor `image-redact`: dùng `yolov8n-oiv7`, chỉ giữ 2 lớp `Human face` → `face`, `Vehicle registration plate` → `plate` (map tên lớp qua config, để đổi sang model fine-tune 2 nhãn chỉ cần đổi env `YOLO_MODEL_NAME` + bảng map). Lọc theo `params.redaction.targets` và `confidenceThreshold`.
     - [x] Ba style che theo `params.redaction`: `blur` (Gaussian, bán kính = `strength`), `pixelate` (thu nhỏ rồi phóng lại theo ô `strength`px), `blackout` (tô đen). Nới box theo `padding`, cắt trong biên ảnh. Che **sau** khi đã quyết định whitelist.
+    - [ ] **[Đổi contract]** **[Cần Web]** Độ mạnh theo kích thước box: hiện `strength` là số px cố định, nên pixelate 12px trên mặt 600px còn ~50×50 ô, vẫn nhận ra người. Đề xuất `strength` là mức tương đối (ví dụ số ô theo chiều rộng box cho pixelate, bán kính theo % chiều rộng box cho blur). Web cập nhật ảnh xem trước theo cách tính mới.
     - [ ] Định dạng đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP, có thể khác ảnh gốc; alpha → JPG thì ghép nền trắng) và **giữ nguyên độ phân giải**. Nén theo mức `params.output.quality` với bảng map trong contract §2 (`standard`/`high`/`max`, mặc định `high`; đặt rõ tham số khi encode, không dùng mặc định của thư viện). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
     - [ ] Phân loại lỗi theo contract §4 "Khi worker chết giữa chừng": lỗi input → `FAILED` + ack; lỗi tạm thời (MinIO/NATS) → `nak(delay)` không gửi `FAILED`, trừ lượt xử lý cuối (`num_delivered` = `MAX_ATTEMPTS`) thì `FAILED` + ack. Hiện tại mọi lỗi đều ack nên lỗi mạng thoáng qua là hỏng hẳn job.
     - [ ] Giới hạn lượt: env `MAX_ATTEMPTS` (mặc định 3, phải < `max_deliver` 5 của stream). Message có `num_delivered` > `MAX_ATTEMPTS` → không xử lý, gửi `FAILED` `WORKER_CRASHED` + ack ngay.
@@ -57,10 +58,13 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 ---
 
 # Phase 2: Video + tối ưu (16/11 → 29/11)
-- [ ] **[Must]** `video-redact` trên pool `jobs.video` (worker riêng, contract §2C): tách khung hình (FFmpeg/OpenCV), phát hiện + **ByteTrack** để giữ id đối tượng giữa các khung (vết che không nhấp nháy, có thể nội suy khi mất phát hiện vài khung), che, ghép lại MP4 H.264 (CRF map từ `params.output.quality`, giữ độ phân giải + fps gốc), **copy nguyên audio gốc** bằng FFmpeg. Gửi progress theo % khung hình. Heartbeat `in_progress()` (ack_wait 5m), `JOB_DEADLINE_SECONDS` cho video (gợi ý 3600). **[Đổi contract]** chốt `resultSummary` video với Web (số đối tượng duy nhất theo track id, khung có confidence thấp...).
+- [ ] **[Must]** `video-redact` trên pool `jobs.video` (worker riêng, contract §2C): tách khung hình (FFmpeg/OpenCV), phát hiện + **ByteTrack** để giữ id đối tượng giữa các khung (vết che không nhấp nháy, có thể nội suy khi mất phát hiện vài khung), che, ghép lại MP4 H.264 (CRF map từ `params.output.quality`, giữ độ phân giải + fps gốc), **copy nguyên audio gốc** bằng FFmpeg. Gửi progress theo % khung hình. Heartbeat `in_progress()` (ack_wait 5m), `JOB_DEADLINE_SECONDS` cho video (gợi ý 3600). **[Đổi contract]** chốt `resultSummary` video với Web (số đối tượng duy nhất theo track id, khoảng khung hình/thời gian của từng track, đoạn có confidence thấp để Web đánh dấu và tua tới...).
 - [ ] **[Must]** Whitelist khuôn mặt cho video: so embedding theo **track**, không theo từng khung (một lần mỗi track, ổn định hơn và nhanh hơn).
 - [ ] **[Should]** ONNX + OpenVINO trên CPU Intel. Benchmark với PyTorch CPU: throughput, latency, RAM, mAP. INT8 chỉ dùng nếu nhanh hơn rõ rệt (mục tiêu 2–3 lần) mà mAP/recall vẫn đạt.
 - [ ] **[Should]** Whitelist biển số: OCR biển VN 2 dòng (ví dụ PaddleOCR/EasyOCR), so khớp với `whitelist.plates`. **[Đổi contract]** **[Cần Web]**.
+- [ ] **[Could]** **[Đổi contract]** **[Cần Web]** Chế độ blockList cho `params.whitelist`: chỉ che khuôn mặt khớp mẫu. Fail-open nên dùng ngưỡng thấp hơn và đánh dấu khuôn mặt sát ngưỡng.
+- [ ] **[Could]** **[Đổi contract]** **[Cần Web]** Job chỉ render (`image-render`): nhận danh sách box cuối cùng + style, che rồi xuất ảnh, không chạy model. Dùng cho nút "Sửa ảnh" của Web.
+- [ ] **[Could]** Build arg `TORCH=cpu|cuda` cho `engine/Dockerfile`: bản `cpu` nhỏ hơn nhiều cho lab (không GPU), bản `cuda` giữ khả năng chạy GPU. Ultralytics tự chọn GPU nếu torch thấy GPU, không cần đổi code.
 - [ ] **[Could]** Benchmark xử lý video monolith (một process xử lý cả video) vs phân tán (chia đoạn video ra nhiều job). **[Cần Infra]** để đưa vào phần đo đạc của báo cáo.
 
 ---
@@ -68,7 +72,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 ## Tổng hợp việc cần phối hợp
 | Khi nào | Với ai | Việc |
 |---|---|---|
-| M1 (28/10) | Web | Xác nhận contract §2/§3 mới (kể cả `params.output.quality` dạng mức, định dạng theo `output.key`, `whitelistRef`) và cách xử lý worker chết (§4: `MAX_ATTEMPTS`, `WORKER_CRASHED`, hạn xử lý) trước khi code |
+| M1 (28/10) | Web | Xác nhận contract §2/§3 mới (kể cả `params.output.quality` dạng mức, định dạng theo `output.key`, `whitelistRef`, `strength` tương đối theo kích thước box) và cách xử lý worker chết (§4: `MAX_ATTEMPTS`, `WORKER_CRASHED`, hạn xử lý) trước khi code |
 | M2 (06/11) | Web | Ngưỡng mặc định `similarityThreshold`, `reviewThreshold` |
 | M3 (09/11) | Infra | RAM/CPU đo được → memory limit, max replicas, CI image |
 | M3 (12/11) | Web + Infra | Chạy luồng thật trên lab |

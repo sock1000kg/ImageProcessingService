@@ -32,6 +32,12 @@ Còn lại Phase 1: báo cáo nâng cao + thử lại ảnh lỗi (M2), toàn b�
 * **Tasks:**
     - [x] Tạo batch: multipart nhiều `files` (JPG/PNG/WEBP, giới hạn số lượng + dung lượng mỗi file), 0..n `whitelist` (ảnh chân dung), `config` (targets, style, strength, padding, `quality` (`standard`/`high`/`max`) → `params.output.quality`, `format` (`original`/`jpg`/`png`/`webp`) → đuôi của `output.key`, confidenceThreshold, reviewThreshold, similarityThreshold). Validate rõ ràng, lỗi 4xx kèm message.
     - [x] Xem batch: thông tin batch + danh sách job (trạng thái, `counts`, `resultUrl`).
+    - [ ] **Upload từng ảnh một request** (thay cho một request cả batch). Hiện tại `POST /api/batches` gửi mọi ảnh + whitelist trong **một** multipart: multer đọc hết vào RAM rồi mới kiểm tra tổng `BATCH_MAX_BYTES` (90MB), nên batch chỉ được 20 ảnh/90MB, giới hạn 50MB mỗi file gần như vô nghĩa, và local (không có Cloudflare chặn 100MB) có thể dồn tới 20×50MB vào RAM pod 512Mi. Đổi thành 3 bước:
+        - `POST /api/batches` (`config` + 0..5 ảnh whitelist) → batch ở trạng thái `DRAFT`.
+        - `POST /api/batches/:id/files`: một ảnh mỗi request (≤ `UPLOAD_MAX_BYTES`), tạo job `PENDING`. Tối đa `BATCH_MAX_FILES` (ví dụ 100). Sau `start` → 409.
+        - `POST /api/batches/:id/start`: publish các job `PENDING` lên `jobs.image`. Gọi lại không publish trùng; publish lỗi thì gọi lại để gửi phần còn thiếu.
+        - Bỏ `BATCH_MAX_BYTES`. UI tải lần lượt từng ảnh, có tiến độ từng file và thử lại file lỗi. Batch `DRAFT` quá 24h bị dọn như batch thường. Việc xử lý vẫn là **một job mỗi ảnh** (contract §1), không đổi.
+        - Là nền cho upload video chia nhỏ (chunked, S3 multipart) ở Phase 2.
     - [x] Ảnh gốc cho thanh trượt: endpoint trả ảnh gốc từ `uploads` (stream qua backend, hoặc presigned URL ngắn hạn). Bucket `uploads` là private. (`GET /api/jobs/:id/original`)
     - [ ] Thử lại ảnh `FAILED`: tạo job `image-redact` mới cho đúng ảnh đó. Input vẫn còn trong TTL 24h, hết hạn thì trả 410. Batch có whitelist mà ảnh mẫu đã bị xoá cũng trả 410 (contract §5).
     - [x] **Xoá dữ liệu** (contract §5): `DELETE` batch xoá prefix `uploads/<batchId>/` + `results/<batchId>/` trên MinIO rồi xoá dòng PG. Xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch kết thúc. Tác vụ định kỳ xoá (hoặc đánh dấu `EXPIRED`) batch quá 24h. Xem batch đã xoá/hết hạn → 404/410 kèm message.

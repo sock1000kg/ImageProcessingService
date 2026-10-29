@@ -49,6 +49,22 @@ Tất cả stream, consumer và bucket do **Infra tạo sẵn** (xem mục 4). A
 | `strength` | số nguyên | blur: 25, pixelate: 12 | Bán kính blur hoặc kích thước ô pixel. Bỏ qua với `blackout`. |
 | `padding` | số thực 0–0.5 | 0.1 | Nới rộng box theo tỉ lệ để che kín mép. |
 
+### Chất lượng đầu ra (`params.output`, dùng chung cho mọi loại)
+| Trường | Kiểu | Mặc định | Ý nghĩa |
+| :--- | :--- | :--- | :--- |
+| `quality` | `"standard"` \| `"high"` \| `"max"` | `"high"` | Mức chất lượng nén. Mỗi encoder có thang riêng, nên contract chỉ chốt **mức**, Engine map sang tham số thật (bảng dưới). |
+
+| Mức | JPEG (Pillow) | WEBP (Pillow) | PNG | Video H.264 (Phase 2) |
+| :--- | :--- | :--- | :--- | :--- |
+| `standard` | quality 80 | quality 75 | lossless | CRF 28 |
+| `high` | quality 90 | quality 85 | lossless | CRF 23 |
+| `max` | quality 95, chroma 4:4:4 | lossless | lossless | CRF 18 |
+
+* JPEG trên 95 gần như không đẹp hơn mà file to hơn nhiều, nên `max` dừng ở 95. Con số cụ thể là của Engine, đổi được mà không cần đổi contract, miễn thứ tự `standard` < `high` < `max` giữ nguyên.
+* **Định dạng đầu ra** = đuôi của `output.key` (`.jpg`, `.png`, `.webp`), có thể khác định dạng ảnh gốc. Backend chọn đuôi theo lựa chọn của người dùng (mặc định: giữ như ảnh gốc). Ảnh có kênh alpha xuất ra JPG thì Engine ghép lên nền trắng.
+* Kết quả **giữ nguyên độ phân giải** ảnh gốc (không có tuỳ chọn đổi kích thước: box trong `detections` luôn khớp với cả ảnh gốc lẫn kết quả).
+* EXIF/GPS bị xoá khỏi kết quả (ảnh public không mang vị trí chụp).
+
 ### A. `image-redact` (subject `jobs.image`)
 Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh kết quả + danh sách phát hiện.
 ```json
@@ -60,6 +76,7 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
   "output": { "bucket": "results", "key": "0f1e2d3c-4b5a-4697-8877-665544332211/a1b2c3d4-5678-40ab-8def-112233445566/result.jpg" },
   "params": {
     "redaction": { "targets": ["face", "plate"], "style": "pixelate", "strength": 12, "padding": 0.1 },
+    "output": { "quality": "high" },
     "confidenceThreshold": 0.35,
     "reviewThreshold": 0.5,
     "whitelist": {
@@ -101,9 +118,9 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
     "imageSize": [1920, 1080],
     "counts": { "face": 3, "plate": 1, "whitelistedFace": 1, "redacted": 3, "lowConfidence": 1 },
     "detections": [
-      { "label": "face",  "confidence": 0.92, "box": [34, 12, 120, 250],  "redacted": true,  "whitelisted": false, "lowConfidence": false },
-      { "label": "face",  "confidence": 0.88, "box": [400, 40, 480, 160], "redacted": false, "whitelisted": true,  "similarity": 0.71 },
-      { "label": "face",  "confidence": 0.41, "box": [600, 90, 640, 140], "redacted": true,  "whitelisted": false, "lowConfidence": true },
+      { "label": "face",  "confidence": 0.92, "box": [34, 12, 120, 250],  "redacted": true,  "whitelisted": false, "lowConfidence": false, "similarity": 0.18 },
+      { "label": "face",  "confidence": 0.88, "box": [400, 40, 480, 160], "redacted": false, "whitelisted": true,  "similarity": 0.71, "whitelistRef": 0 },
+      { "label": "face",  "confidence": 0.41, "box": [600, 90, 640, 140], "redacted": true,  "whitelisted": false, "lowConfidence": true,  "similarity": 0.55 },
       { "label": "plate", "confidence": 0.81, "box": [220, 300, 310, 340], "redacted": true,  "whitelisted": false, "lowConfidence": false }
     ],
     "redaction": { "style": "pixelate", "strength": 12, "padding": 0.1 },
@@ -114,6 +131,7 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
 }
 ```
 * `box` = `[x1, y1, x2, y2]` theo pixel của ảnh gốc, **trước** khi nới `padding`. UI dùng các box này để liệt kê/đánh dấu phát hiện trên ảnh.
+* `whitelistRef`: vị trí (từ 0) của ảnh mẫu trong `params.whitelist.faces` khớp với khuôn mặt này. Chỉ có khi `whitelisted: true`. Dùng để báo cáo "người X xuất hiện trong N ảnh". `similarity` (giá trị cao nhất so với các mẫu) có ở **mọi** khuôn mặt khi batch có whitelist, kể cả khuôn mặt không khớp, để Web biết khuôn mặt nào sát ngưỡng.
 * `model` cho biết model nào đã chạy (pretrained `yolov8n-oiv7` ở Phase 1, model fine-tune sau này), để báo cáo ghi rõ.
 
 ### C. `FAILED`
@@ -129,6 +147,7 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
 * `WHITELIST_REFERENCE_ERROR`: ảnh mẫu whitelist không đọc được hoặc không có khuôn mặt.
 * `MODEL_INFERENCE_ERROR`: lỗi khi chạy model hoặc khi che.
 * `STORAGE_UPLOAD_ERROR`: không tải được kết quả lên MinIO.
+* `WORKER_CRASHED`: job đã làm worker chết (hoặc quá hạn xử lý) `MAX_ATTEMPTS` lần liên tiếp. Xem mục 4 "Khi worker chết giữa chừng".
 
 ---
 
@@ -147,6 +166,17 @@ Cùng hai script đó chạy ở **cả local lẫn cluster**, nên code chạy 
 - Mọi consumer dùng explicit ack. Worker ack sau khi upload kết quả xong. Job xử lý lâu hơn `ack_wait` phải gửi `in_progress()` định kỳ.
 - Bucket MinIO: `uploads` (private), `results` (public chỉ đọc qua `/results/<key>`). Cả hai tự xoá object sau **24 giờ**.
 - Mỗi worker Deployment chỉ phục vụ **một pool** (một stream + một consumer, cấu hình qua env), để KEDA scale từng pool độc lập.
+
+**Khi worker chết giữa chừng / lỗi tạm thời:**
+- Worker chết (OOMKill, pod bị xoá, node restart) trước khi ack → heartbeat dừng → NATS giao lại message sau `ack_wait`, tối đa `max_deliver` lần. Key kết quả cố định nên chạy lại chỉ ghi đè cùng object. Backend đã chịu được event trùng (mục 8).
+- Lỗi do **input** (`INVALID_INPUT_FILE`, `WHITELIST_REFERENCE_ERROR`, `UNSUPPORTED_JOB_TYPE`): worker gửi `FAILED` rồi **ack** (chạy lại cũng không khỏi).
+- Lỗi **tạm thời** (`STORAGE_DOWNLOAD_ERROR`, `STORAGE_UPLOAD_ERROR`, mất kết nối): worker **`nak()` có delay** (vài giây) để NATS giao lại, **không** gửi `FAILED`. Ở lượt xử lý cuối (`num_delivered` = `MAX_ATTEMPTS`) thì gửi `FAILED` với mã lỗi thật + ack.
+- **Mọi job đều kết thúc bằng một event `FAILED` hoặc `COMPLETED` do worker gửi.** Backend chỉ nghe event, không tự đặt timeout. Để chắc chắn có người báo `FAILED` kể cả khi worker chết ở lượt cuối:
+  - Worker (env `MAX_ATTEMPTS`, mặc định **3**) chỉ **xử lý** khi `msg.metadata.num_delivered` ≤ `MAX_ATTEMPTS`. Stream để `max_deliver` = **5**, luôn lớn hơn `MAX_ATTEMPTS`, nên còn dư lượt giao.
+  - Nhận message có `num_delivered` > `MAX_ATTEMPTS` nghĩa là các lượt trước đều chết giữa chừng. Worker **không xử lý** (không tải file, không chạy model), gửi ngay `FAILED` với `WORKER_CRASHED` rồi ack. Việc này nhẹ nên gần như không thể chết, và vẫn còn một lượt dự phòng.
+  - Job dài vẫn an toàn: heartbeat `in_progress()` giữ message, nên không giới hạn thời gian tổng ở Backend.
+  - Worker bị **treo** (heartbeat vẫn chạy nhưng xử lý không tiến triển) sẽ giữ message mãi. Vì vậy mỗi pool có hạn xử lý một job (env `JOB_DEADLINE_SECONDS`, gợi ý ảnh 300, video 3600). Quá hạn thì worker ngừng heartbeat và **tự thoát** (pod restart). Lượt đó được tính như một lần chết, và rơi vào luật trên.
+- Nhận SIGTERM (KEDA scale down) khi đang xử lý mà không kịp xong trong grace period: worker `nak()` job đang chạy để worker khác nhận ngay, không phải chờ hết `ack_wait`. Lượt này cũng tính vào `num_delivered`.
 
 **Quy tắc:**
 - **Backend và Worker không được tự tạo, sửa hay xoá stream/consumer/bucket** (không `add_stream`, không `ensureStream`/`ensureBuckets`, không tạo durable mới). Chỉ bind vào consumer có sẵn (ví dụ Python: `js.pull_subscribe(subject="jobs.image", durable="image-workers", stream="IMAGE_JOBS")` với consumer đã có). Nếu thiếu thì log lỗi và thoát.
@@ -172,6 +202,11 @@ Không dùng file compose riêng của từng team cho NATS/MinIO, vì chúng kh
 - URL public của kết quả: `/results/<key trong bucket results>`. `batchId`/`jobId` là UUID v4, khó đoán, và đó là cơ chế bảo vệ link public duy nhất ở Phase 1.
 - Ảnh gốc ở `uploads` là private. UI cần hiển thị ảnh gốc (thanh trượt before/after) thì Backend cung cấp qua API (stream hoặc presigned URL ngắn hạn).
 - Mọi object tự xoá sau 24 giờ (mục 4).
+
+**Xoá dữ liệu** (đề tài: "xoá dữ liệu sau khi xử lý theo hạn hoặc khi người dùng yêu cầu"):
+- **Theo hạn:** MinIO lifecycle xoá object sau 24h. Backend xoá (hoặc đánh dấu `EXPIRED`) batch/job quá 24h trong PostgreSQL, để UI không trỏ tới object đã mất.
+- **Khi người dùng yêu cầu:** Backend xoá prefix `uploads/<batchId>/` và `results/<batchId>/` trên MinIO, rồi xoá dòng PG. Phase 1 không có tài khoản, nên ai có link batch (UUID) thì được xoá.
+- **Ảnh mẫu whitelist** là dữ liệu sinh trắc: Backend xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch đã kết thúc, không đợi 24h. Sau đó thử lại ảnh lỗi của batch có whitelist trả 410 (không được chạy lại mà thiếu whitelist, vì sẽ che cả người quen). Người dùng tạo batch mới.
 
 ---
 
@@ -301,6 +336,8 @@ Frontend
    +--> POST /api/batches            (tải bộ ảnh + cấu hình + ảnh whitelist)
    +--> GET  /api/batches/:id        (trạng thái batch + các job)
    +--> GET  /api/batches/:id/report (báo cáo JSON)
+   +--> DELETE /api/batches/:id      (xoá batch theo yêu cầu, mục 5)
+   +--> (Phase 2) đăng ký/đăng nhập, thư viện media, DELETE /api/jobs/:id
    +--> GET  /api/jobs/:id
    +--> GET  /api/system/stats
 ```

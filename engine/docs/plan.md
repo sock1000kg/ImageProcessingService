@@ -20,17 +20,22 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 * **Tasks:**
     - [x] Processor `image-redact`: dùng `yolov8n-oiv7`, chỉ giữ 2 lớp `Human face` → `face`, `Vehicle registration plate` → `plate` (map tên lớp qua config, để đổi sang model fine-tune 2 nhãn chỉ cần đổi env `YOLO_MODEL_NAME` + bảng map). Lọc theo `params.redaction.targets` và `confidenceThreshold`.
     - [x] Ba style che theo `params.redaction`: `blur` (Gaussian, bán kính = `strength`), `pixelate` (thu nhỏ rồi phóng lại theo ô `strength`px), `blackout` (tô đen). Nới box theo `padding`, cắt trong biên ảnh. Che **sau** khi đã quyết định whitelist.
-    - [x] Giữ định dạng ảnh đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
+    - [ ] Định dạng đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP, có thể khác ảnh gốc; alpha → JPG thì ghép nền trắng) và **giữ nguyên độ phân giải**. Nén theo mức `params.output.quality` với bảng map trong contract §2 (`standard`/`high`/`max`, mặc định `high`; đặt rõ tham số khi encode, không dùng mặc định của thư viện). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
+    - [ ] Phân loại lỗi theo contract §4 "Khi worker chết giữa chừng": lỗi input → `FAILED` + ack; lỗi tạm thời (MinIO/NATS) → `nak(delay)` không gửi `FAILED`, trừ lượt xử lý cuối (`num_delivered` = `MAX_ATTEMPTS`) thì `FAILED` + ack. Hiện tại mọi lỗi đều ack nên lỗi mạng thoáng qua là hỏng hẳn job.
+    - [ ] Giới hạn lượt: env `MAX_ATTEMPTS` (mặc định 3, phải < `max_deliver` 5 của stream). Message có `num_delivered` > `MAX_ATTEMPTS` → không xử lý, gửi `FAILED` `WORKER_CRASHED` + ack ngay.
+    - [ ] **Heartbeat phải chạy thật:** hiện `storage.download_file`, `processor.process`, `storage.upload_file` là hàm đồng bộ gọi thẳng trên event loop, nên task heartbeat (và handler SIGTERM) không chạy được trong lúc xử lý. Job > 60s (`ack_wait`) bị giao lại dù worker vẫn sống, tốn lượt, và tới lượt 4 sẽ thành `FAILED` `WORKER_CRASHED` sai trong khi job vẫn đang chạy. Bọc cả ba bằng `await asyncio.to_thread(...)`.
+    - [ ] **Hạn xử lý trong heartbeat:** env `JOB_DEADLINE_SECONDS` (ảnh 300). Vòng heartbeat ghi lại thời điểm bắt đầu job; quá hạn thì log lỗi và `os._exit(1)` (không cancel được thread đang treo, nên thoát hẳn process). Pod restart, message được giao lại và tính như một lần chết. Không có bước này thì một call bị treo (ví dụ MinIO không timeout) sẽ được heartbeat giữ mãi ở `PROCESSING`.
+    - [ ] SIGTERM khi job chưa xong trong grace period (60s): `nak()` job đang chạy trước khi thoát, để worker khác nhận ngay.
     - [x] `resultSummary` đúng contract §3B: `imageSize`, `counts`, `detections` (box **trước** padding, `lowConfidence` theo `reviewThreshold`), `redaction`, `model`, `processingTimeMs`.
     - [x] Gỡ `object-detection` / `image-convert` khỏi registry. Pool `jobs.image` chỉ đăng ký `image-redact`. Loại khác → `UNSUPPORTED_JOB_TYPE`.
     - [x] Ảnh hỏng hoặc không đọc được → `INVALID_INPUT_FILE` (không để thành `INTERNAL_WORKER_ERROR`).
-* **Kiểm chứng:** `engine/tests/` có test cho 3 style (vùng trong box bị đổi, ngoài box giữ nguyên), map lớp, `padding` ở mép ảnh. Chạy với compose local + publish tay 1 command `image-redact` theo contract §2A → ảnh kết quả trong `results`, event `COMPLETED` đúng shape.
+* **Kiểm chứng:** `engine/tests/` có test cho 3 style (vùng trong box bị đổi, ngoài box giữ nguyên), map lớp, `padding` ở mép ảnh, kích thước đầu ra = đầu vào, phân loại ack/nak theo mã lỗi, heartbeat vẫn gửi trong lúc `process` chạy lâu (processor giả ngủ > 60s → không bị giao lại), quá `JOB_DEADLINE_SECONDS` thì process thoát. Thử `kill -9` worker khi đang xử lý → job được giao lại và hoàn tất. Ảnh làm worker chết mọi lần (ví dụ giả lập bằng env test) → sau `MAX_ATTEMPTS` lần có event `FAILED` `WORKER_CRASHED`, không kẹt ở `PROCESSING`. Chạy với compose local + publish tay 1 command `image-redact` theo contract §2A → ảnh kết quả trong `results`, event `COMPLETED` đúng shape.
 
 ## Milestone 2: Whitelist khuôn mặt (01/11 → 08/11)
 * **Tasks:**
     - [ ] Chọn model face embedding chạy tốt trên CPU (ví dụ ArcFace/InsightFace dạng ONNX, hoặc model nhẹ tương đương). Ghi lý do chọn + RAM/tốc độ đo được vào `engine/docs/`.
     - [ ] Whitelist: với mỗi ảnh mẫu trong `params.whitelist.faces`, phát hiện khuôn mặt (lấy khuôn mặt lớn nhất), tính embedding và **cache theo key** (cùng batch dùng lại, không tính lại mỗi ảnh). Ảnh mẫu không có mặt → `WHITELIST_REFERENCE_ERROR`.
-    - [ ] Với mỗi khuôn mặt phát hiện: cosine similarity với từng mẫu. ≥ `similarityThreshold` → `whitelisted: true`, `redacted: false`, kèm `similarity`. Khi phân vân thì **che**.
+    - [ ] Với mỗi khuôn mặt phát hiện: cosine similarity với từng mẫu. ≥ `similarityThreshold` → `whitelisted: true`, `redacted: false`, kèm `whitelistRef` (vị trí mẫu khớp). Mọi khuôn mặt đều có `similarity` (cao nhất so với các mẫu), kể cả khi không khớp (contract §3B). Khi phân vân thì **che**.
     - [ ] Hiệu chỉnh ngưỡng: thử trên vài bộ ảnh có người quen/người lạ, đề xuất `similarityThreshold` mặc định (ưu tiên không nhận nhầm người lạ) và `reviewThreshold`. **[Cần Web]** báo giá trị để Web đặt mặc định.
 * **Kiểm chứng:** test whitelist với 2 người (một trong whitelist, một không) → chỉ người lạ bị che.
 
@@ -52,7 +57,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 ---
 
 # Phase 2: Video + tối ưu (16/11 → 29/11)
-- [ ] **[Must]** `video-redact` trên pool `jobs.video` (worker riêng, contract §2C): tách khung hình (FFmpeg/OpenCV), phát hiện + **ByteTrack** để giữ id đối tượng giữa các khung (vết che không nhấp nháy, có thể nội suy khi mất phát hiện vài khung), che, ghép lại MP4 H.264, **copy nguyên audio gốc** bằng FFmpeg. Gửi progress theo % khung hình. Heartbeat `in_progress()` (ack_wait 5m). **[Đổi contract]** chốt `resultSummary` video với Web (số đối tượng duy nhất theo track id, khung có confidence thấp...).
+- [ ] **[Must]** `video-redact` trên pool `jobs.video` (worker riêng, contract §2C): tách khung hình (FFmpeg/OpenCV), phát hiện + **ByteTrack** để giữ id đối tượng giữa các khung (vết che không nhấp nháy, có thể nội suy khi mất phát hiện vài khung), che, ghép lại MP4 H.264 (CRF map từ `params.output.quality`, giữ độ phân giải + fps gốc), **copy nguyên audio gốc** bằng FFmpeg. Gửi progress theo % khung hình. Heartbeat `in_progress()` (ack_wait 5m), `JOB_DEADLINE_SECONDS` cho video (gợi ý 3600). **[Đổi contract]** chốt `resultSummary` video với Web (số đối tượng duy nhất theo track id, khung có confidence thấp...).
 - [ ] **[Must]** Whitelist khuôn mặt cho video: so embedding theo **track**, không theo từng khung (một lần mỗi track, ổn định hơn và nhanh hơn).
 - [ ] **[Should]** ONNX + OpenVINO trên CPU Intel. Benchmark với PyTorch CPU: throughput, latency, RAM, mAP. INT8 chỉ dùng nếu nhanh hơn rõ rệt (mục tiêu 2–3 lần) mà mAP/recall vẫn đạt.
 - [ ] **[Should]** Whitelist biển số: OCR biển VN 2 dòng (ví dụ PaddleOCR/EasyOCR), so khớp với `whitelist.plates`. **[Đổi contract]** **[Cần Web]**.
@@ -63,7 +68,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 ## Tổng hợp việc cần phối hợp
 | Khi nào | Với ai | Việc |
 |---|---|---|
-| M1 (28/10) | Web | Xác nhận contract §2/§3 mới trước khi code |
+| M1 (28/10) | Web | Xác nhận contract §2/§3 mới (kể cả `params.output.quality` dạng mức, định dạng theo `output.key`, `whitelistRef`) và cách xử lý worker chết (§4: `MAX_ATTEMPTS`, `WORKER_CRASHED`, hạn xử lý) trước khi code |
 | M2 (06/11) | Web | Ngưỡng mặc định `similarityThreshold`, `reviewThreshold` |
 | M3 (09/11) | Infra | RAM/CPU đo được → memory limit, max replicas, CI image |
 | M3 (12/11) | Web + Infra | Chạy luồng thật trên lab |

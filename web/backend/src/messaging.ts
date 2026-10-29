@@ -9,8 +9,9 @@ import {
 import { z } from "zod";
 
 import { config } from "./config";
-import { applyJobEvent, checkAndCleanBatchWhitelist, getJob } from "./db";
-import { jobEventSchema } from "./schemas/job-event.schema";
+import { getJob } from "./db";
+import { applyJobEvent, checkAndCleanBatchWhitelist } from "./services/batch.service";
+import { jobEventSchema } from "./dto";
 
 const codec = StringCodec();
 let connection: NatsConnection | null = null;
@@ -97,9 +98,9 @@ async function handleEventMessage(message: JsMsg): Promise<void> {
 
   if (validation.data.status === "COMPLETED" || validation.data.status === "FAILED") {
     try {
-      await checkAndCleanBatchWhitelist(job.batch_id);
+      await checkAndCleanBatchWhitelist(job.batchId);
     } catch (error) {
-      console.error(`Failed to clean batch whitelist for ${job.batch_id}`, error);
+      console.error(`Failed to clean batch whitelist for ${job.batchId}`, error);
     }
   }
 }

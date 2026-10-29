@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { getJobById, getJobOriginalStream } from "../services/batch.service";
+import { notFound } from "../errors";
 
 export async function getJobHandler(
   request: Request,
@@ -10,8 +11,7 @@ export async function getJobHandler(
     const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
     const job = await getJobById(id);
     if (!job) {
-      response.status(404).json({ error: "Job not found" });
-      return;
+      throw notFound("Job not found");
     }
     response.json({ job });
   } catch (error) {
@@ -28,8 +28,7 @@ export async function getJobOriginalHandler(
     const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
     const streamInfo = await getJobOriginalStream(id);
     if (!streamInfo) {
-      response.status(404).json({ error: "Job or original image not found" });
-      return;
+      throw notFound("Job or original image not found");
     }
 
     if (streamInfo.contentType) {

@@ -6,7 +6,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     return {} as T;
   }
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error ?? "Request failed");
+  if (!response.ok) {
+    const message = data.error?.message ?? (typeof data.error === "string" ? data.error : "Request failed");
+    throw new Error(message);
+  }
   return data;
 }
 

@@ -1,15 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { connect, JetStreamManager, NatsConnection, StringCodec } from "nats";
 import { config } from "../../src/config";
-import { pool } from "../../src/db/pool";
-import { runMigrations } from "../../src/db/migrate";
-import { storage, UPLOADS_BUCKET, RESULTS_BUCKET } from "../../src/storage";
+import { closeDatabase } from "../../src/db";
+import { storage } from "../../src/storage";
 import {
+  applyJobEvent,
+  checkAndCleanBatchWhitelist,
   createBatch,
   deleteBatchById,
   getBatchById,
 } from "../../src/services/batch.service";
-import { applyJobEvent, checkAndCleanBatchWhitelist } from "../../src/db";
 import { connectMessaging, closeMessaging } from "../../src/messaging";
 
 describe("Batch Service Integration Tests", () => {
@@ -18,7 +18,6 @@ describe("Batch Service Integration Tests", () => {
   const codec = StringCodec();
 
   beforeAll(async () => {
-    await runMigrations();
     await storage.verifyBuckets();
     await connectMessaging();
     nc = await connect({ servers: config.NATS_URL });
@@ -28,7 +27,7 @@ describe("Batch Service Integration Tests", () => {
   afterAll(async () => {
     await closeMessaging();
     if (nc) await nc.close();
-    await pool.end();
+    await closeDatabase();
   });
 
   it("creates a batch, verifies §2A command in IMAGE_JOBS, applies events, cleans whitelist, and deletes batch", async () => {

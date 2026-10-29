@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveBatchStatus } from "../../src/batch-logic";
+import { deriveBatchStatus } from "../../src/domain";
 
 describe("Batch Status Derivation", () => {
   it("derives PROCESSING while any job is non-terminal", () => {

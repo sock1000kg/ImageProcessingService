@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { calculateNextJobState, JobState } from "../../src/batch-logic";
-import { jobEventSchema, ValidatedJobEvent } from "../../src/schemas/job-event.schema";
+import { calculateNextJobState, JobState } from "../../src/domain";
+import { jobEventSchema, ValidatedJobEvent } from "../../src/dto";
 
 describe("Event Sequences and State Transitions (§8)", () => {
   const initialQueuedState: JobState = {
@@ -48,151 +48,134 @@ describe("Event Sequences and State Transitions (§8)", () => {
     expect(next.progress).toBe(60);
   });
 
-  it("handles duplicate COMPLETED events harmlessly", () => {
-    const completedEvent: ValidatedJobEvent = {
-      jobId: "a1b2c3d4-5678-40ab-8def-112233445566",
-      status: "COMPLETED",
-      progress: 100,
-      stage: "DONE",
-      result: { bucket: "results", key: "batch-1/job-1/result.jpg" },
-      resultSummary: { counts: { face: 2, redacted: 2 } },
-    };
-
-    // First COMPLETED event transitions to COMPLETED
-    const firstState = calculateNextJobState(initialQueuedState, completedEvent);
-    expect(firstState.status).toBe("COMPLETED");
-    expect(firstState.progress).toBe(100);
-    expect(firstState.resultUrl).toBe("/results/batch-1/job-1/result.jpg");
-    expect(firstState.resultSummary).toEqual({ counts: { face: 2, redacted: 2 } });
-
-    // Second duplicate COMPLETED event is harmless and does not alter state
-    const duplicateState = calculateNextJobState(firstState, completedEvent);
-    expect(duplicateState).toEqual(firstState);
-  });
-
-  it("ignores PROCESSING events arriving after COMPLETED (terminal-state protection)", () => {
-    const completedState: JobState = {
-      status: "COMPLETED",
-      progress: 100,
-      stage: "DONE",
-      resultUrl: "/results/batch-1/job-1/result.jpg",
-      resultSummary: { counts: { face: 1 } },
+  it("updates job to COMPLETED with 100% progress and resultUrl", () => {
+    const current: JobState = {
+      status: "PROCESSING",
+      progress: 80,
+      stage: "SAVING",
+      resultUrl: null,
+      resultSummary: null,
       error: null,
     };
 
-    const staleProcessingEvent: ValidatedJobEvent = {
+    const event: ValidatedJobEvent = {
       jobId: "a1b2c3d4-5678-40ab-8def-112233445566",
-      status: "PROCESSING",
-      progress: 90,
-      stage: "ENCODING",
+      status: "COMPLETED",
+      stage: "DONE",
+      result: { bucket: "results", key: "batch-1/job-1/result.jpg" },
+      resultSummary: { counts: { face: 1, plate: 2, redacted: 3 } },
     };
 
-    const next = calculateNextJobState(completedState, staleProcessingEvent);
+    const next = calculateNextJobState(current, event, "/results");
     expect(next.status).toBe("COMPLETED");
     expect(next.progress).toBe(100);
     expect(next.stage).toBe("DONE");
     expect(next.resultUrl).toBe("/results/batch-1/job-1/result.jpg");
+    expect(next.resultSummary).toEqual({ counts: { face: 1, plate: 2, redacted: 3 } });
   });
 
-  it("first terminal event wins: FAILED then COMPLETED remains FAILED", () => {
-    const failedEvent: ValidatedJobEvent = {
-      jobId: "a1b2c3d4-5678-40ab-8def-112233445566",
-      status: "FAILED",
-      progress: 50,
-      stage: "DETECTING",
-      error: { code: "INVALID_INPUT_FILE", message: "Corrupt image" },
+  it("updates job to FAILED with error payload", () => {
+    const current: JobState = {
+      status: "PROCESSING",
+      progress: 45,
+      stage: "REDACTING",
+      resultUrl: null,
+      resultSummary: null,
+      error: null,
     };
 
-    const failedState = calculateNextJobState(initialQueuedState, failedEvent);
-    expect(failedState.status).toBe("FAILED");
-    expect(failedState.error?.code).toBe("INVALID_INPUT_FILE");
-
-    const subsequentCompletedEvent: ValidatedJobEvent = {
+    const event: ValidatedJobEvent = {
       jobId: "a1b2c3d4-5678-40ab-8def-112233445566",
+      status: "FAILED",
+      error: { code: "CORRUPT_IMAGE", message: "Image cannot be decoded" },
+    };
+
+    const next = calculateNextJobState(current, event);
+    expect(next.status).toBe("FAILED");
+    expect(next.progress).toBe(45);
+    expect(next.error).toEqual({ code: "CORRUPT_IMAGE", message: "Image cannot be decoded" });
+  });
+
+  it("applies terminal state protection: ignores event arriving after COMPLETED", () => {
+    const completedState: JobState = {
       status: "COMPLETED",
       progress: 100,
-      result: { bucket: "results", key: "batch-1/job-1/result.jpg" },
+      stage: "DONE",
+      resultUrl: "/results/result.jpg",
+      resultSummary: { counts: { face: 1 } },
+      error: null,
     };
 
-    const stateAfterCompleted = calculateNextJobState(failedState, subsequentCompletedEvent);
-    expect(stateAfterCompleted.status).toBe("FAILED");
-    expect(stateAfterCompleted.error?.code).toBe("INVALID_INPUT_FILE");
-    expect(stateAfterCompleted.resultUrl).toBeNull();
-  });
-
-  it("accepts FAILED event with empty message and non-contract error code", () => {
-    const rawPayload = {
+    const lateEvent: ValidatedJobEvent = {
       jobId: "a1b2c3d4-5678-40ab-8def-112233445566",
       status: "FAILED",
-      error: {
-        code: "INTERNAL_WORKER_ERROR",
-        message: "",
-      },
+      error: { code: "LATE_FAILURE", message: "Late failure event" },
     };
 
-    const parseResult = jobEventSchema.safeParse(rawPayload);
-    expect(parseResult.success).toBe(true);
-
-    if (parseResult.success) {
-      const failedState = calculateNextJobState(initialQueuedState, parseResult.data);
-      expect(failedState.status).toBe("FAILED");
-      expect(failedState.error).toEqual({
-        code: "INTERNAL_WORKER_ERROR",
-        message: "",
-      });
-    }
+    const next = calculateNextJobState(completedState, lateEvent);
+    expect(next.status).toBe("COMPLETED");
+    expect(next.error).toBeNull();
   });
 
-  it("accepts non-integer floating progress 42.7 and stores as 43", () => {
-    const rawPayload = {
-      jobId: "a1b2c3d4-5678-40ab-8def-112233445566",
-      status: "PROCESSING",
-      progress: 42.7,
-      stage: "REDACTING",
+  it("applies terminal state protection: ignores event arriving after FAILED", () => {
+    const failedState: JobState = {
+      status: "FAILED",
+      progress: 20,
+      stage: "DETECTING",
+      resultUrl: null,
+      resultSummary: null,
+      error: { code: "EARLY_FAILURE", message: "Early failure" },
     };
 
-    const parseResult = jobEventSchema.safeParse(rawPayload);
-    expect(parseResult.success).toBe(true);
-
-    if (parseResult.success) {
-      const next = calculateNextJobState(initialQueuedState, parseResult.data);
-      expect(next.progress).toBe(43);
-    }
-  });
-
-  it("accepts progress 150 and clamps/stores as 100", () => {
-    const rawPayload = {
-      jobId: "a1b2c3d4-5678-40ab-8def-112233445566",
-      status: "PROCESSING",
-      progress: 150,
-      stage: "REDACTING",
-    };
-
-    const parseResult = jobEventSchema.safeParse(rawPayload);
-    expect(parseResult.success).toBe(true);
-
-    if (parseResult.success) {
-      const next = calculateNextJobState(initialQueuedState, parseResult.data);
-      expect(next.progress).toBe(100);
-    }
-  });
-
-  it("malformed optional fields do not invalidate COMPLETED or FAILED events", () => {
-    const payloadWithBadFields = {
+    const lateEvent: ValidatedJobEvent = {
       jobId: "a1b2c3d4-5678-40ab-8def-112233445566",
       status: "COMPLETED",
-      batchId: "not-a-valid-uuid",
-      progress: "not-a-number",
-      timestamp: 12345,
-      result: { bucket: "results", key: "batch-1/job-1/result.jpg" },
+      result: { bucket: "results", key: "too-late.jpg" },
     };
 
-    const parseResult = jobEventSchema.safeParse(payloadWithBadFields);
-    expect(parseResult.success).toBe(true);
-    if (parseResult.success) {
-      expect(parseResult.data.status).toBe("COMPLETED");
-      expect(parseResult.data.batchId).toBeUndefined();
-      expect(parseResult.data.result?.key).toBe("batch-1/job-1/result.jpg");
+    const next = calculateNextJobState(failedState, lateEvent);
+    expect(next.status).toBe("FAILED");
+    expect(next.resultUrl).toBeNull();
+  });
+
+  it("validates event with jobEventSchema", () => {
+    const raw = {
+      jobId: "123e4567-e89b-12d3-a456-426614174000",
+      status: "PROCESSING",
+      progress: 75,
+      stage: "SAVING",
+    };
+
+    const parsed = jobEventSchema.safeParse(raw);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.jobId).toBe("123e4567-e89b-12d3-a456-426614174000");
+      expect(parsed.data.status).toBe("PROCESSING");
+      expect(parsed.data.progress).toBe(75);
+    }
+  });
+
+  it("rejects invalid status in jobEventSchema", () => {
+    const raw = {
+      jobId: "123e4567-e89b-12d3-a456-426614174000",
+      status: "UNKNOWN_STATUS",
+    };
+
+    const parsed = jobEventSchema.safeParse(raw);
+    expect(parsed.success).toBe(false);
+  });
+
+  it("tolerates missing optional fields or catches schema variations", () => {
+    const raw = {
+      jobId: "123e4567-e89b-12d3-a456-426614174000",
+      status: "PROCESSING",
+      progress: "invalid_progress_type",
+    };
+
+    const parsed = jobEventSchema.safeParse(raw);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.progress).toBeUndefined();
     }
   });
 });

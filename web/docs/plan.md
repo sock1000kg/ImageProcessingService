@@ -6,10 +6,11 @@ Ký hiệu trong task:
 - **[Cần Infra]**: nhờ Đạt.
 - **[Đổi contract]**: thay đổi `docs/integration-contracts.md`, phải báo cả nhóm.
 
-## Hiện trạng (24/10)
-Đã có từ MVP cũ: Express + React. Backend tách lớp (`routes/`, `controllers/`, `services/`, `repositories/`, `schemas/`), migration SQL, consumer `jobs.events` validate bằng zod, `/health` + `/ready`,
-backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, `JobCard`, `api.ts`.
-→ Phần "đường ống" (upload → MinIO → PG → NATS → event → UI) đã chạy. Việc còn lại là **đổi nghiệp vụ** từ `object-detection`/`image-convert` sang **ẩn danh hoá bộ ảnh**.
+## Hiện trạng (29/10)
+Backend đã theo contract mới (Task 14, 16): batch + job `image-redact` trên `jobs.image`, event theo §3/§8, xoá dữ liệu theo §5, Prisma (schema + migration,
+`npm run db:studio`), ErrorDTO `{ error: { code, message, details? } }`, layout `domain/` + `dto/` + `routes/controllers/services/repositories`, test ở
+`backend/tests/{unit,service}` và `frontend/tests`. Frontend mới chỉ nối tối thiểu với API batch (chưa có UI M3).
+Còn lại Phase 1: báo cáo nâng cao + thử lại ảnh lỗi (M2), toàn bộ UI M3, demo M4.
 
 ---
 
@@ -18,23 +19,30 @@ backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, 
 
 ## Milestone 1: Mô hình dữ liệu batch (24/10 → 30/10)
 * **Tasks:**
-    - [ ] **[Bug, làm trước]** Backend ngừng nhận event sau batch đầu tiên. Trong `consumeEvents` (`backend/src/messaging.ts`), `pull()` chỉ được gọi một lần: `for await (const message of subscription)` không bao giờ thoát sau khi batch hết/expire, nên không tới được lần `pull()` tiếp theo. Trên lab (25/10): consumer `backend-job-events` có `last_active` = lúc pod khởi động, event `COMPLETED` nằm lại trong `JOB_EVENTS`, UI không cập nhật. Sửa bằng API consumer của nats.js (`jetStream.consumers.get("JOB_EVENTS", "backend-job-events")` → `consumer.consume()`, thư viện tự pull liên tục), hoặc gọi `pull()` theo timer ngoài vòng lặp. **Kiểm chứng:** chạy backend, đợi > 30s, rồi publish tay vài event → tất cả đều được áp dụng. Lặp lại sau vài phút.
-    - [ ] Migration mới: bảng `batches` (id, trạng thái tổng, cấu hình che mặc định, danh sách key ảnh whitelist, created_at) và `jobs` thêm `batch_id`, `params` (JSONB), `detections` (lấy từ `resultSummary`). Bỏ các loại job cũ khỏi validate.
-    - [ ] Đường dẫn object theo contract §5: `uploads/<batchId>/<jobId>/input.<ext>`, `uploads/<batchId>/whitelist/face-<n>.<ext>`, `results/<batchId>/<jobId>/result.<ext>`.
-    - [ ] Command `image-redact` đúng contract §2 (zod schema cho `params.redaction`, `whitelist`). Event `COMPLETED` lưu `resultSummary` (`counts`, `detections`, `model`).
-    - [ ] Trạng thái batch suy ra từ các job: `PROCESSING` khi còn job chưa xong, `COMPLETED` khi tất cả xong, `PARTIAL` khi có job `FAILED`. Không lưu trùng logic ở hai nơi.
-    - [ ] Giữ idempotency (contract §8). Event `PROCESSING` đến sau trạng thái kết thúc thì bỏ qua. Viết vài unit test cho trường hợp trùng/đến trễ. Hiển thị `WORKER_CRASHED` như lỗi thường (có nút thử lại). Backend **không** tự đặt timeout cho job (contract §4).
+    - [x] **[Bug, làm trước]** Backend ngừng nhận event sau batch đầu tiên. Trong `consumeEvents` (`backend/src/messaging.ts`), `pull()` chỉ được gọi một lần: `for await (const message of subscription)` không bao giờ thoát sau khi batch hết/expire, nên không tới được lần `pull()` tiếp theo. Trên lab (25/10): consumer `backend-job-events` có `last_active` = lúc pod khởi động, event `COMPLETED` nằm lại trong `JOB_EVENTS`, UI không cập nhật. Sửa bằng API consumer của nats.js (`jetStream.consumers.get("JOB_EVENTS", "backend-job-events")` → `consumer.consume()`, thư viện tự pull liên tục), hoặc gọi `pull()` theo timer ngoài vòng lặp. **Kiểm chứng:** chạy backend, đợi > 30s, rồi publish tay vài event → tất cả đều được áp dụng. Lặp lại sau vài phút. (Task 14)
+    - [x] Migration mới: bảng `batches` (id, trạng thái tổng, cấu hình che mặc định, danh sách key ảnh whitelist, created_at) và `jobs` thêm `batch_id`, `params` (JSONB), `detections` (lấy từ `resultSummary`). Bỏ các loại job cũ khỏi validate. → Prisma: `batches` (config JSONB, whitelist_keys, whitelist_deleted_at) + `jobs` (batch_id, `result_summary` JSONB chứa `detections`).
+    - [x] Đường dẫn object theo contract §5: `uploads/<batchId>/<jobId>/input.<ext>`, `uploads/<batchId>/whitelist/face-<n>.<ext>`, `results/<batchId>/<jobId>/result.<ext>`.
+    - [x] Command `image-redact` đúng contract §2 (zod schema cho `params.redaction`, `whitelist`). Event `COMPLETED` lưu `resultSummary` (`counts`, `detections`, `model`).
+    - [x] Trạng thái batch suy ra từ các job: `PROCESSING` khi còn job chưa xong, `COMPLETED` khi tất cả xong, `PARTIAL` khi có job `FAILED`. Không lưu trùng logic ở hai nơi.
+    - [x] Giữ idempotency (contract §8). Event `PROCESSING` đến sau trạng thái kết thúc thì bỏ qua. Viết vài unit test cho trường hợp trùng/đến trễ. Hiển thị `WORKER_CRASHED` như lỗi thường (có nút thử lại). Backend **không** tự đặt timeout cho job (contract §4). (backend xong; nút thử lại thuộc M2/M3)
 * **Kiểm chứng:** tạo batch 3 ảnh bằng API → 3 message trên `jobs.image` (xem bằng `nats sub` hoặc `nats stream view IMAGE_JOBS`). Publish tay 3 event `COMPLETED` → batch chuyển `COMPLETED`.
 
 ## Milestone 2: API (28/10 → 04/11)
 Đường dẫn cụ thể do Web quyết định. Contract §9 chỉ liệt kê khả năng cần có.
 * **Tasks:**
-    - [ ] Tạo batch: multipart nhiều `files` (JPG/PNG/WEBP, giới hạn số lượng + dung lượng mỗi file), 0..n `whitelist` (ảnh chân dung), `config` (targets, style, strength, padding, `quality` (`standard`/`high`/`max`) → `params.output.quality`, `format` (`original`/`jpg`/`png`/`webp`) → đuôi của `output.key`, confidenceThreshold, reviewThreshold, similarityThreshold). Validate rõ ràng, lỗi 4xx kèm message.
-    - [ ] Xem batch: thông tin batch + danh sách job (trạng thái, `counts`, `resultUrl`).
-    - [ ] Ảnh gốc cho thanh trượt: endpoint trả ảnh gốc từ `uploads` (stream qua backend, hoặc presigned URL ngắn hạn). Bucket `uploads` là private.
+    - [x] Tạo batch: multipart nhiều `files` (JPG/PNG/WEBP, giới hạn số lượng + dung lượng mỗi file), 0..n `whitelist` (ảnh chân dung), `config` (targets, style, strength, padding, `quality` (`standard`/`high`/`max`) → `params.output.quality`, `format` (`original`/`jpg`/`png`/`webp`) → đuôi của `output.key`, confidenceThreshold, reviewThreshold, similarityThreshold). Validate rõ ràng, lỗi 4xx kèm message.
+    - [x] Xem batch: thông tin batch + danh sách job (trạng thái, `counts`, `resultUrl`).
+    - [ ] **Upload từng ảnh một request** (thay cho một request cả batch). Hiện tại `POST /api/batches` gửi mọi ảnh + whitelist trong **một** multipart: multer đọc hết vào RAM rồi mới kiểm tra tổng `BATCH_MAX_BYTES` (90MB), nên batch chỉ được 20 ảnh/90MB, giới hạn 50MB mỗi file gần như vô nghĩa, và local (không có Cloudflare chặn 100MB) có thể dồn tới 20×50MB vào RAM pod 512Mi. Đổi thành 3 bước:
+        - `POST /api/batches` (`config` + 0..5 ảnh whitelist) → batch ở trạng thái `DRAFT`.
+        - `POST /api/batches/:id/files`: một ảnh mỗi request (≤ `UPLOAD_MAX_BYTES`), tạo job `PENDING`. Tối đa `BATCH_MAX_FILES` (ví dụ 100). Sau `start` → 409.
+        - `POST /api/batches/:id/start`: publish các job `PENDING` lên `jobs.image`. Gọi lại không publish trùng; publish lỗi thì gọi lại để gửi phần còn thiếu.
+        - Bỏ `BATCH_MAX_BYTES`. UI tải lần lượt từng ảnh, có tiến độ từng file và thử lại file lỗi. Batch `DRAFT` quá 24h bị dọn như batch thường. Việc xử lý vẫn là **một job mỗi ảnh** (contract §1), không đổi.
+        - Là nền cho upload video chia nhỏ (chunked, S3 multipart) ở Phase 2.
+    - [x] Ảnh gốc cho thanh trượt: endpoint trả ảnh gốc từ `uploads` (stream qua backend, hoặc presigned URL ngắn hạn). Bucket `uploads` là private. (`GET /api/jobs/:id/original`)
     - [ ] Thử lại ảnh `FAILED`: tạo job `image-redact` mới cho đúng ảnh đó. Input vẫn còn trong TTL 24h, hết hạn thì trả 410. Batch có whitelist mà ảnh mẫu đã bị xoá cũng trả 410 (contract §5).
-    - [ ] **Xoá dữ liệu** (contract §5): `DELETE` batch xoá prefix `uploads/<batchId>/` + `results/<batchId>/` trên MinIO rồi xoá dòng PG. Xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch kết thúc. Tác vụ định kỳ xoá (hoặc đánh dấu `EXPIRED`) batch quá 24h. Xem batch đã xoá/hết hạn → 404/410 kèm message.
-    - [ ] Báo cáo batch (JSON): tổng số ảnh, số khuôn mặt/biển số, đã che, được whitelist, danh sách phát hiện `lowConfidence` (ảnh nào, box nào, confidence), model đã dùng, thời gian xử lý. Format do Web đặt và ghi vào `web/README.md`. Thêm:
+    - [x] **Xoá dữ liệu** (contract §5): `DELETE` batch xoá prefix `uploads/<batchId>/` + `results/<batchId>/` trên MinIO rồi xoá dòng PG. Xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch kết thúc. Tác vụ định kỳ xoá (hoặc đánh dấu `EXPIRED`) batch quá 24h. Xem batch đã xoá/hết hạn → 404/410 kèm message.
+    - [x] Báo cáo batch (JSON) cơ bản: tổng số ảnh, số khuôn mặt/biển số, đã che, được whitelist, `lowConfidence`, số liệu từng ảnh, lỗi (`GET /api/batches/:id/report`, format trong `web/README.md`).
+    - [ ] Báo cáo nâng cao (chưa làm): danh sách phát hiện `lowConfidence` (ảnh nào, box nào, confidence), model đã dùng, thời gian xử lý, và:
         - **Điểm tin cậy mỗi ảnh** = confidence thấp nhất trong các box đã che (ảnh không có phát hiện thì để trống, không phải 100%).
         - **Cần kiểm tra** (`needsReview`) khi ảnh có phát hiện `lowConfidence`, **hoặc** có khuôn mặt sát ngưỡng whitelist (`similarity` trong khoảng ±0.05 quanh `similarityThreshold`). Khuôn mặt được giữ nguyên mà chỉ vừa qua ngưỡng là rủi ro lớn nhất (có thể để lộ người lạ), nên ghi rõ lý do.
         - **Theo từng người trong whitelist** (`whitelistRef`): xuất hiện trong bao nhiêu ảnh, ảnh nào.
@@ -53,9 +61,9 @@ backend serve frontend, `web/Dockerfile`. Frontend có `UploadForm`, `JobList`, 
 
 ## Milestone 4: Deploy và demo (10/11 → 15/11)
 * **Tasks:**
-    - [ ] **[Cần Infra]** Deploy web lên `imgproc`: Deployment + Service + HTTPRoute `/` và `/api` (giữ `/results/` → MinIO), Secret (`DATABASE_URL`, MinIO credentials), memory limit. Image `socknot1000kg/imgproc-web` do CI build theo SHA.
-    - [ ] Toàn bộ cấu hình qua env. Liệt kê biến env trong `web/README.md`.
-    - [ ] `UPLOAD_MAX_BYTES` × số file tối đa phải nằm dưới giới hạn body của Cloudflare (100MB/request ở gói free). **[Cần Infra]** xác nhận giới hạn trên Gateway.
+    - [x] **[Cần Infra]** Deploy web lên `imgproc`: Deployment + Service + HTTPRoute `/` và `/api` (giữ `/results/` → MinIO), Secret (`DATABASE_URL`, MinIO credentials), memory limit. Image `socknot1000kg/imgproc-web` do CI build theo SHA. (Infra, 24/10)
+    - [x] Toàn bộ cấu hình qua env. Liệt kê biến env trong `web/README.md`.
+    - [x] Giới hạn upload dưới giới hạn body của Cloudflare (100MB/request ở gói free): `BATCH_MAX_BYTES` mặc định 90MB, `UPLOAD_MAX_BYTES` cho từng file. Traefik không giới hạn thêm.
     - [ ] **[Cần Engine]** Chạy luồng thật với worker engine trên lab. Ghi lại chỗ lệch contract và sửa ở phía chịu trách nhiệm (contract §6).
     - [ ] Kịch bản demo (`web/docs/demo.md`): bộ ảnh mẫu (đường phố, sự kiện có người quen), các bước thao tác, chỗ nên dừng giải thích (whitelist, chỉnh độ mạnh, báo cáo).
 * **Kiểm chứng:** demo trọn luồng trên hostname public với bộ ảnh mẫu 20 ảnh. Không ảnh nào kẹt ở `QUEUED`/`PROCESSING`.

@@ -11,10 +11,11 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/backend/dist ./backend/dist
-COPY --from=build /app/backend/migrations ./backend/migrations
+COPY --from=build /app/backend/prisma ./backend/prisma
+COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/frontend/dist ./frontend/dist
 RUN addgroup -S app && adduser -S -G app -u 10001 app \
   && chown -R app:app /app
 USER 10001
 EXPOSE 3000
-CMD ["node", "backend/dist/server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node backend/dist/server.js"]

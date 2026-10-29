@@ -6,7 +6,7 @@ The service implements the contract defined in `docs/integration-contracts.md` (
 - Batch image redaction via `jobs.image` on stream `IMAGE_JOBS`.
 - Consumes worker events from `jobs.events` on stream `JOB_EVENTS` (durable consumer `backend-job-events`).
 - Storage managed via `@aws-sdk/client-s3` (`uploads` for private inputs and whitelist, `results` for public outputs).
-- PostgreSQL persists application state (batches and jobs).
+- PostgreSQL persists application state (batches and jobs) managed via Prisma ORM.
 
 ## Prerequisites
 
@@ -51,9 +51,12 @@ From the repository root:
 cd web
 cp .env.example .env
 npm install
-npm run migrate
+npm run db:generate
+npm run db:deploy
 npm run dev:backend
 ```
+
+> **Note:** Prisma Client generation is also triggered automatically before tests (`npm test`) and builds (`npm run build`).
 
 The backend listens on `http://localhost:3000`.
 
@@ -67,6 +70,75 @@ npm run dev:frontend
 ```
 
 Open the dashboard at `http://localhost:5173`. The Vite development server proxies `/api` to the backend and `/results` to MinIO.
+
+## Prisma Database Workflow
+
+The database schema and migrations are managed using Prisma:
+
+```bash
+# Apply pending migrations to the database (used in production and CI)
+npm run db:deploy
+
+# Create and apply migrations during development
+npm run db:migrate
+
+# Open Prisma Studio to inspect and edit database records
+npm run db:studio
+
+# Regenerate Prisma Client to backend/src/generated/prisma
+npm run db:generate
+```
+
+## Error Response Format (ErrorDTO)
+
+All API error responses adhere to a consistent typed `ErrorDTO` structure:
+
+```json
+{
+  "error": {
+    "code": "UPPER_SNAKE",
+    "message": "Human-readable error description",
+    "details": []
+  }
+}
+```
+
+### Error Codes and Statuses
+
+| HTTP Status | Code | Description |
+| --- | --- | --- |
+| `400` | `VALIDATION_ERROR` | Request or config schema validation failure with issues in `details` |
+| `400` | `INVALID_JSON` | Malformed JSON in request payload or configuration string |
+| `400` | `UPLOAD_ERROR` | File upload parsing failure |
+| `400` | `BAD_REQUEST` | Unsupported image mime type or invalid input parameters |
+| `404` | `NOT_FOUND` | Resource not found or unknown `/api/*` endpoint |
+| `409` | `CONFLICT` | Resource conflict |
+| `410` | `GONE` | Resource has expired or was removed |
+| `413` | `FILE_TOO_LARGE` | Uploaded image file or total batch payload exceeds size limit |
+| `503` | `SERVICE_UNAVAILABLE` | NATS queue or external dependency unavailable |
+| `500` | `INTERNAL_ERROR` | Unexpected server error; generic message returned (internal details are never leaked) |
+
+## Project Structure
+
+```text
+web/
+├── prisma.config.ts         # Prisma 7 root configuration
+├── backend/
+│   ├── prisma/              # schema.prisma and migrations
+│   └── src/
+│       ├── app.ts           # Express wiring, middleware, routing, SPA fallback
+│       ├── server.ts        # Process lifecycle and bootstrap
+│       ├── errors.ts        # AppError hierarchy, helpers, toErrorResponse
+│       ├── domain/          # Pure logic (command builder, job state, batch status)
+│       ├── dto/             # Request schemas (batch config, event) and response mappers
+│       ├── repositories/    # Typed database access using Prisma
+│       ├── services/        # Orchestration, storage interactions, whitelist cleanup
+│       ├── controllers/     # Express route handlers
+│       ├── routes/          # Express route definitions
+│       ├── messaging.ts     # NATS JetStream integration
+│       └── storage.ts       # S3 object storage integration
+└── frontend/                # React dashboard
+```
 
 ## Endpoints
 
@@ -101,6 +173,8 @@ Open the dashboard at `http://localhost:5173`. The Vite development server proxi
 | `CLEANUP_INTERVAL_MS` | `600000` (10 min) | Interval for database retention cleanup (>24h batches) |
 
 ## Testing
+
+Ensure PostgreSQL is migrated with `npm run db:deploy` prior to running service tests.
 
 ```bash
 # Backend unit tests

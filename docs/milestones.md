@@ -6,11 +6,11 @@ Kế hoạch chi tiết từng team: `web/docs/plan.md`, `engine/docs/plan.md`, 
 Demo được: tải lên một bộ ảnh + ảnh chân dung whitelist, chọn cách che, xem before/after, chỉnh độ mạnh, tải kết quả và báo cáo JSON. Chạy trên `https://imgproc.sock1000kg.io.vn`.
 
 1. Web / Backend: Nguyễn Đức Huy
-- [ ] Tạo batch: tải lên nhiều ảnh + 0..n ảnh whitelist + cấu hình che. Lưu MinIO, tạo batch và **một job cho mỗi ảnh** trong PostgreSQL, publish lên `jobs.image`.
+- [x] Tạo batch: tải lên nhiều ảnh + 0..n ảnh whitelist + cấu hình che. Lưu MinIO, tạo batch và **một job cho mỗi ảnh** trong PostgreSQL, publish lên `jobs.image`.
 - [ ] Theo dõi batch: trạng thái từng ảnh và tiến độ tổng. Thử lại ảnh `FAILED` riêng lẻ.
 - [ ] Cấu hình che có ảnh mẫu đổi ngay theo style/độ mạnh đã chọn. Xem kết quả: thanh trượt before/after + danh sách phát hiện.
 - [ ] Báo cáo: tổng số khuôn mặt/biển số/đã che/whitelist, danh sách phát hiện confidence thấp. Xem trên web và tải JSON.
-- [ ] Đồng bộ trạng thái từ `jobs.events` (idempotent, contract §8).
+- [x] Đồng bộ trạng thái từ `jobs.events` (idempotent, contract §8).
 
 2. Engine / Workers: Huy Đức
 - [ ] `image-redact`: phát hiện face + plate (pretrained `yolov8n-oiv7`), che blur/pixelate/blackout theo `params.redaction`, trả `detections` + `counts` theo contract §3.

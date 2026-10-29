@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum JobStatus {
+  PENDING
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+
+  @@map("job_status")
+}
+
+model Batch {
+  id                 String    @id @default(uuid()) @db.Uuid
+  config             Json
+  whitelistKeys      String[]  @default([]) @map("whitelist_keys")
+  whitelistDeletedAt DateTime? @map("whitelist_deleted_at") @db.Timestamptz
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  jobs               Job[]
+
+  @@index([createdAt(sort: Desc)], map: "idx_batches_created_at")
+  @@map("batches")
+}
+
+model Job {
+  id               String    @id @default(uuid()) @db.Uuid
+  batchId          String    @map("batch_id") @db.Uuid
+  originalFilename String    @map("original_filename")
+  inputKey         String    @map("input_key")
+  outputKey        String    @map("output_key")
+  status           JobStatus @default(PENDING)
+  progress         Int       @default(0)
+  stage            String?
+  resultUrl        String?   @map("result_url")
+  resultSummary    Json?     @map("result_summary")
+  error            Json?
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  batch            Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId], map: "idx_jobs_batch_id")
+  @@index([status], map: "idx_jobs_status")
+  @@index([createdAt(sort: Desc)], map: "idx_jobs_created_at")
+  @@map("jobs")
+}

@@ -20,3 +20,8 @@ __pycache__/
 
 # Model caches
 engine/models/models/
+
+# Benchmark dataset and download cache
+infra/bench/dataset/images/
+infra/bench/dataset/.cache/
+

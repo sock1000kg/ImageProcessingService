@@ -22,7 +22,6 @@ if sys.platform == "win32":
         pass
 
 import numpy as np
-import cv2
 from PIL import Image
 
 # Ensure engine directory is on sys.path
@@ -45,9 +44,6 @@ def create_solid_image_with_square(w=400, h=400, bg_color=(200, 200, 200), sq_bo
 
 def test_redaction_styles():
     print("--- [TEST 1] Redaction Styles: Blur, Pixelate, Blackout ---")
-    w, h = 300, 300
-    sq_box = (50, 50, 150, 150)
-    bg_rgb = (180, 180, 180)
     sq_rgb = (30, 80, 220)
 
     for style in ["blur", "pixelate", "blackout"]:
@@ -132,7 +128,7 @@ def test_exif_removal():
     out_exif = out_pil.getexif()
     assert 0x010E not in out_exif, "EXIF tag 0x010E was not stripped!"
     assert 0x0131 not in out_exif, "EXIF tag 0x0131 was not stripped!"
-    print(f"  ✅ EXIF metadata completely stripped from output bytes.")
+    print("  ✅ EXIF metadata completely stripped from output bytes.")
     print("=> TEST 3 PASSED!\n")
 
 
@@ -217,7 +213,7 @@ def test_contract_result_summary_schema():
 
     assert "processingTimeMs" in summary, "Missing processingTimeMs"
     assert isinstance(summary["processingTimeMs"], int)
-    print(f"  ✅ resultSummary verified with 100% contract compliance!")
+    print("  ✅ resultSummary verified with 100% contract compliance!")
     print(f"     Summary: {summary}")
     print("=> TEST 6 PASSED!\n")
 

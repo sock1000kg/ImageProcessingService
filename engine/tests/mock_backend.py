@@ -182,7 +182,7 @@ async def main():
         progress = event.get("progress")
         stage = event.get("stage")
 
-        print(f"\n📩 [BACKEND NHẬN EVENT TỪ WORKER]")
+        print("\n📩 [BACKEND NHẬN EVENT TỪ WORKER]")
         print(f"   - Job ID:  {j_id}")
         print(f"   - Status:  {status} ({progress}%)")
         print(f"   - Stage:   {stage}")
@@ -190,7 +190,7 @@ async def main():
         if status == "COMPLETED":
             result_bucket = event.get("result", {}).get("bucket", "results")
             result_key = event.get("result", {}).get("key")
-            print(f"   🎉 [THÀNH CÔNG RỰC RỠ!]")
+            print("   🎉 [THÀNH CÔNG RỰC RỠ!]")
             print(f"   - MinIO Object: {result_bucket}/{result_key}")
             print(f"   - Thống kê (resultSummary): {json.dumps(event.get('resultSummary'), indent=6, ensure_ascii=False)}")
 

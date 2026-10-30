@@ -630,8 +630,8 @@ SQL_IDS="$(printf "'%s'," "${BENCH_BATCH_IDS[@]}" | sed 's/,$//')"
       id AS job_id,
       batch_id,
       status,
-      to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS created_at,
-      to_char(updated_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS updated_at,
+      replace(to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US'), ' ', 'T') || 'Z' AS created_at,
+      replace(to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US'), ' ', 'T') || 'Z' AS updated_at,
       (result_summary->>'processingTimeMs')::int AS processing_time_ms,
       result_summary->>'imageSize' AS image_size
     FROM jobs

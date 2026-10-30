@@ -220,6 +220,12 @@ echo "==> Deploying KEDA from $KEDA_DIR..."
 kubectl kustomize --enable-helm "$KEDA_DIR" | \
   "${KUBECTL_CMD[@]}" apply --server-side --force-conflicts -f -
 
+# The lab's KEDA values pin every KEDA pod to the lab node (home-server); unpin them here.
+for dep in keda-operator keda-operator-metrics-apiserver keda-admission-webhooks; do
+  "${KUBECTL_CMD[@]}" -n keda patch deployment "$dep" --type json \
+    -p '[{"op":"remove","path":"/spec/template/spec/nodeSelector/kubernetes.io~1hostname"}]' >/dev/null 2>&1 || true
+done
+
 echo "==> Waiting for KEDA rollouts..."
 for dep in keda-operator keda-operator-metrics-apiserver keda-admission-webhooks; do
   "${KUBECTL_CMD[@]}" -n keda rollout status "deployment/$dep" --timeout=300s

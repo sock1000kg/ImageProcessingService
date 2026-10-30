@@ -1,0 +1,103 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../app
+
+patches:
+  # Delete SealedSecrets (lab encryption key cannot be used locally; up.sh creates random secrets)
+  - patch: |-
+      apiVersion: bitnami.com/v1alpha1
+      kind: SealedSecret
+      metadata:
+        name: imgproc-minio
+        namespace: imgproc
+      $patch: delete
+    target:
+      kind: SealedSecret
+      name: imgproc-minio
+  - patch: |-
+      apiVersion: bitnami.com/v1alpha1
+      kind: SealedSecret
+      metadata:
+        name: imgproc-postgres
+        namespace: imgproc
+      $patch: delete
+    target:
+      kind: SealedSecret
+      name: imgproc-postgres
+
+  # Delete HTTPRoutes (lab gateway routes)
+  - patch: |-
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: minio-results
+        namespace: imgproc
+      $patch: delete
+    target:
+      kind: HTTPRoute
+      name: minio-results
+  - patch: |-
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: web
+        namespace: imgproc
+      $patch: delete
+    target:
+      kind: HTTPRoute
+      name: web
+
+  # Remove nodeSelector: kubernetes.io/hostname: home-server
+  - patch: |-
+      - op: remove
+        path: /spec/template/spec/nodeSelector
+    target:
+      kind: Deployment
+      name: image-worker
+  - patch: |-
+      - op: remove
+        path: /spec/template/spec/nodeSelector
+    target:
+      kind: Deployment
+      name: minio
+  - patch: |-
+      - op: remove
+        path: /spec/template/spec/nodeSelector
+    target:
+      kind: Deployment
+      name: video-worker
+  - patch: |-
+      - op: remove
+        path: /spec/template/spec/nodeSelector
+    target:
+      kind: Deployment
+      name: web
+  - patch: |-
+      - op: remove
+        path: /spec/template/spec/nodeSelector
+    target:
+      kind: StatefulSet
+      name: nats
+  - patch: |-
+      - op: remove
+        path: /spec/template/spec/nodeSelector
+    target:
+      kind: StatefulSet
+      name: postgresql
+  - patch: |-
+      - op: remove
+        path: /spec/template/spec/nodeSelector
+    target:
+      kind: Job
+      name: minio-setup
+  - patch: |-
+      - op: remove
+        path: /spec/template/spec/nodeSelector
+    target:
+      kind: Job
+      name: nats-setup
+
+  # GPU mode patch for image-worker (default: GPU mode)
+  - path: gpu-patch.yaml

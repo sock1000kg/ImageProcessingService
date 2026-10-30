@@ -56,24 +56,63 @@ bash infra/bench/dataset/fetch.sh
 
 The runner script is [`infra/bench/run.sh`](run.sh).
 
-### Modes
-1. **Fixed Worker Pool (`--workers 1`, `--workers 2`, or `--workers 3`)**:
+### Modes & Scaling Ranges
+
+1. **Fixed Worker Pool (`--workers N`, 1 to 6)**:
    - Pauses KEDA autoscaling by setting the annotation:
      `autoscaling.keda.sh/paused-replicas: "N"` on `ScaledObject/image-worker`.
-   - Waits until $N$ worker pods are in `Ready` status.
+   - Waits until exactly $N$ worker pods are in `Ready` status (no terminating pods).
    - Submits an unmeasured **warm-up batch** of $2 \times N$ images and waits until complete. This ensures every worker has initialized YOLO and PyTorch into memory before benchmark timing starts.
-2. **Autoscale Mode (`--autoscale`)**:
-   - Removes any KEDA pause annotation.
-   - Waits for active replicas to scale down to 0 first.
-   - Submits the benchmark batches directly without a warm-up batch to measure **cold start** and KEDA scale-out dynamics.
+2. **Autoscale Mode (`--autoscale [--min M] [--max N]`, 1 to 6)**:
+   - Supports configurable scaling ranges: $0 \le M \le N$, $N \ge 1$, $N \le 6$.
+   - Defaults: current `ScaledObject` settings (0 and 3).
+   - Reads current `minReplicaCount` and `maxReplicaCount`, applies a temporary merge patch for the run if requested values differ, and **restores original values in `cleanup()`** (even on Ctrl-C or failure).
+   - Pre-run wait: waits for exactly $M$ pods in `Ready` status (0 terminating).
+   - If $M > 0$, runs a warm-up batch of $2 \times M$ images so always-on workers are pre-warmed. If $M = 0$, measures cold start with 0 initial workers.
+   - Post-run cooldown: waits until replicas scale back down to exactly $M$, verifying the target replica count in `replicas.csv`.
+
+### Example Scenarios
+
+- **Cold start ($0 \to n$)**:
+  ```bash
+  infra/bench/run.sh --autoscale --min 0 --max 3
+  # or up to 6 workers:
+  infra/bench/run.sh --autoscale --min 0 --max 6
+  ```
+  Measures cold-start latency, queue trigger latency, and KEDA scale-out from zero active workers.
+- **Warm worker ($1 \to n$, one worker always on)**:
+  ```bash
+  infra/bench/run.sh --autoscale --min 1 --max 6
+  ```
+  Maintains 1 pre-warmed worker to eliminate cold start on initial jobs while dynamically scaling up to 6 workers under queue lag, then cooling back down to 1.
+- **Autoscale capped at 1 ($0 \to 1$ or $1 \to 1$)**:
+  ```bash
+  infra/bench/run.sh --autoscale --min 0 --max 1
+  infra/bench/run.sh --autoscale --min 1 --max 1
+  ```
+  Evaluates pipeline behavior when autoscaling is enabled but concurrency is constrained to a single pod.
+- **Fixed worker pools up to 6**:
+  ```bash
+  infra/bench/run.sh --workers 4
+  infra/bench/run.sh --workers 6
+  ```
+  Tests peak throughput under sustained concurrency without autoscaling delays.
+
+### The 6-Worker Cap & Safety
+
+- **Node Memory Safety**: The single lab host (`home-server`) has 12 GB RAM total with ~7.5 GB free. Each `image-worker` pod specifies a memory limit of `1536Mi` (1.5 GiB). 6 workers $\times 1.5\text{ GiB} \approx 9\text{ GiB}$, which approaches the limits of free host memory. Running $> 6$ workers creates an immediate risk of kernel OOM kills against shared system pods (PostgreSQL, MinIO, NATS, Web).
+- **Refusal (> 6)**: Passing `--workers N`, `--min M`, or `--max N` with a value greater than 6 is refused immediately with an explanatory error before touching the cluster.
+- **CPU Warning (4–6)**: Running with 4 to 6 workers is permitted, but emits a warning that the node only has 4 CPU threads shared across the entire stack.
 
 ### Workflow & Options
 ```bash
-infra/bench/run.sh [--workers N | --autoscale] [--api URL] [--out DIR] [--timeout SECONDS]
+infra/bench/run.sh [--workers N | --autoscale [--min M] [--max N]] [--api URL] [--out DIR] [--timeout SECONDS]
 ```
 
-- `--workers N`: Fixed mode with 1, 2, or 3 replicas.
-- `--autoscale`: Autoscale mode (0 to 3 replicas).
+- `--workers N`: Fixed mode with 1 to 6 replicas.
+- `--autoscale`: Autoscale mode (defaults to 0 to 3 replicas).
+- `--min M`: Minimum replicas for autoscale mode (0 to 6).
+- `--max N`: Maximum replicas for autoscale mode (1 to 6).
 - `--api URL`: URL to Web API. If omitted, starts `kubectl port-forward svc/web` automatically and waits for readiness.
 - `--out DIR`: Output directory (default: `infra/bench/results/<UTC-timestamp>-<mode>/`).
 - `--timeout SECONDS`: Maximum timeout in seconds (default: 1800).
@@ -87,13 +126,15 @@ infra/bench/run.sh [--workers N | --autoscale] [--api URL] [--out DIR] [--timeou
    - `top.csv`: CPU and memory per worker pod from `kubectl top pod -l app.kubernetes.io/name=image-worker`.
    - `replicas.csv`: Desired and ready replica counts from the deployment.
 3. Polls until all 5 batches reach terminal status (`COMPLETED` or `FAILED`).
-4. Queries PostgreSQL via `kubectl exec` to export `jobs.csv` with exact database timestamps:
+4. In autoscale mode, waits for replicas to cool down to min ($M$) and ensures the final replica sample is recorded.
+5. Queries PostgreSQL via `kubectl exec` to export `jobs.csv` with exact database timestamps:
    - `job_id`, `batch_id`, `status`, `created_at`, `updated_at`, `processing_time_ms`, `image_size`.
-5. Records environment metadata in `meta.json` (worker image tag/digest, limits, node, dataset hash).
-6. Runs `summarize.py` on the result directory to generate `summary.md`.
-7. **Cleanup (guaranteed via `trap`)**:
+6. Records environment metadata in `meta.json` (mode, limits, worker range, node, dataset hash).
+7. Runs `summarize.py` on the result directory to generate `summary.md`.
+8. **Cleanup (guaranteed via `trap`)**:
    - Stops background metrics sampling.
-   - Removes the KEDA pause annotation from `ScaledObject/image-worker`.
+   - Removes the KEDA pause annotation from `ScaledObject/image-worker` (if fixed mode).
+   - Restores original `minReplicaCount` and `maxReplicaCount` on `ScaledObject/image-worker` (if patched).
    - Deletes benchmark and warm-up batches via `DELETE /api/batches/:id`.
    - Stops port-forwarding last.
 
@@ -110,16 +151,25 @@ python3 infra/bench/summarize.py infra/bench/results/*
 - **Throughput (images/min)**:
   $$\text{Throughput} = \frac{\text{Total Images}}{\min(\text{created\_at}) \to \max(\text{updated\_at}) \text{ in minutes}}$$
   Measures sustained image processing capacity from the ingestion of the first job to the completion of the last job.
+- **Throughput per Worker (images/min/worker)**:
+  $$\text{Throughput per Worker} = \frac{\text{Throughput}}{\text{Peak Ready Workers}}$$
+  Highlights scaling efficiency and shows diminishing returns when adding workers beyond CPU thread capacity.
 - **Processing Time (`processingTimeMs`)**:
   Pure inference and redaction execution time inside the Engine (measured from model invocation to output encoding). Reported as p50, p95, and max.
 - **End-to-End Latency (`updated_at − created_at`)**:
   Wall-clock time from when the Web API accepted the batch until the worker marked the job terminal. Includes NATS queuing, scheduling, cold-start model load (in autoscale), and result storage. Reported as p50, p95, and max.
 - **Worker Resources**:
-  Peak and average CPU (in millicores) and RAM (in MiB) observed across worker pods.
+  Peak CPU, average CPU per worker (in millicores), and peak/average RAM (in MiB) observed across worker pods.
 - **Autoscale Dynamics**:
-  - *Time to first worker Ready*: Elapsed time from first job submission to the first worker reaching `Ready` status.
+  - *Time to first worker Ready*: Elapsed time from first job submission to the first worker reaching `Ready` status (cold start).
   - *Max Replicas*: Maximum number of worker pods launched by KEDA.
-  - *Time back to 0*: Cooldown time required for replicas to scale down to 0 after completing all work.
+  - *Time back to min*: Cooldown time required for replicas to scale down to min replica count ($M$) after completing all work.
+
+### Reading the Results: Diminishing Returns & Node Saturation
+On a single 4-thread host (`home-server`):
+- Throughput is expected to scale from 1 to 3 workers, but begin to flatten/plateau around **3 to 4 workers**.
+- At 4 to 6 workers, **average CPU per worker drops** (from ~800m+ down to ~500m or lower) and **throughput per worker decreases** because worker pods are time-slicing and competing for the 4 physical CPU threads alongside Web, PostgreSQL, NATS, and MinIO.
+- **This plateau is the physical host's CPU capacity limit, not a software bug or pipeline bottleneck.** Adding more worker pods beyond the node's CPU threads cannot increase total compute cycles.
 
 ---
 
@@ -128,6 +178,6 @@ python3 infra/bench/summarize.py infra/bench/results/*
 1. **Shared Node**:
    The lab cluster runs on a single physical host (`home-server`, 4 threads, 12 GB RAM). Web, PostgreSQL, NATS, and MinIO all share this node with the `image-worker` pods. Heavy disk I/O or background container tasks can cause slight latency variance.
 2. **Model Initialization**:
-   YOLO model weights are loaded lazily on the first inference request. In fixed mode, the warm-up batch hides this initialization cost. In autoscale mode, cold-start latency is explicitly captured.
+   YOLO model weights are loaded lazily on the first inference request. In fixed mode and autoscale mode with $M > 0$, the warm-up batch hides this initialization cost. In autoscale cold-start mode ($M = 0$), cold-start latency is explicitly captured.
 3. **Image Resolution**:
    Images are evaluated at their native resolutions (WIDER FACE validation images are typically ~1024px along the longest dimension; Vietnamese license plate images vary from ~640px to ~1920px).

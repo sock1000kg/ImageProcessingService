@@ -9,6 +9,7 @@ Usage:
 import csv
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -88,6 +89,10 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
 
     mode = meta.get("mode", "unknown")
     worker_count = meta.get("worker_count")
+    min_replicas = meta.get("min_replicas")
+    max_replicas_meta = meta.get("max_replicas")
+    original_min = meta.get("original_min")
+    original_max = meta.get("original_max")
     container_image = meta.get("container_image", "unknown")
     cpu_limit = meta.get("cpu_limit", "unknown")
     memory_limit = meta.get("memory_limit", "unknown")
@@ -95,6 +100,23 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
     images_txt_hash = meta.get("images_txt_hash", "unknown")
     meta_start = meta.get("start_time", "")
     meta_end = meta.get("end_time", "")
+
+    if mode == "autoscale":
+        if min_replicas is None or max_replicas_meta is None:
+            m = re.search(r"autoscale-(\d+)-(\d+)", dir_name)
+            if m:
+                min_replicas = int(m.group(1))
+                max_replicas_meta = int(m.group(2))
+            else:
+                if min_replicas is None:
+                    min_replicas = 0
+                if max_replicas_meta is None:
+                    max_replicas_meta = 3
+    elif mode == "fixed":
+        if worker_count is None:
+            m = re.search(r"fixed-(\d+)w?", dir_name)
+            if m:
+                worker_count = int(m.group(1))
 
     # 2. jobs.csv
     jobs_path = os.path.join(res_dir, "jobs.csv")
@@ -188,34 +210,53 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
                 rep_samples.append((dt, des, rdy))
 
     max_replicas = max([r[2] for r in rep_samples], default=0)
+    peak_ready = max_replicas
+    if peak_ready == 0:
+        if mode == "fixed" and worker_count:
+            peak_ready = int(worker_count)
+        elif mode == "autoscale" and max_replicas_meta:
+            peak_ready = int(max_replicas_meta)
+        else:
+            peak_ready = 1
+
+    thpt_per_worker = (throughput / peak_ready) if peak_ready > 0 else 0.0
+
+    target_min = min_replicas if min_replicas is not None else 0
     time_to_ready: Optional[float] = None
-    time_back_to_zero: Optional[float] = None
+    time_back_to_min: Optional[float] = None
 
     if mode == "autoscale" and t_first:
-        # Time to first worker Ready
-        ready_events = [r for r in rep_samples if r[2] >= 1]
-        if ready_events:
-            first_ready_time = min(r[0] for r in ready_events)
-            time_to_ready = max(0.0, (first_ready_time - t_first).total_seconds())
+        # Time to first worker Ready (cold start only when min == 0)
+        if target_min == 0:
+            ready_events = [r for r in rep_samples if r[2] >= 1]
+            if ready_events:
+                first_ready_time = min(r[0] for r in ready_events)
+                time_to_ready = max(0.0, (first_ready_time - t_first).total_seconds())
+        else:
+            time_to_ready = None
 
-        # Time back to 0 replicas after jobs completed
+        # Time back to min replicas after jobs completed
         if t_last:
             after_jobs = [r for r in rep_samples if r[0] >= t_last]
-            zero_events = [r for r in after_jobs if r[1] == 0 and r[2] == 0]
-            if not zero_events:
-                peak_times = [r[0] for r in rep_samples if r[2] == max_replicas and r[2] > 0]
+            min_events = [r for r in after_jobs if r[1] == target_min and r[2] == target_min]
+            if not min_events:
+                peak_times = [r[0] for r in rep_samples if r[2] == max_replicas and r[2] > target_min]
                 if peak_times:
                     after_peak = [r for r in rep_samples if r[0] > max(peak_times)]
-                    zero_events = [r for r in after_peak if r[1] == 0 and r[2] == 0]
-            if zero_events:
-                zero_time = min(r[0] for r in zero_events)
-                time_back_to_zero = max(0.0, (zero_time - t_last).total_seconds())
+                    min_events = [r for r in after_peak if r[1] == target_min and r[2] == target_min]
+            if min_events:
+                min_time = min(r[0] for r in min_events)
+                time_back_to_min = max(0.0, (min_time - t_last).total_seconds())
 
     return {
         "dir_name": dir_name,
         "res_dir": res_dir,
         "mode": mode,
         "worker_count": worker_count,
+        "min_replicas": min_replicas,
+        "max_replicas_meta": max_replicas_meta,
+        "original_min": original_min,
+        "original_max": original_max,
         "container_image": container_image,
         "cpu_limit": cpu_limit,
         "memory_limit": memory_limit,
@@ -227,6 +268,7 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
         "failed_count": failed_count,
         "duration_sec": duration_sec,
         "throughput": throughput,
+        "thpt_per_worker": thpt_per_worker,
         "proc_p50": proc_p50,
         "proc_p95": proc_p95,
         "proc_max": proc_max,
@@ -239,13 +281,20 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
         "avg_mem": avg_mem,
         "max_replicas": max_replicas,
         "time_to_ready": time_to_ready,
-        "time_back_to_zero": time_back_to_zero,
+        "time_back_to_min": time_back_to_min,
+        "time_back_to_zero": time_back_to_min,
     }
 
 
 def write_single_summary(data: Dict[str, Any]) -> str:
     """Format single run summary Markdown and write to summary.md in results dir."""
-    mode_str = f"Fixed ({data['worker_count']} worker{'s' if data['worker_count'] != 1 else ''})" if data["mode"] == "fixed" else "Autoscale (0-3 workers)"
+    if data["mode"] == "fixed":
+        mode_str = f"fixed {data['worker_count']}"
+    elif data["mode"] == "autoscale":
+        mode_str = f"autoscale {data['min_replicas']}→{data['max_replicas_meta']}"
+    else:
+        mode_str = data["mode"]
+
     md = f"""# Benchmark Summary: {data['dir_name']}
 
 ## Run Context
@@ -267,6 +316,7 @@ def write_single_summary(data: Dict[str, Any]) -> str:
 | **Failed Jobs** | {data['failed_count']} |
 | **Total Processing Duration** | {data['duration_sec']:.2f} s |
 | **Throughput** | **{data['throughput']:.2f} images/min** |
+| **Throughput per Worker** | **{data['thpt_per_worker']:.2f} images/min/worker** |
 
 ## Latency
 | Phase | p50 | p95 | Max |
@@ -283,14 +333,14 @@ def write_single_summary(data: Dict[str, Any]) -> str:
 
     if data["mode"] == "autoscale":
         t_rdy = f"{data['time_to_ready']:.2f} s" if data['time_to_ready'] is not None else "N/A"
-        t_zero = f"{data['time_back_to_zero']:.2f} s" if data['time_back_to_zero'] is not None else "N/A"
+        t_min = f"{data['time_back_to_min']:.2f} s" if data['time_back_to_min'] is not None else "N/A"
         md += f"""
 ## Autoscale Dynamics
 | Metric | Value |
 | --- | --- |
 | **Time to first worker Ready (cold start)** | {t_rdy} |
 | **Max Replicas Reached** | {data['max_replicas']} |
-| **Time to scale back to 0 (cooldown)** | {t_zero} |
+| **Time to scale back to min (cooldown)** | {t_min} |
 """
 
     summary_file = os.path.join(data["res_dir"], "summary.md")
@@ -304,26 +354,28 @@ def format_combined_table(all_data: List[Dict[str, Any]]) -> str:
     lines = [
         "## Benchmark Comparison Summary",
         "",
-        "| Run | Mode | Workers | Images | Failed | Throughput (img/min) | E2E Latency p50 | E2E Latency p95 | Proc Time p50 | Proc Time p95 | Peak CPU | Peak RAM | Cold Start | Scale Down 0 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Run | Mode | Range | Images | Failed | Throughput (img/min) | Thpt/Worker (img/min) | E2E Latency p50 | E2E Latency p95 | Proc Time p50 | Proc Time p95 | Peak CPU | Avg CPU/Worker | Peak RAM | Cold Start | Time back to min |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
 
     for d in all_data:
         m_label = d["mode"].capitalize()
-        w_label = str(d["worker_count"]) if d["mode"] == "fixed" else "0-3"
+        r_label = f"{d['worker_count']}" if d["mode"] == "fixed" else f"{d['min_replicas']}→{d['max_replicas_meta']}"
         e2e_50 = f"{d['e2e_p50'] / 1000.0:.2f}s"
         e2e_95 = f"{d['e2e_p95'] / 1000.0:.2f}s"
         proc_50 = f"{d['proc_p50']:.0f}ms"
         proc_95 = f"{d['proc_p95']:.0f}ms"
         pk_cpu = f"{d['peak_cpu']:.0f}m"
+        avg_cpu = f"{d['avg_cpu']:.0f}m"
         pk_mem = f"{d['peak_mem']:.0f}MiB"
         c_start = f"{d['time_to_ready']:.1f}s" if d["time_to_ready"] is not None else "-"
-        s_down = f"{d['time_back_to_zero']:.1f}s" if d["time_back_to_zero"] is not None else "-"
+        s_down = f"{d['time_back_to_min']:.1f}s" if d["time_back_to_min"] is not None else "-"
+        thpt_w = f"{d['thpt_per_worker']:.2f}"
 
         lines.append(
-            f"| `{d['dir_name']}` | {m_label} | {w_label} | {d['total_images']} | {d['failed_count']} | "
-            f"**{d['throughput']:.2f}** | {e2e_50} | {e2e_95} | {proc_50} | {proc_95} | "
-            f"{pk_cpu} | {pk_mem} | {c_start} | {s_down} |"
+            f"| `{d['dir_name']}` | {m_label} | {r_label} | {d['total_images']} | {d['failed_count']} | "
+            f"**{d['throughput']:.2f}** | {thpt_w} | {e2e_50} | {e2e_95} | {proc_50} | {proc_95} | "
+            f"{pk_cpu} | {avg_cpu} | {pk_mem} | {c_start} | {s_down} |"
         )
 
     return "\n".join(lines)

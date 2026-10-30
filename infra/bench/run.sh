@@ -2,13 +2,14 @@
 # Baseline benchmark runner for the imgproc image pipeline.
 #
 # Usage:
-#   run.sh [--workers N | --autoscale] [--api URL] [--out DIR] [--timeout SECONDS]
+#   run.sh [--workers N | --autoscale [--min M] [--max N]] [--api URL] [--out DIR] [--timeout SECONDS]
 #
 # Options:
-#   --workers N         Fixed replica mode (N: 1, 2, or 3). Annotates ScaledObject,
+#   --workers N         Fixed replica mode (N: 1 to 6). Annotates ScaledObject,
 #                       waits for N Ready pods, runs warm-up batch of 2xN images.
-#   --autoscale         Autoscale mode (0-3 replicas). Starts at 0 replicas,
-#                       measures cold start, no warm-up.
+#   --autoscale         Autoscale mode with optional min/max replicas (1 to 6).
+#   --min M             Minimum replicas for autoscale mode (0 to 6, default: current ScaledObject value, e.g. 0).
+#   --max N             Maximum replicas for autoscale mode (1 to 6, default: current ScaledObject value, e.g. 3).
 #   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
 #   --out DIR           Output directory for benchmark results
 #                       (default: infra/bench/results/<UTC timestamp>-<mode>/).
@@ -23,15 +24,16 @@ IMAGES_TXT="$DATASET_DIR/images.txt"
 
 usage() {
   cat <<'EOF'
-Usage: run.sh [--workers N | --autoscale] [--api URL] [--out DIR] [--timeout SECONDS]
+Usage: run.sh [--workers N | --autoscale [--min M] [--max N]] [--api URL] [--out DIR] [--timeout SECONDS]
 
 Runs the baseline image pipeline benchmark (100 images in 5 batches of 20).
 
 Options:
-  --workers N         Fixed replica mode (N: 1, 2, or 3). Annotates ScaledObject,
+  --workers N         Fixed replica mode (N: 1 to 6). Annotates ScaledObject,
                       waits for N Ready pods, runs warm-up batch of 2xN images.
-  --autoscale         Autoscale mode (0-3 replicas). Starts at 0 replicas,
-                      measures cold start, no warm-up.
+  --autoscale         Autoscale mode with optional min/max replicas (1 to 6).
+  --min M             Minimum replicas for autoscale mode (0 to 6, default: current ScaledObject value, e.g. 0).
+  --max N             Maximum replicas for autoscale mode (1 to 6, default: current ScaledObject value, e.g. 3).
   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
   --out DIR           Output directory for benchmark results
                       (default: infra/bench/results/<UTC timestamp>-<mode>/).
@@ -45,9 +47,17 @@ EOF
 # -----------------------------------------------------------------------------
 MODE=""
 WORKERS=""
+AUTOSCALE_MIN=""
+AUTOSCALE_MAX=""
 API_URL=""
 OUT_DIR=""
 TIMEOUT=1800
+
+print_node_cpu_warning() {
+  local count="$1"
+  echo "WARNING: Node 'home-server' has 4 CPU threads shared with the rest of the stack (web, Postgres, MinIO, NATS)." >&2
+  echo "         Running with $count workers means extra workers mostly compete for CPU (expected result, not a failure)." >&2
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -55,16 +65,55 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || { echo "ERROR: missing value for --workers" >&2; exit 1; }
       MODE="fixed"
       WORKERS="$2"
-      if [[ ! "$WORKERS" =~ ^[1-3]$ ]]; then
-        echo "ERROR: --workers must be 1, 2, or 3 (got $WORKERS)" >&2
+      if [[ ! "$WORKERS" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: --workers must be an integer between 1 and 6 (got '$WORKERS')" >&2
+        exit 1
+      fi
+      if [ "$WORKERS" -gt 6 ]; then
+        echo "ERROR: --workers ($WORKERS) exceeds maximum allowed limit of 6. Memory risk: 6 × 1.5Gi limit ≈ 9Gi approaches node free memory (~7.5GB); running more workers could OOM other pods." >&2
+        exit 1
+      fi
+      if [ "$WORKERS" -lt 1 ]; then
+        echo "ERROR: --workers must be between 1 and 6 (got '$WORKERS')" >&2
         exit 1
       fi
       shift 2
       ;;
     --autoscale)
       MODE="autoscale"
-      WORKERS="0"
       shift 1
+      ;;
+    --min)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --min" >&2; exit 1; }
+      val="$2"
+      if [[ ! "$val" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: --min must be an integer >= 0 (got '$val')" >&2
+        exit 1
+      fi
+      if [ "$val" -gt 6 ]; then
+        echo "ERROR: --min ($val) exceeds maximum allowed limit of 6. Memory risk: 6 × 1.5Gi limit ≈ 9Gi approaches node free memory (~7.5GB); running more workers could OOM other pods." >&2
+        exit 1
+      fi
+      AUTOSCALE_MIN="$val"
+      shift 2
+      ;;
+    --max)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --max" >&2; exit 1; }
+      val="$2"
+      if [[ ! "$val" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: --max must be an integer >= 1 (got '$val')" >&2
+        exit 1
+      fi
+      if [ "$val" -lt 1 ]; then
+        echo "ERROR: --max must be at least 1 (got '$val')" >&2
+        exit 1
+      fi
+      if [ "$val" -gt 6 ]; then
+        echo "ERROR: --max ($val) exceeds maximum allowed limit of 6. Memory risk: 6 × 1.5Gi limit ≈ 9Gi approaches node free memory (~7.5GB); running more workers could OOM other pods." >&2
+        exit 1
+      fi
+      AUTOSCALE_MAX="$val"
+      shift 2
       ;;
     --api)
       [ "$#" -ge 2 ] || { echo "ERROR: missing value for --api" >&2; exit 1; }
@@ -94,9 +143,60 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$MODE" ]; then
-  echo "ERROR: Either --workers N (1-3) or --autoscale must be specified." >&2
+  echo "ERROR: Either --workers N (1-6) or --autoscale must be specified." >&2
   usage >&2
   exit 1
+fi
+
+if [ "$MODE" = "fixed" ] && { [ -n "$AUTOSCALE_MIN" ] || [ -n "$AUTOSCALE_MAX" ]; }; then
+  echo "ERROR: --min and --max can only be used with --autoscale" >&2
+  exit 1
+fi
+
+if [ "$MODE" = "autoscale" ] && [ -n "$AUTOSCALE_MIN" ] && [ -n "$AUTOSCALE_MAX" ]; then
+  if [ "$AUTOSCALE_MIN" -gt "$AUTOSCALE_MAX" ]; then
+    echo "ERROR: --min ($AUTOSCALE_MIN) cannot be greater than --max ($AUTOSCALE_MAX)" >&2
+    exit 1
+  fi
+fi
+
+if [ "$MODE" = "fixed" ] && [ "$WORKERS" -ge 4 ]; then
+  print_node_cpu_warning "$WORKERS"
+fi
+
+KUBE_CONTEXT="${KUBE_CONTEXT:-default}"
+KUBECTL=(kubectl --context "$KUBE_CONTEXT" -n imgproc)
+
+ORIGINAL_MIN=""
+ORIGINAL_MAX=""
+PATCHED_SCALEDOBJECT=0
+
+if [ "$MODE" = "autoscale" ]; then
+  # Read current ScaledObject values if needed or to record them
+  orig_min="$("${KUBECTL[@]}" get scaledobject image-worker -o jsonpath='{.spec.minReplicaCount}' 2>/dev/null || true)"
+  orig_max="$("${KUBECTL[@]}" get scaledobject image-worker -o jsonpath='{.spec.maxReplicaCount}' 2>/dev/null || true)"
+  ORIGINAL_MIN="${orig_min:-0}"
+  ORIGINAL_MAX="${orig_max:-3}"
+
+  if [ -z "$AUTOSCALE_MIN" ]; then
+    AUTOSCALE_MIN="$ORIGINAL_MIN"
+  fi
+  if [ -z "$AUTOSCALE_MAX" ]; then
+    AUTOSCALE_MAX="$ORIGINAL_MAX"
+  fi
+
+  if [ "$AUTOSCALE_MIN" -gt "$AUTOSCALE_MAX" ]; then
+    echo "ERROR: --min ($AUTOSCALE_MIN) cannot be greater than --max ($AUTOSCALE_MAX)" >&2
+    exit 1
+  fi
+  if [ "$AUTOSCALE_MAX" -gt 6 ]; then
+    echo "ERROR: --max ($AUTOSCALE_MAX) exceeds maximum allowed limit of 6. Memory risk: 6 × 1.5Gi limit ≈ 9Gi approaches node free memory (~7.5GB); running more workers could OOM other pods." >&2
+    exit 1
+  fi
+
+  if [ "$AUTOSCALE_MAX" -ge 4 ]; then
+    print_node_cpu_warning "$AUTOSCALE_MAX"
+  fi
 fi
 
 TIMESTAMP_UTC="$(date -u +"%Y%m%d-%H%M%S")"
@@ -104,14 +204,11 @@ if [ -z "$OUT_DIR" ]; then
   if [ "$MODE" = "fixed" ]; then
     OUT_DIR="$SCRIPT_DIR/results/${TIMESTAMP_UTC}-fixed-${WORKERS}w"
   else
-    OUT_DIR="$SCRIPT_DIR/results/${TIMESTAMP_UTC}-autoscale"
+    OUT_DIR="$SCRIPT_DIR/results/${TIMESTAMP_UTC}-autoscale-${AUTOSCALE_MIN}-${AUTOSCALE_MAX}"
   fi
 fi
 
 mkdir -p "$OUT_DIR"
-
-KUBE_CONTEXT="${KUBE_CONTEXT:-default}"
-KUBECTL=(kubectl --context "$KUBE_CONTEXT" -n imgproc)
 
 # -----------------------------------------------------------------------------
 # 2. Cleanup trap
@@ -138,7 +235,17 @@ cleanup() {
     "${KUBECTL[@]}" annotate scaledobject image-worker autoscaling.keda.sh/paused-replicas- --overwrite 2>/dev/null || true
   fi
 
-  # 3. Delete benchmark and warm-up batches via API (while port-forward is still alive!)
+  # 3. Restore original min/max replica counts on ScaledObject if patched
+  if [ "$PATCHED_SCALEDOBJECT" -eq 1 ]; then
+    echo "Restoring ScaledObject/image-worker to minReplicaCount=$ORIGINAL_MIN, maxReplicaCount=$ORIGINAL_MAX..."
+    if ! "${KUBECTL[@]}" patch scaledobject image-worker --type=merge -p "{\"spec\":{\"minReplicaCount\":$ORIGINAL_MIN,\"maxReplicaCount\":$ORIGINAL_MAX}}"; then
+      echo "ERROR: Failed to restore ScaledObject/image-worker min/max replica counts!" >&2
+      echo "Please run the following command manually:" >&2
+      echo "kubectl --context $KUBE_CONTEXT -n imgproc patch scaledobject image-worker --type=merge -p '{\"spec\":{\"minReplicaCount\":$ORIGINAL_MIN,\"maxReplicaCount\":$ORIGINAL_MAX}}'" >&2
+    fi
+  fi
+
+  # 4. Delete benchmark and warm-up batches via API (while port-forward is still alive!)
   if [ -n "$API_URL" ] && [ "${#ALL_BATCH_IDS[@]}" -gt 0 ]; then
     echo "Deleting ${#ALL_BATCH_IDS[@]} benchmark/warm-up batches via API..."
     for b_id in "${ALL_BATCH_IDS[@]}"; do
@@ -148,7 +255,7 @@ cleanup() {
     done
   fi
 
-  # 4. Stop port-forward LAST
+  # 5. Stop port-forward LAST
   if [ -n "$PORT_FORWARD_PID" ] && kill -0 "$PORT_FORWARD_PID" 2>/dev/null; then
     echo "Stopping port-forward (PID: $PORT_FORWARD_PID)..."
     kill "$PORT_FORWARD_PID" 2>/dev/null || true
@@ -284,26 +391,78 @@ print(len(pending))
   fi
   echo "Warm-up complete. Model loaded on all workers."
 else
-  # Autoscale mode: ensure no pause annotation, wait for replicas to reach 0
+  # Autoscale mode: patch ScaledObject if min/max differ from requested
+  if [ "$AUTOSCALE_MIN" -ne "$ORIGINAL_MIN" ] || [ "$AUTOSCALE_MAX" -ne "$ORIGINAL_MAX" ]; then
+    echo "Patching ScaledObject/image-worker minReplicaCount=$AUTOSCALE_MIN, maxReplicaCount=$AUTOSCALE_MAX..."
+    "${KUBECTL[@]}" patch scaledobject image-worker --type=merge -p "{\"spec\":{\"minReplicaCount\":$AUTOSCALE_MIN,\"maxReplicaCount\":$AUTOSCALE_MAX}}"
+    PATCHED_SCALEDOBJECT=1
+  fi
+
+  # Ensure no pause annotation
   "${KUBECTL[@]}" annotate scaledobject image-worker autoscaling.keda.sh/paused-replicas- --overwrite 2>/dev/null || true
-  echo "Waiting for image-worker replicas to scale down to 0..."
-  pre_zero_ok=0
+
+  # Pre-run wait: exactly M pods (same "exactly N" check as fixed mode, including Terminating pods), all Ready
+  echo "Waiting for deployment/image-worker to reach exactly $AUTOSCALE_MIN ready replicas (no terminating pods)..."
+  autoscale_ready_ok=0
+  spec_replicas=0
+  ready_replicas=0
+  pod_count=0
   for _ in {1..180}; do
-    ready_count="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
-    desired_count="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
-    ready_count="${ready_count:-0}"
-    desired_count="${desired_count:-0}"
-    if [ "$ready_count" -eq 0 ] && [ "$desired_count" -eq 0 ]; then
-      pre_zero_ok=1
+    spec_replicas="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
+    ready_replicas="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+    pod_count="$("${KUBECTL[@]}" get pods -l app.kubernetes.io/name=image-worker --no-headers 2>/dev/null | grep -c . || true)"
+    spec_replicas="${spec_replicas:-0}"
+    ready_replicas="${ready_replicas:-0}"
+    pod_count="${pod_count:-0}"
+    if [ "$spec_replicas" -eq "$AUTOSCALE_MIN" ] && [ "$ready_replicas" -eq "$AUTOSCALE_MIN" ] && [ "$pod_count" -eq "$AUTOSCALE_MIN" ]; then
+      autoscale_ready_ok=1
       break
     fi
     sleep 2
   done
-  if [ "$pre_zero_ok" -ne 1 ]; then
-    echo "ERROR: image-worker did not scale down to 0 replicas before starting autoscale run." >&2
+  if [ "$autoscale_ready_ok" -ne 1 ]; then
+    echo "ERROR: image-worker did not reach exactly $AUTOSCALE_MIN ready replicas without terminating pods (spec: $spec_replicas, ready: $ready_replicas, pods: $pod_count)." >&2
     exit 1
   fi
-  echo "Autoscale starting with 0 active workers (cold start)."
+  echo "Workers ready: exactly $AUTOSCALE_MIN (0 terminating)."
+
+  # If M > 0, send warm-up batch of 2xM (excluded), like fixed mode, so always-on workers are warm
+  if [ "$AUTOSCALE_MIN" -gt 0 ]; then
+    WARMUP_COUNT=$((2 * AUTOSCALE_MIN))
+    echo "Sending warm-up batch of $WARMUP_COUNT images for $AUTOSCALE_MIN always-on worker(s)..."
+    CURL_ARGS=(-fsS -X POST "$API_URL/api/batches" -F "config={\"targets\":[\"face\",\"plate\"],\"style\":\"blur\"}")
+    for ((i = 0; i < WARMUP_COUNT; i++)); do
+      CURL_ARGS+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[i]}")
+    done
+    warmup_resp="$(curl "${CURL_ARGS[@]}")"
+    WARMUP_ID="$(python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" <<< "$warmup_resp")"
+    ALL_BATCH_IDS+=("$WARMUP_ID")
+    echo "Warm-up batch created: $WARMUP_ID. Waiting for it to reach terminal state..."
+
+    warmup_ok=0
+    for _ in {1..300}; do
+      batch_info="$(curl -fsS "$API_URL/api/batches/$WARMUP_ID")"
+      pending_jobs="$(python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+jobs = data.get('jobs', [])
+pending = [j for j in jobs if j.get('status') not in ('COMPLETED', 'FAILED')]
+print(len(pending))
+" <<< "$batch_info")"
+      if [ "$pending_jobs" -eq 0 ]; then
+        warmup_ok=1
+        break
+      fi
+      sleep 2
+    done
+    if [ "$warmup_ok" -ne 1 ]; then
+      echo "ERROR: Warm-up batch $WARMUP_ID did not reach terminal state within 600s." >&2
+      exit 1
+    fi
+    echo "Warm-up complete. Model loaded on always-on worker(s)."
+  else
+    echo "Autoscale starting with 0 active workers (cold start)."
+  fi
 fi
 
 # -----------------------------------------------------------------------------
@@ -408,11 +567,11 @@ END_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 # -----------------------------------------------------------------------------
 # 9. Autoscale cooldown monitoring & stop sampler
-# In autoscale mode, keep sampling until desired==0 && ready==0 (timeout 600s).
+# In autoscale mode, keep sampling until desired==M && ready==M (timeout 600s).
 # Fixed mode stops the sampler immediately.
 # -----------------------------------------------------------------------------
 if [ "$MODE" = "autoscale" ]; then
-  echo "Waiting for image-worker to scale back down to 0 replicas (cooldown, timeout: 600s)..."
+  echo "Waiting for image-worker to scale back down to $AUTOSCALE_MIN replicas (cooldown, timeout: 600s)..."
   cooldown_ok=0
   for _ in {1..120}; do
     rep_out="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.replicas},{.status.readyReplicas}' 2>/dev/null || true)"
@@ -420,36 +579,36 @@ if [ "$MODE" = "autoscale" ]; then
     rdy="$(printf '%s' "$rep_out" | cut -d',' -f2)"
     des="${des:-0}"
     rdy="${rdy:-0}"
-    if [ "$des" -eq 0 ] && [ "$rdy" -eq 0 ]; then
+    if [ "$des" -eq "$AUTOSCALE_MIN" ] && [ "$rdy" -eq "$AUTOSCALE_MIN" ]; then
       cooldown_ok=1
       break
     fi
     sleep 5
   done
   if [ "$cooldown_ok" -ne 1 ]; then
-    echo "ERROR: image-worker did not scale back down to 0 replicas within 600s cooldown." >&2
+    echo "ERROR: image-worker did not scale back down to $AUTOSCALE_MIN replicas within 600s cooldown." >&2
     exit 1
   fi
-  echo "Scale-down to 0 replicas observed on deployment."
+  echo "Scale-down to $AUTOSCALE_MIN replicas observed on deployment."
 
-  # Wait until the background sampler has recorded the 0/0 sample in replicas.csv
-  echo "Waiting for sampler to record 0/0 replicas in $OUT_DIR/replicas.csv (timeout: 30s)..."
-  sampler_zero_ok=0
+  # Wait until the background sampler has recorded the M/M sample in replicas.csv
+  echo "Waiting for sampler to record $AUTOSCALE_MIN/$AUTOSCALE_MIN replicas in $OUT_DIR/replicas.csv (timeout: 30s)..."
+  sampler_target_ok=0
   for _ in {1..15}; do
     last_line="$(tail -n 1 "$OUT_DIR/replicas.csv" 2>/dev/null || true)"
     last_des="$(printf '%s' "$last_line" | cut -d',' -f2)"
     last_rdy="$(printf '%s' "$last_line" | cut -d',' -f3)"
-    if [ "$last_des" = "0" ] && [ "$last_rdy" = "0" ]; then
-      sampler_zero_ok=1
+    if [ "$last_des" = "$AUTOSCALE_MIN" ] && [ "$last_rdy" = "$AUTOSCALE_MIN" ]; then
+      sampler_target_ok=1
       break
     fi
     sleep 2
   done
-  if [ "$sampler_zero_ok" -ne 1 ]; then
-    echo "ERROR: Sampler did not record 0/0 in replicas.csv within 30s." >&2
+  if [ "$sampler_target_ok" -ne 1 ]; then
+    echo "ERROR: Sampler did not record $AUTOSCALE_MIN/$AUTOSCALE_MIN in replicas.csv within 30s." >&2
     exit 1
   fi
-  echo "Sampler recorded 0/0 in replicas.csv."
+  echo "Sampler recorded $AUTOSCALE_MIN/$AUTOSCALE_MIN in replicas.csv."
 fi
 
 if [ -n "$SAMPLER_PID" ] && kill -0 "$SAMPLER_PID" 2>/dev/null; then
@@ -496,6 +655,10 @@ import json
 meta = {
     "mode": "$MODE",
     "worker_count": $WORKERS if "$MODE" == "fixed" else None,
+    "min_replicas": $AUTOSCALE_MIN if "$MODE" == "autoscale" else None,
+    "max_replicas": $AUTOSCALE_MAX if "$MODE" == "autoscale" else None,
+    "original_min": $ORIGINAL_MIN if "$MODE" == "autoscale" and "$ORIGINAL_MIN" != "" else None,
+    "original_max": $ORIGINAL_MAX if "$MODE" == "autoscale" and "$ORIGINAL_MAX" != "" else None,
     "container_image": "$CONTAINER_IMAGE",
     "cpu_limit": "$CPU_LIMIT",
     "memory_limit": "$MEM_LIMIT",

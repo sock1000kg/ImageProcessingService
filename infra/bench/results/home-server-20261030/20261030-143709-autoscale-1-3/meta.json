@@ -1,0 +1,15 @@
+{
+  "mode": "autoscale",
+  "worker_count": null,
+  "min_replicas": 1,
+  "max_replicas": 3,
+  "original_min": 0,
+  "original_max": 3,
+  "container_image": "socknot1000kg/imgproc-engine:05760356e1420a07e32e9ff0c0296eefb5598187",
+  "cpu_limit": "1",
+  "memory_limit": "1536Mi",
+  "node_name": "home-server",
+  "images_txt_hash": "d4944e1e41ba419b6f2caddba0c57cc1817976f646b4fea6a7c3b36c25bdaacd",
+  "start_time": "2026-10-30T14:37:11Z",
+  "end_time": "2026-10-30T14:42:13Z"
+}

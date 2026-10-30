@@ -101,6 +101,18 @@ if ! "$VENV_DIR/bin/python" -c "import deface, onnxruntime, onnx" 2>/dev/null; t
   "$VENV_DIR/bin/pip" install --quiet deface==1.5.0 onnxruntime-gpu==1.20.0 onnx==1.23.2
 fi
 
+# onnxruntime-gpu 1.20 needs the CUDA 12 runtime + cuDNN 9. WSL/hosts often have only the driver,
+# so the libraries come from NVIDIA's pip wheels inside the venv (GPU mode only).
+if [ "$CPU_MODE" -eq 0 ]; then
+  if ! "$VENV_DIR/bin/python" -c "import nvidia.cudnn, nvidia.cublas, nvidia.cuda_nvrtc" 2>/dev/null; then
+    echo "==> Installing CUDA 12 / cuDNN 9 runtime wheels for onnxruntime-gpu..."
+    "$VENV_DIR/bin/pip" install --quiet nvidia-cuda-runtime-cu12==12.4.127 nvidia-cublas-cu12==12.4.5.8 \
+      nvidia-cudnn-cu12==9.1.0.70 nvidia-cufft-cu12==11.2.1.3 nvidia-curand-cu12==10.3.5.147 nvidia-cuda-nvrtc-cu12==12.4.127
+  fi
+  nvidia_libs="$(find "$VENV_DIR" -path "*/site-packages/nvidia/*/lib" -type d | paste -sd: -)"
+  export LD_LIBRARY_PATH="${nvidia_libs}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
 # -----------------------------------------------------------------------------
 # 2. Determine machine name and output directory
 # -----------------------------------------------------------------------------
@@ -152,13 +164,17 @@ out_dir = os.environ["OUT_DIR"]
 start_time_iso = datetime.now(timezone.utc).isoformat()
 
 # 1. Model load timing
-provider_arg = "CPUExecutionProvider" if cpu_mode else None
+provider_arg = "CPUExecutionProvider" if cpu_mode else "CUDAExecutionProvider"
 t_load_0 = time.perf_counter()
 centerface = CenterFace(override_execution_provider=provider_arg)
 model_load_time = time.perf_counter() - t_load_0
 
 actual_provider = centerface.sess.get_providers()[0]
 print(f"==> Model loaded in {model_load_time:.3f} s. Active ONNX provider: {actual_provider}")
+if not cpu_mode and actual_provider != "CUDAExecutionProvider":
+    shutil.rmtree(out_dir, ignore_errors=True)
+    sys.exit(f"ERROR: GPU run requested but onnxruntime is using {actual_provider} (CUDA libraries not loadable). "
+             "No results written; use --cpu for a CPU run.")
 
 # Collect dataset images sorted by filename
 exts = (".jpg", ".jpeg", ".png")

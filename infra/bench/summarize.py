@@ -97,9 +97,79 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
     cpu_limit = meta.get("cpu_limit", "unknown")
     memory_limit = meta.get("memory_limit", "unknown")
     node_name = meta.get("node_name", "unknown")
+    node_cpu_count = meta.get("node_cpu_count") or meta.get("cpu_count")
+    gpu = meta.get("gpu", "none")
     images_txt_hash = meta.get("images_txt_hash", "unknown")
     meta_start = meta.get("start_time", "")
     meta_end = meta.get("end_time", "")
+
+    # Check for deface run (per_image.csv)
+    per_image_path = os.path.join(res_dir, "per_image.csv")
+    jobs_path = os.path.join(res_dir, "jobs.csv")
+
+    if not os.path.isfile(jobs_path) and os.path.isfile(per_image_path):
+        mode = meta.get("mode", "deface")
+        total_images = 0
+        failed_count = 0
+        proc_times: List[float] = []
+        with open(per_image_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                total_images += 1
+                try:
+                    proc_times.append(float(row.get("duration_ms", 0.0)))
+                except (ValueError, TypeError):
+                    pass
+        model_load_time = float(meta.get("model_load_time_seconds", 0.0))
+        total_duration = float(meta.get("total_duration_seconds", (sum(proc_times) / 1000.0) if proc_times else 0.0))
+        proc_p50 = percentile(proc_times, 50)
+        proc_p95 = percentile(proc_times, 95)
+        proc_max = max(proc_times) if proc_times else 0.0
+        throughput = (total_images / (total_duration / 60.0)) if total_duration > 0 else 0.0
+        provider = meta.get("execution_provider", "CPU")
+        target_device = meta.get("target_device", "cpu")
+
+        return {
+            "dir_name": dir_name,
+            "res_dir": res_dir,
+            "mode": mode,
+            "provider": provider,
+            "target_device": target_device,
+            "model_load_time": model_load_time,
+            "worker_count": 1,
+            "min_replicas": None,
+            "max_replicas_meta": None,
+            "original_min": None,
+            "original_max": None,
+            "container_image": meta.get("tool", "deface"),
+            "cpu_limit": "N/A",
+            "memory_limit": "N/A",
+            "node_name": meta.get("machine", node_name),
+            "node_cpu_count": node_cpu_count if node_cpu_count is not None else "unknown",
+            "gpu": gpu,
+            "images_txt_hash": "N/A",
+            "start_time": meta.get("start_time", ""),
+            "end_time": meta.get("end_time", ""),
+            "total_images": total_images,
+            "failed_count": failed_count,
+            "duration_sec": total_duration,
+            "throughput": throughput,
+            "thpt_per_worker": throughput,
+            "proc_p50": proc_p50,
+            "proc_p95": proc_p95,
+            "proc_max": proc_max,
+            "e2e_p50": 0.0,
+            "e2e_p95": 0.0,
+            "e2e_max": 0.0,
+            "peak_cpu": 0.0,
+            "avg_cpu": 0.0,
+            "peak_mem": 0.0,
+            "avg_mem": 0.0,
+            "max_replicas": 1,
+            "time_to_ready": None,
+            "time_back_to_min": None,
+            "time_back_to_zero": None,
+        }
 
     if mode == "autoscale":
         if min_replicas is None or max_replicas_meta is None:
@@ -261,6 +331,8 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
         "cpu_limit": cpu_limit,
         "memory_limit": memory_limit,
         "node_name": node_name,
+        "node_cpu_count": node_cpu_count if node_cpu_count is not None else "unknown",
+        "gpu": gpu,
         "images_txt_hash": images_txt_hash,
         "start_time": meta_start,
         "end_time": meta_end,
@@ -288,6 +360,11 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
 
 def write_single_summary(data: Dict[str, Any]) -> str:
     """Format single run summary Markdown and write to summary.md in results dir."""
+    summary_file = os.path.join(data["res_dir"], "summary.md")
+    if data["mode"] == "deface" and os.path.isfile(summary_file):
+        with open(summary_file, "r", encoding="utf-8") as f:
+            return f.read()
+
     if data["mode"] == "fixed":
         mode_str = f"fixed {data['worker_count']}"
     elif data["mode"] == "autoscale":
@@ -305,6 +382,8 @@ def write_single_summary(data: Dict[str, Any]) -> str:
 | **CPU Limit** | {data['cpu_limit']} |
 | **Memory Limit** | {data['memory_limit']} |
 | **Node** | {data['node_name']} |
+| **Node CPU Count** | {data['node_cpu_count']} |
+| **GPU** | {data['gpu']} |
 | **Dataset Hash** | `{data['images_txt_hash']}` |
 | **Start Time** | {data['start_time']} |
 | **End Time** | {data['end_time']} |
@@ -343,7 +422,6 @@ def write_single_summary(data: Dict[str, Any]) -> str:
 | **Time to scale back to min (cooldown)** | {t_min} |
 """
 
-    summary_file = os.path.join(data["res_dir"], "summary.md")
     with open(summary_file, "w", encoding="utf-8") as f:
         f.write(md)
     return md
@@ -358,19 +436,35 @@ def format_combined_table(all_data: List[Dict[str, Any]]) -> str:
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
 
+    has_deface = False
     for d in all_data:
-        m_label = d["mode"].capitalize()
-        r_label = f"{d['worker_count']}" if d["mode"] == "fixed" else f"{d['min_replicas']}→{d['max_replicas_meta']}"
-        e2e_50 = f"{d['e2e_p50'] / 1000.0:.2f}s"
-        e2e_95 = f"{d['e2e_p95'] / 1000.0:.2f}s"
-        proc_50 = f"{d['proc_p50']:.0f}ms"
-        proc_95 = f"{d['proc_p95']:.0f}ms"
-        pk_cpu = f"{d['peak_cpu']:.0f}m"
-        avg_cpu = f"{d['avg_cpu']:.0f}m"
-        pk_mem = f"{d['peak_mem']:.0f}MiB"
-        c_start = f"{d['time_to_ready']:.1f}s" if d["time_to_ready"] is not None else "-"
-        s_down = f"{d['time_back_to_min']:.1f}s" if d["time_back_to_min"] is not None else "-"
-        thpt_w = f"{d['thpt_per_worker']:.2f}"
+        if d.get("mode") == "deface":
+            has_deface = True
+            m_label = f"Deface ({d.get('provider', d.get('target_device', 'CPU'))})"
+            r_label = "-"
+            e2e_50 = "-"
+            e2e_95 = "-"
+            proc_50 = f"{d['proc_p50']:.0f}ms"
+            proc_95 = f"{d['proc_p95']:.0f}ms"
+            pk_cpu = "-"
+            avg_cpu = "-"
+            pk_mem = "-"
+            c_start = f"{d.get('model_load_time', 0.0):.2f}s"
+            s_down = "-"
+            thpt_w = f"{d['thpt_per_worker']:.2f}"
+        else:
+            m_label = d["mode"].capitalize()
+            r_label = f"{d['worker_count']}" if d["mode"] == "fixed" else f"{d['min_replicas']}→{d['max_replicas_meta']}"
+            e2e_50 = f"{d['e2e_p50'] / 1000.0:.2f}s"
+            e2e_95 = f"{d['e2e_p95'] / 1000.0:.2f}s"
+            proc_50 = f"{d['proc_p50']:.0f}ms"
+            proc_95 = f"{d['proc_p95']:.0f}ms"
+            pk_cpu = f"{d['peak_cpu']:.0f}m"
+            avg_cpu = f"{d['avg_cpu']:.0f}m"
+            pk_mem = f"{d['peak_mem']:.0f}MiB"
+            c_start = f"{d['time_to_ready']:.1f}s" if d["time_to_ready"] is not None else "-"
+            s_down = f"{d['time_back_to_min']:.1f}s" if d["time_back_to_min"] is not None else "-"
+            thpt_w = f"{d['thpt_per_worker']:.2f}"
 
         lines.append(
             f"| `{d['dir_name']}` | {m_label} | {r_label} | {d['total_images']} | {d['failed_count']} | "
@@ -378,15 +472,69 @@ def format_combined_table(all_data: List[Dict[str, Any]]) -> str:
             f"{pk_cpu} | {avg_cpu} | {pk_mem} | {c_start} | {s_down} |"
         )
 
+    if has_deface:
+        lines.append("")
+        lines.append(
+            "> **Note**: faces only (no plates), local files, no queue/upload, "
+            "so compare with our `processingTimeMs`, not our end-to-end time."
+        )
+
     return "\n".join(lines)
+
+
+def resolve_run_dirs(inputs: List[str]) -> Tuple[List[str], Optional[str]]:
+    """Resolve input paths into benchmark run directories and machine folder."""
+    run_dirs: List[str] = []
+    target_machine_folder: Optional[str] = None
+
+    for item in inputs:
+        item = os.path.abspath(item)
+        if not os.path.isdir(item):
+            continue
+        # Direct run dir has jobs.csv or per_image.csv
+        if os.path.isfile(os.path.join(item, "jobs.csv")) or os.path.isfile(os.path.join(item, "per_image.csv")):
+            run_dirs.append(item)
+        else:
+            # Check for run subdirectories
+            subdirs = [
+                os.path.join(item, c)
+                for c in sorted(os.listdir(item))
+                if os.path.isdir(os.path.join(item, c))
+                and (
+                    os.path.isfile(os.path.join(item, c, "jobs.csv"))
+                    or os.path.isfile(os.path.join(item, c, "per_image.csv"))
+                    or os.path.isfile(os.path.join(item, c, "meta.json"))
+                )
+            ]
+            if subdirs:
+                target_machine_folder = item
+                run_dirs.extend(subdirs)
+            else:
+                run_dirs.append(item)
+
+    if not target_machine_folder and run_dirs:
+        parents = {os.path.dirname(d) for d in run_dirs}
+        if len(parents) == 1:
+            target_machine_folder = parents.pop()
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_dirs = []
+    for d in run_dirs:
+        if d not in seen:
+            seen.add(d)
+            unique_dirs.append(d)
+
+    return unique_dirs, target_machine_folder
 
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python3 summarize.py <results_dir> [<results_dir> ...]", file=sys.stderr)
+        print("Usage: python3 summarize.py <results_dir_or_machine_folder> [<results_dir> ...]", file=sys.stderr)
         sys.exit(1)
 
-    dirs = [d for d in sys.argv[1:] if os.path.isdir(d)]
+    dirs, machine_folder = resolve_run_dirs(sys.argv[1:])
+    dirs = [d for d in dirs if os.path.isdir(d)]
     if not dirs:
         print("ERROR: No valid results directories provided.", file=sys.stderr)
         sys.exit(1)
@@ -400,6 +548,12 @@ def main() -> None:
 
     combined = format_combined_table(all_data)
     print("\n" + combined + "\n")
+
+    if machine_folder:
+        comp_file = os.path.join(machine_folder, "comparison.md")
+        with open(comp_file, "w", encoding="utf-8") as f:
+            f.write(combined + "\n")
+        print(f"Wrote combined comparison table to {comp_file}")
 
 
 if __name__ == "__main__":

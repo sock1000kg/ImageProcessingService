@@ -181,3 +181,112 @@ On a single 4-thread host (`home-server`):
    YOLO model weights are loaded lazily on the first inference request. In fixed mode and autoscale mode with $M > 0$, the warm-up batch hides this initialization cost. In autoscale cold-start mode ($M = 0$), cold-start latency is explicitly captured.
 3. **Image Resolution**:
    Images are evaluated at their native resolutions (WIDER FACE validation images are typically ~1024px along the longest dimension; Vietnamese license plate images vary from ~640px to ~1920px).
+
+---
+
+## 5. Laptop Benchmark Workflow (Throwaway k3s + GPU)
+
+For benchmarking on a developer laptop (e.g. WSL2 Ubuntu 24.04 with an NVIDIA GPU such as RTX 3050 Laptop):
+
+### Prerequisites
+1. **WSL2 Memory**: By default WSL2 may allocate only 50% of host RAM (~7GB). Raise WSL memory by creating or editing `%UserProfile%\.wslconfig` in Windows:
+   ```ini
+   [wsl2]
+   memory=12GB
+   ```
+   Then restart WSL from PowerShell:
+   ```powershell
+   wsl --shutdown
+   ```
+2. **NVIDIA Windows Driver**: Ensure the latest NVIDIA Game Ready or Studio driver is installed on Windows. WSL2 automatically maps `/usr/lib/wsl/lib/libcuda.so`.
+
+### Lifecycle: Up → Benchmark → Compare → Down
+
+1. **Spin up local k3s cluster with GPU support**:
+   ```bash
+   sudo -E infra/bench/local-cluster/up.sh
+   # Or for CPU baseline on laptop:
+   sudo -E infra/bench/local-cluster/up.sh --cpu
+   ```
+   - Automatically installs NVIDIA Container Toolkit (if missing) and k3s without systemd.
+   - Creates `RuntimeClass nvidia` and runs a GPU smoke test (`nvidia-smi` inside a test pod).
+   - Generates dedicated kubeconfig at `~/.kube/bench-local.yaml` with context `bench-local`.
+   - Deploys KEDA and the app via `infra/bench/local-cluster/overlay` (deletes SealedSecrets and HTTPRoutes, removes lab `nodeSelector`s, applies `runtimeClassName: nvidia` to workers with shared GPU access).
+   - Creates random credentials for MinIO and Postgres.
+   - **Lab Safety**: Never merges into `~/.kube/config`; strictly guards against touching context `default`.
+
+2. **Execute Pipeline Benchmarks**:
+   ```bash
+   export KUBECONFIG=~/.kube/bench-local.yaml
+   export KUBE_CONTEXT=bench-local
+
+   # Fixed worker runs (1 to 6)
+   infra/bench/run.sh --machine laptop-rtx3050 --workers 1
+   infra/bench/run.sh --machine laptop-rtx3050 --workers 2
+   infra/bench/run.sh --machine laptop-rtx3050 --workers 4
+
+   # Autoscale run
+   infra/bench/run.sh --machine laptop-rtx3050 --autoscale --min 0 --max 3
+   ```
+
+3. **Run Standalone Deface Comparison**:
+   ```bash
+   # GPU mode (auto-detects CUDAExecutionProvider)
+   infra/bench/compare/deface.sh --machine laptop-rtx3050
+
+   # CPU mode
+   infra/bench/compare/deface.sh --machine laptop-rtx3050 --cpu
+   ```
+
+4. **Generate Combined Comparison Summary**:
+   ```bash
+   python3 infra/bench/summarize.py infra/bench/results/laptop-rtx3050-$(date -u +"%Y%m%d")
+   ```
+   This generates and prints the combined comparison table and writes `comparison.md` directly inside the machine folder.
+
+5. **Tear down local cluster**:
+   ```bash
+   sudo -E infra/bench/local-cluster/down.sh
+   ```
+   Stops k3s, removes cluster volumes and images via `k3s-killall.sh` / `k3s-uninstall.sh`, and removes `~/.kube/bench-local.yaml`. NVIDIA Container Toolkit is kept installed.
+
+---
+
+## 6. Results Directory Layout
+
+Results are segregated by machine and date:
+```
+infra/bench/results/
+├── home-server-20261030/            # Lab server runs
+│   ├── 20261030-101056-fixed-1w/
+│   ├── 20261030-140727-fixed-2w/
+│   └── comparison.md
+└── laptop-rtx3050-20261030/          # Laptop runs
+    ├── 20261030-150000-fixed-1w/
+    ├── 20261030-151000-autoscale-0-3/
+    ├── 20261030-152000-deface-gpu/
+    ├── 20261030-153000-deface-cpu/
+    └── comparison.md
+```
+
+Each run folder contains:
+- `jobs.csv` (or `per_image.csv` for deface): Job timestamps and per-image processing times.
+- `top.csv`: CPU and RAM usage samples (pipeline runs).
+- `replicas.csv`: Pod scaling dynamics over time (pipeline runs).
+- `meta.json`: Environment metadata (mode, limits, CPU count, GPU model).
+- `summary.md`: Individual run performance and latency report.
+
+---
+
+## 7. Comparison Tools & Caveats
+
+### Deface (`infra/bench/compare/deface.sh`)
+- Uses CenterFace ONNX model (`deface==1.5.0`, `onnxruntime-gpu==1.20.0`).
+- **Fair comparison caveat**: Deface only detects and blurs **faces** (it does not detect or blur license plates). It operates directly on local disk files in Python, without HTTP file uploads, MinIO storage, NATS queue scheduling, or Postgres state tracking.
+- **Comparison rule**: Compare Deface per-image latency and throughput against our pipeline's worker **`processingTimeMs`**, NOT the pipeline's end-to-end latency (`updated_at − created_at`).
+
+### OpenScrub Assessment & Exclusion
+- We evaluated OpenScrub (`openscrub==1.0.81` on PyPI).
+- **Finding**: OpenScrub is built exclusively for video file processing (`.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`). Its batch CLI mode (`--batch FOLDER`) raises `RuntimeError: no videos found in <folder>` when provided with image folders and cannot process still images non-interactively.
+- **Conclusion**: OpenScrub is excluded from this still-image benchmark comparison.
+

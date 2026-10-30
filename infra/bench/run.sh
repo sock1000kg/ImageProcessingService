@@ -2,7 +2,7 @@
 # Baseline benchmark runner for the imgproc image pipeline.
 #
 # Usage:
-#   run.sh [--workers N | --autoscale [--min M] [--max N]] [--api URL] [--out DIR] [--timeout SECONDS]
+#   run.sh [--workers N | --autoscale [--min M] [--max N]] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 #
 # Options:
 #   --workers N         Fixed replica mode (N: 1 to 6). Annotates ScaledObject,
@@ -10,9 +10,10 @@
 #   --autoscale         Autoscale mode with optional min/max replicas (1 to 6).
 #   --min M             Minimum replicas for autoscale mode (0 to 6, default: current ScaledObject value, e.g. 0).
 #   --max N             Maximum replicas for autoscale mode (1 to 6, default: current ScaledObject value, e.g. 3).
+#   --machine NAME      Machine/node name for results directory (default: worker pod node name).
 #   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
 #   --out DIR           Output directory for benchmark results
-#                       (default: infra/bench/results/<UTC timestamp>-<mode>/).
+#                       (default: infra/bench/results/<machine>-<YYYYMMDD>/<UTC>-<mode>/).
 #   --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800).
 #   -h, --help          Show this help message and exit.
 set -euo pipefail
@@ -24,7 +25,7 @@ IMAGES_TXT="$DATASET_DIR/images.txt"
 
 usage() {
   cat <<'EOF'
-Usage: run.sh [--workers N | --autoscale [--min M] [--max N]] [--api URL] [--out DIR] [--timeout SECONDS]
+Usage: run.sh [--workers N | --autoscale [--min M] [--max N]] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 
 Runs the baseline image pipeline benchmark (100 images in 5 batches of 20).
 
@@ -34,9 +35,10 @@ Options:
   --autoscale         Autoscale mode with optional min/max replicas (1 to 6).
   --min M             Minimum replicas for autoscale mode (0 to 6, default: current ScaledObject value, e.g. 0).
   --max N             Maximum replicas for autoscale mode (1 to 6, default: current ScaledObject value, e.g. 3).
+  --machine NAME      Machine/node name for results directory (default: worker pod node name).
   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
   --out DIR           Output directory for benchmark results
-                      (default: infra/bench/results/<UTC timestamp>-<mode>/).
+                      (default: infra/bench/results/<machine>-<YYYYMMDD>/<UTC>-<mode>/).
   --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800).
   -h, --help          Show this help message and exit.
 EOF
@@ -49,6 +51,7 @@ MODE=""
 WORKERS=""
 AUTOSCALE_MIN=""
 AUTOSCALE_MAX=""
+MACHINE=""
 API_URL=""
 OUT_DIR=""
 TIMEOUT=1800
@@ -115,6 +118,11 @@ while [ "$#" -gt 0 ]; do
       AUTOSCALE_MAX="$val"
       shift 2
       ;;
+    --machine)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --machine" >&2; exit 1; }
+      MACHINE="$2"
+      shift 2
+      ;;
     --api)
       [ "$#" -ge 2 ] || { echo "ERROR: missing value for --api" >&2; exit 1; }
       API_URL="$2"
@@ -164,7 +172,11 @@ if [ "$MODE" = "fixed" ] && [ "$WORKERS" -ge 4 ]; then
   print_node_cpu_warning "$WORKERS"
 fi
 
-KUBE_CONTEXT="${KUBE_CONTEXT:-default}"
+KUBE_CONTEXT="${KUBE_CONTEXT:-bench-local}"
+if [ "$KUBE_CONTEXT" = "default" ]; then
+  echo "ERROR: Refusing to run with context 'default'! The lab context must never be touched." >&2
+  exit 1
+fi
 KUBECTL=(kubectl --context "$KUBE_CONTEXT" -n imgproc)
 
 ORIGINAL_MIN=""
@@ -200,11 +212,25 @@ if [ "$MODE" = "autoscale" ]; then
 fi
 
 TIMESTAMP_UTC="$(date -u +"%Y%m%d-%H%M%S")"
+DATE_UTC="$(date -u +"%Y%m%d")"
+
+if [ -z "$MACHINE" ]; then
+  # Detect worker pod node name, or cluster node name, or default
+  detected_node="$("${KUBECTL[@]}" get pod -l app.kubernetes.io/name=image-worker -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)"
+  if [ -z "$detected_node" ]; then
+    detected_node="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.nodeSelector.kubernetes\.io/hostname}' 2>/dev/null || true)"
+  fi
+  if [ -z "$detected_node" ]; then
+    detected_node="$("${KUBECTL[@]}" get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  fi
+  MACHINE="${detected_node:-home-server}"
+fi
+
 if [ -z "$OUT_DIR" ]; then
   if [ "$MODE" = "fixed" ]; then
-    OUT_DIR="$SCRIPT_DIR/results/${TIMESTAMP_UTC}-fixed-${WORKERS}w"
+    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${DATE_UTC}/${TIMESTAMP_UTC}-fixed-${WORKERS}w"
   else
-    OUT_DIR="$SCRIPT_DIR/results/${TIMESTAMP_UTC}-autoscale-${AUTOSCALE_MIN}-${AUTOSCALE_MAX}"
+    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${DATE_UTC}/${TIMESTAMP_UTC}-autoscale-${AUTOSCALE_MIN}-${AUTOSCALE_MAX}"
   fi
 fi
 
@@ -647,14 +673,37 @@ echo "Gathering environment metadata..."
 CONTAINER_IMAGE="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].image}' 2>/dev/null || echo "unknown")"
 CPU_LIMIT="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].resources.limits.cpu}' 2>/dev/null || echo "unknown")"
 MEM_LIMIT="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].resources.limits.memory}' 2>/dev/null || echo "unknown")"
-NODE_NAME="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.nodeSelector.kubernetes\.io/hostname}' 2>/dev/null || echo "home-server")"
+
+NODE_NAME="$("${KUBECTL[@]}" get pod -l app.kubernetes.io/name=image-worker -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)"
+if [ -z "$NODE_NAME" ]; then
+  NODE_NAME="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.nodeSelector.kubernetes\.io/hostname}' 2>/dev/null || true)"
+fi
+if [ -z "$NODE_NAME" ]; then
+  NODE_NAME="$("${KUBECTL[@]}" get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "$MACHINE")"
+fi
+
+GPU="none"
+worker_pod="$("${KUBECTL[@]}" get pod -l app.kubernetes.io/name=image-worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+if [ -n "$worker_pod" ]; then
+  gpu_out="$("${KUBECTL[@]}" exec "$worker_pod" -c image-worker -- nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1 || true)"
+  if [ -n "$gpu_out" ]; then
+    GPU="$gpu_out"
+  fi
+fi
+
+NODE_CPU_COUNT="$("${KUBECTL[@]}" get node "$NODE_NAME" -o jsonpath='{.status.capacity.cpu}' 2>/dev/null || true)"
+if [ -z "$NODE_CPU_COUNT" ]; then
+  NODE_CPU_COUNT="$(nproc 2>/dev/null || echo "0")"
+fi
+
 IMAGES_TXT_HASH="$(sha256sum "$IMAGES_TXT" | awk '{print $1}')"
 
 # Values go in through the environment (not pasted into the code), so empty ones become null.
 MODE="$MODE" WORKERS="${WORKERS:-}" AUTOSCALE_MIN="${AUTOSCALE_MIN:-}" AUTOSCALE_MAX="${AUTOSCALE_MAX:-}" \
 ORIGINAL_MIN="${ORIGINAL_MIN:-}" ORIGINAL_MAX="${ORIGINAL_MAX:-}" CONTAINER_IMAGE="$CONTAINER_IMAGE" \
-CPU_LIMIT="$CPU_LIMIT" MEM_LIMIT="$MEM_LIMIT" NODE_NAME="$NODE_NAME" IMAGES_TXT_HASH="$IMAGES_TXT_HASH" \
-START_TIME="$START_TIME" END_TIME="$END_TIME" OUT_DIR="$OUT_DIR" python3 - <<'EOF'
+CPU_LIMIT="$CPU_LIMIT" MEM_LIMIT="$MEM_LIMIT" NODE_NAME="$NODE_NAME" NODE_CPU_COUNT="$NODE_CPU_COUNT" \
+GPU="$GPU" IMAGES_TXT_HASH="$IMAGES_TXT_HASH" START_TIME="$START_TIME" END_TIME="$END_TIME" \
+OUT_DIR="$OUT_DIR" python3 - <<'EOF'
 import json
 import os
 
@@ -675,6 +724,9 @@ meta = {
     "cpu_limit": os.environ["CPU_LIMIT"],
     "memory_limit": os.environ["MEM_LIMIT"],
     "node_name": os.environ["NODE_NAME"],
+    "node_cpu_count": num("NODE_CPU_COUNT"),
+    "cpu_count": num("NODE_CPU_COUNT"),
+    "gpu": os.environ.get("GPU", "none"),
     "images_txt_hash": os.environ["IMAGES_TXT_HASH"],
     "start_time": os.environ["START_TIME"],
     "end_time": os.environ["END_TIME"],

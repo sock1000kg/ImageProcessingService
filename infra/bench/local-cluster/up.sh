@@ -138,7 +138,8 @@ fi
 echo "==> Setting up separate kubeconfig at $KUBECONFIG..."
 mkdir -p "$INVOKING_HOME/.kube"
 cp /etc/rancher/k3s/k3s.yaml "$KUBECONFIG"
-sed -i -e 's/name: default/name: bench-local/g' -e 's/current-context: default/current-context: bench-local/g' "$KUBECONFIG"
+# Rename every reference (cluster, user, context names and the context's cluster/user fields), or the context points nowhere.
+sed -i -E 's/^([[:space:]]*-?[[:space:]]*(name|cluster|user|current-context): )default$/\1bench-local/' "$KUBECONFIG"
 chown "$INVOKING_USER:$INVOKING_GROUP" "$KUBECONFIG"
 chmod 600 "$KUBECONFIG"
 

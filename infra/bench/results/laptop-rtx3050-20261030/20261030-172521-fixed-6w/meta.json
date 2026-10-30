@@ -1,0 +1,18 @@
+{
+  "mode": "fixed",
+  "worker_count": 6,
+  "min_replicas": null,
+  "max_replicas": null,
+  "original_min": null,
+  "original_max": null,
+  "container_image": "socknot1000kg/imgproc-engine:05760356e1420a07e32e9ff0c0296eefb5598187",
+  "cpu_limit": "1",
+  "memory_limit": "1536Mi",
+  "node_name": "laptop-9uqcccr9",
+  "node_cpu_count": 16,
+  "cpu_count": 16,
+  "gpu": "NVIDIA GeForce RTX 3050 Laptop GPU",
+  "images_txt_hash": "d4944e1e41ba419b6f2caddba0c57cc1817976f646b4fea6a7c3b36c25bdaacd",
+  "start_time": "2026-10-30T17:25:22Z",
+  "end_time": "2026-10-30T17:26:31Z"
+}

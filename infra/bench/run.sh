@@ -650,24 +650,36 @@ MEM_LIMIT="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.tem
 NODE_NAME="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.nodeSelector.kubernetes\.io/hostname}' 2>/dev/null || echo "home-server")"
 IMAGES_TXT_HASH="$(sha256sum "$IMAGES_TXT" | awk '{print $1}')"
 
-python3 - <<EOF
+# Values go in through the environment (not pasted into the code), so empty ones become null.
+MODE="$MODE" WORKERS="${WORKERS:-}" AUTOSCALE_MIN="${AUTOSCALE_MIN:-}" AUTOSCALE_MAX="${AUTOSCALE_MAX:-}" \
+ORIGINAL_MIN="${ORIGINAL_MIN:-}" ORIGINAL_MAX="${ORIGINAL_MAX:-}" CONTAINER_IMAGE="$CONTAINER_IMAGE" \
+CPU_LIMIT="$CPU_LIMIT" MEM_LIMIT="$MEM_LIMIT" NODE_NAME="$NODE_NAME" IMAGES_TXT_HASH="$IMAGES_TXT_HASH" \
+START_TIME="$START_TIME" END_TIME="$END_TIME" OUT_DIR="$OUT_DIR" python3 - <<'EOF'
 import json
+import os
+
+def num(name):
+    value = os.environ.get(name, "")
+    return int(value) if value.strip() else None
+
+mode = os.environ["MODE"]
+autoscale = mode == "autoscale"
 meta = {
-    "mode": "$MODE",
-    "worker_count": $WORKERS if "$MODE" == "fixed" else None,
-    "min_replicas": $AUTOSCALE_MIN if "$MODE" == "autoscale" else None,
-    "max_replicas": $AUTOSCALE_MAX if "$MODE" == "autoscale" else None,
-    "original_min": $ORIGINAL_MIN if "$MODE" == "autoscale" and "$ORIGINAL_MIN" != "" else None,
-    "original_max": $ORIGINAL_MAX if "$MODE" == "autoscale" and "$ORIGINAL_MAX" != "" else None,
-    "container_image": "$CONTAINER_IMAGE",
-    "cpu_limit": "$CPU_LIMIT",
-    "memory_limit": "$MEM_LIMIT",
-    "node_name": "$NODE_NAME",
-    "images_txt_hash": "$IMAGES_TXT_HASH",
-    "start_time": "$START_TIME",
-    "end_time": "$END_TIME"
+    "mode": mode,
+    "worker_count": num("WORKERS") if mode == "fixed" else None,
+    "min_replicas": num("AUTOSCALE_MIN") if autoscale else None,
+    "max_replicas": num("AUTOSCALE_MAX") if autoscale else None,
+    "original_min": num("ORIGINAL_MIN") if autoscale else None,
+    "original_max": num("ORIGINAL_MAX") if autoscale else None,
+    "container_image": os.environ["CONTAINER_IMAGE"],
+    "cpu_limit": os.environ["CPU_LIMIT"],
+    "memory_limit": os.environ["MEM_LIMIT"],
+    "node_name": os.environ["NODE_NAME"],
+    "images_txt_hash": os.environ["IMAGES_TXT_HASH"],
+    "start_time": os.environ["START_TIME"],
+    "end_time": os.environ["END_TIME"],
 }
-with open("$OUT_DIR/meta.json", "w", encoding="utf-8") as f:
+with open(os.path.join(os.environ["OUT_DIR"], "meta.json"), "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 EOF
 

@@ -464,7 +464,7 @@ read_cpu_counters() {
         pod = substr($0, RSTART + 5, RLENGTH - 6)
         n = split(substr($0, index($0, "} ") + 2), f, " ")
         ts = (n >= 2) ? f[2] / 1000 : now
-        printf "%s,%s,%s,%s,%s\n", phase, ts, node, pod, f[1]
+        printf "%s,%.3f,%s,%s,%s\n", phase, ts, node, pod, f[1]
       }' >> "$OUT_DIR/cpu_counters.csv"
   done
 }

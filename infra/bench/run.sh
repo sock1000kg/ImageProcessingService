@@ -365,7 +365,7 @@ if [ "$MODE" = "fixed" ]; then
     CURL_ARGS+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[i]}")
   done
   warmup_resp="$(curl "${CURL_ARGS[@]}")"
-  WARMUP_ID="$(python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" <<< "$warmup_resp")"
+  WARMUP_ID="$(python3 -c "import sys, json; print(json.load(sys.stdin)['batch']['id'])" <<< "$warmup_resp")"
   ALL_BATCH_IDS+=("$WARMUP_ID")
   echo "Warm-up batch created: $WARMUP_ID. Waiting for it to reach terminal state..."
 
@@ -375,7 +375,7 @@ if [ "$MODE" = "fixed" ]; then
     pending_jobs="$(python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-jobs = data.get('jobs', [])
+jobs = data['batch']['jobs']
 pending = [j for j in jobs if j.get('status') not in ('COMPLETED', 'FAILED')]
 print(len(pending))
 " <<< "$batch_info")"
@@ -435,7 +435,7 @@ else
       CURL_ARGS+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[i]}")
     done
     warmup_resp="$(curl "${CURL_ARGS[@]}")"
-    WARMUP_ID="$(python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" <<< "$warmup_resp")"
+    WARMUP_ID="$(python3 -c "import sys, json; print(json.load(sys.stdin)['batch']['id'])" <<< "$warmup_resp")"
     ALL_BATCH_IDS+=("$WARMUP_ID")
     echo "Warm-up batch created: $WARMUP_ID. Waiting for it to reach terminal state..."
 
@@ -445,7 +445,7 @@ else
       pending_jobs="$(python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-jobs = data.get('jobs', [])
+jobs = data['batch']['jobs']
 pending = [j for j in jobs if j.get('status') not in ('COMPLETED', 'FAILED')]
 print(len(pending))
 " <<< "$batch_info")"
@@ -516,7 +516,7 @@ for b in {0..4}; do
   done
 
   batch_resp="$(curl "${CURL_ARGS[@]}")"
-  b_id="$(python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" <<< "$batch_resp")"
+  b_id="$(python3 -c "import sys, json; print(json.load(sys.stdin)['batch']['id'])" <<< "$batch_resp")"
   echo "Submitted batch $((b + 1))/5: $b_id"
   BENCH_BATCH_IDS+=("$b_id")
   ALL_BATCH_IDS+=("$b_id")
@@ -541,7 +541,7 @@ while true; do
     pending="$(python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-jobs = data.get('jobs', [])
+jobs = data['batch']['jobs']
 pending = [j for j in jobs if j.get('status') not in ('COMPLETED', 'FAILED')]
 print(len(pending))
 " <<< "$b_info")"

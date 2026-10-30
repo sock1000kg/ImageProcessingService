@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # Deface benchmark runner for image anonymization comparison.
-# Measures per-image face detection & blurring performance over 100 dataset images.
+# Measures per-image face detection & blurring performance over the dataset images (100 small / 1000 large).
 #
 # Usage:
-#   deface.sh [--cpu] [--machine NAME] [--images DIR] [--out DIR]
+#   deface.sh [--cpu] [--dataset small|large] [--machine NAME] [--images DIR] [--out DIR]
 #
 # Options:
 #   --cpu           Force CPU execution (CPUExecutionProvider)
+#   --dataset small|large  Image set: small = 100 images (default), large = 1000 images (dataset/images-1000/,
+#                   fetched and hash-verified with dataset/fetch.sh --set large)
 #   --machine NAME  Machine or node name (default: detected hostname or worker node)
-#   --images DIR    Images directory (default: infra/bench/dataset/images)
+#   --images DIR    Images directory (default: infra/bench/dataset/images, or images-1000 for large)
 #   --out DIR       Output directory for results
-#                   (default: results/<machine>-<date>/<UTC>-deface-<gpu|cpu>/)
+#                   (default: results/<machine>-<date>[-1000 for large]/<UTC>-deface-<gpu|cpu>/)
 #   -h, --help      Show this help message and exit
 set -euo pipefail
 
@@ -22,24 +24,27 @@ VENV_DIR="$CACHE_DIR/deface-venv"
 
 usage() {
   cat <<'EOF'
-Usage: deface.sh [--cpu] [--machine NAME] [--images DIR] [--out DIR]
+Usage: deface.sh [--cpu] [--dataset small|large] [--machine NAME] [--images DIR] [--out DIR]
 
-Runs the Deface comparison benchmark on 100 images.
+Runs the Deface comparison benchmark on the dataset images (small = 100, large = 1000).
 
 Options:
   --cpu           Force CPU execution (CPUExecutionProvider)
+  --dataset small|large  Image set: small = 100 images (default), large = 1000 images (fetched and hash-verified
+                  with dataset/fetch.sh --set large)
   --machine NAME  Machine or node name (default: detected hostname or worker node)
-  --images DIR    Images directory (default: infra/bench/dataset/images)
+  --images DIR    Images directory (default: infra/bench/dataset/images, or images-1000 for large)
   --out DIR       Output directory for results
-                  (default: results/<machine>-<date>/<UTC>-deface-<gpu|cpu>/)
+                  (default: results/<machine>-<date>[-1000 for large]/<UTC>-deface-<gpu|cpu>/)
   -h, --help      Show this help message and exit
 EOF
 }
 
 CPU_MODE=0
 MACHINE=""
-IMAGES_DIR="$DEFAULT_IMAGES_DIR"
+IMAGES_DIR=""
 OUT_DIR=""
+DATASET="small"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -50,6 +55,15 @@ while [ "$#" -gt 0 ]; do
     --machine)
       [ "$#" -ge 2 ] || { echo "ERROR: missing value for --machine" >&2; exit 1; }
       MACHINE="$2"
+      shift 2
+      ;;
+    --dataset)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --dataset" >&2; exit 1; }
+      DATASET="$2"
+      if [ "$DATASET" != "small" ] && [ "$DATASET" != "large" ]; then
+        echo "ERROR: --dataset must be 'small' or 'large' (got '$DATASET')" >&2
+        exit 1
+      fi
       shift 2
       ;;
     --images)
@@ -73,6 +87,17 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+RESULTS_SUFFIX=""
+if [ "$DATASET" = "large" ]; then
+  RESULTS_SUFFIX="-1000"
+  if [ -z "$IMAGES_DIR" ]; then
+    # Downloads what is missing and verifies all 1000 hashes against images-1000.txt (no network when already verified)
+    bash "$BENCH_DIR/dataset/fetch.sh" --set large
+    IMAGES_DIR="$BENCH_DIR/dataset/images-1000"
+  fi
+fi
+IMAGES_DIR="${IMAGES_DIR:-$DEFAULT_IMAGES_DIR}"
 
 if [ ! -d "$IMAGES_DIR" ]; then
   echo "ERROR: Images directory not found: $IMAGES_DIR" >&2
@@ -128,7 +153,7 @@ if [ "$CPU_MODE" -eq 1 ]; then
 fi
 
 if [ -z "$OUT_DIR" ]; then
-  OUT_DIR="$BENCH_DIR/results/${MACHINE}-${DATE_UTC}/${TIMESTAMP_UTC}-deface-${TARGET_DEVICE}"
+  OUT_DIR="$BENCH_DIR/results/${MACHINE}-${DATE_UTC}${RESULTS_SUFFIX}/${TIMESTAMP_UTC}-deface-${TARGET_DEVICE}"
 fi
 mkdir -p "$OUT_DIR"
 
@@ -140,7 +165,7 @@ NODE_CPU_COUNT="$(nproc 2>/dev/null || echo "0")"
 echo "==> Starting deface benchmark (target: $TARGET_DEVICE, images: $image_count)..."
 
 CPU_MODE="$CPU_MODE" TARGET_DEVICE="$TARGET_DEVICE" MACHINE="$MACHINE" \
-NODE_CPU_COUNT="$NODE_CPU_COUNT" IMAGES_DIR="$IMAGES_DIR" OUT_DIR="$OUT_DIR" \
+NODE_CPU_COUNT="$NODE_CPU_COUNT" IMAGES_DIR="$IMAGES_DIR" OUT_DIR="$OUT_DIR" DATASET="$DATASET" \
 "$VENV_DIR/bin/python" - <<'EOF'
 import csv
 import json
@@ -160,6 +185,7 @@ machine = os.environ["MACHINE"]
 node_cpu_count = int(os.environ.get("NODE_CPU_COUNT", 0) or 0)
 images_dir = os.environ["IMAGES_DIR"]
 out_dir = os.environ["OUT_DIR"]
+dataset = os.environ["DATASET"]
 
 start_time_iso = datetime.now(timezone.utc).isoformat()
 
@@ -250,6 +276,7 @@ meta = {
     "model_load_time_seconds": round(model_load_time, 4),
     "total_duration_seconds": round(total_duration, 4),
     "images_count": len(proc_times),
+    "dataset": dataset,
     "start_time": start_time_iso,
     "end_time": end_time_iso,
 }
@@ -267,6 +294,7 @@ summary_md = f"""# Deface Benchmark Summary
 | **Target Mode** | {target_device.upper()} |
 | **ONNX Execution Provider** | `{actual_provider}` |
 | **Machine / Node** | {machine} ({node_cpu_count} CPU threads) |
+| **Dataset** | {dataset} |
 | **Images Count** | {len(proc_times)} |
 | **Start Time** | {start_time_iso} |
 | **End Time** | {end_time_iso} |
@@ -275,7 +303,7 @@ summary_md = f"""# Deface Benchmark Summary
 | Metric | Value |
 | --- | --- |
 | **Model Load Time** | {model_load_time:.3f} s |
-| **Total Duration (100 images)** | {total_duration:.2f} s |
+| **Total Duration ({len(proc_times)} images)** | {total_duration:.2f} s |
 | **Throughput** | **{throughput:.2f} images/min** |
 
 ## Per-Image Latency
@@ -285,7 +313,7 @@ summary_md = f"""# Deface Benchmark Summary
 | **p95** | {p95:.1f} ms |
 | **Max** | {p_max:.1f} ms |
 
-> **Note**: faces only (no plates), local files, no queue/upload, so compare with our `processingTimeMs`, not our end-to-end time.
+> **Note**: faces only (plates stay unredacted), local files, no queue/upload, so compare with our `processingTimeMs`, not our end-to-end time. The fair speed comparison is the WIDER (faces) subset.
 """
 
 summary_path = os.path.join(out_dir, "summary.md")

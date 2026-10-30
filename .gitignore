@@ -23,6 +23,7 @@ engine/models/models/
 
 # Benchmark dataset and download cache
 infra/bench/dataset/images/
+infra/bench/dataset/images-1000/
 infra/bench/dataset/.cache/
 infra/bench/.cache/
 

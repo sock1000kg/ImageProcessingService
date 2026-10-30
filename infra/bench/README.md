@@ -3,7 +3,7 @@
 This benchmark measures the baseline processing performance, latency, throughput, and resource utilization of the `imgproc` image redaction pipeline prior to introducing M2 whitelist embeddings.
 
 The benchmark evaluates the **real processing flow** end-to-end:
-1. Images enter through the real Web API (`POST /api/batches`, 5 batches of 20 images).
+1. Images enter through the real Web API (`POST /api/batches`, batches of 20 images: 5 for the small set, 50 for the large set).
 2. The Web backend uploads private originals to MinIO, persists job records in PostgreSQL, and publishes commands to NATS JetStream (`jobs.image`).
 3. `image-worker` pods consume jobs, execute YOLO detection and redaction (blurring faces and plates), and publish events back to NATS.
 4. Timestamps and metrics are recorded directly from PostgreSQL (`created_at`, `updated_at`, `processingTimeMs`) and sampled from Kubernetes (`kubectl top`, KEDA/Deployment replica state).
@@ -49,6 +49,20 @@ bash infra/bench/dataset/fetch.sh
   ```bash
   bash infra/bench/dataset/fetch.sh /path/to/vn-plates-dir
   ```
+
+### Large Dataset (1000 images, `--set large`)
+
+The small set is the default and stays as it is, so lab results remain comparable. On a fast machine (e.g. a GPU node, ~30-70 ms per image) the 100-image set finishes in a few seconds, so the throughput mostly measures how fast `run.sh` uploads 5 batches. A second, separate set of **1000 images** (same 70/30 mix) gives the workers enough work:
+- **700 images** from the WIDER FACE validation set and **300 images** from the Vietnamese license plate dataset (same sources and licenses as above).
+- Manifest: [`dataset/images-1000.txt`](dataset/images-1000.txt) (path + SHA-256 per image, committed). Images go to `dataset/images-1000/` (gitignored, ~118 MB), next to the untouched `images/`.
+- Selection rule (fixed, no randomness): sort the file paths lexicographically and take the evenly spaced indices $\lfloor i \cdot N / M \rfloor$ for $i = 0 \ldots M-1$:
+  - WIDER FACE: $N = 3226$ JPEGs in `WIDER_val.zip`, $M = 700$ (every 4.6th file, indices $0, 4, 9, 13, \ldots$).
+  - VN plates: $N = 400$ images in `Dataset/Test/`, $M = 300$ (every 1.33rd file).
+- Fetch (same idempotent download + hash verification as the small set; the cached WIDER zip is reused):
+  ```bash
+  bash infra/bench/dataset/fetch.sh --set large   # --set small is the default
+  ```
+  `run.sh --dataset large` runs `fetch.sh --set large` itself if the folder is missing.
 
 ---
 
@@ -106,7 +120,7 @@ The runner script is [`infra/bench/run.sh`](run.sh).
 
 ### Workflow & Options
 ```bash
-infra/bench/run.sh [--workers N | --autoscale [--min M] [--max N]] [--api URL] [--out DIR] [--timeout SECONDS]
+infra/bench/run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large] [--parallel P] [--preload] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 ```
 
 - `--workers N`: Fixed mode with 1 to 6 replicas.
@@ -115,21 +129,24 @@ infra/bench/run.sh [--workers N | --autoscale [--min M] [--max N]] [--api URL] [
 - `--max N`: Maximum replicas for autoscale mode (1 to 6).
 - `--api URL`: URL to Web API. If omitted, starts `kubectl port-forward svc/web` automatically and waits for readiness.
 - `--out DIR`: Output directory (default: `infra/bench/results/<UTC-timestamp>-<mode>/`).
-- `--timeout SECONDS`: Maximum timeout in seconds (default: 1800).
+- `--timeout SECONDS`: Maximum timeout in seconds (default: 1800; 7200 with `--dataset large`).
+- `--dataset small|large`: `small` (default) = 100 images in 5 batches, `large` = 1000 images in 50 batches (see "Large Dataset"). Large runs go to `results/<machine>-<date>-1000/` by default, so they never mix with the 100-image tables.
+- `--parallel P`: Upload up to $P$ batches at the same time (default 1 = one batch after another, as before). Even with 1000 images, sequential uploads can arrive slower than a fast worker drains them; `--parallel 4` keeps the queue full.
+- `--preload`: Fixed mode only (refused with `--autoscale`, before touching the cluster). Sets `paused-replicas=0` and waits until there are 0 worker pods, uploads **every** batch (the jobs wait in the queue), then sets `paused-replicas=N`, waits until exactly $N$ pods are Ready and continues as usual. The upload speed is out of the measurement: use the **Drain Throughput** of these runs as the worker-capacity number. There is no warm-up batch (it would queue behind the preloaded jobs), so each worker loads the model on its first job after the release. The pause annotation is removed by `cleanup()` even on Ctrl-C or failure.
 
 ### What `run.sh` Does
-1. Submits all 100 images as 5 consecutive batches of 20 images to `POST /api/batches` with fixed configuration:
+1. Submits all images (100 as 5 batches, or 1000 as 50 batches with `--dataset large`) in batches of 20 images to `POST /api/batches` (one after another, or `--parallel P` at a time) with fixed configuration:
    ```json
    {"targets": ["face", "plate"], "style": "blur"}
    ```
 2. While processing, samples metrics every 5 seconds:
    - `top.csv`: CPU and memory per worker pod from `kubectl top pod -l app.kubernetes.io/name=image-worker`.
    - `replicas.csv`: Desired and ready replica counts from the deployment.
-3. Polls until all 5 batches reach terminal status (`COMPLETED` or `FAILED`).
+3. Polls until all batches reach terminal status (`COMPLETED` or `FAILED`).
 4. In autoscale mode, waits for replicas to cool down to min ($M$) and ensures the final replica sample is recorded.
 5. Queries PostgreSQL via `kubectl exec` to export `jobs.csv` with exact database timestamps:
    - `job_id`, `batch_id`, `status`, `created_at`, `updated_at`, `processing_time_ms`, `image_size`.
-6. Records environment metadata in `meta.json` (mode, limits, worker range, node, dataset hash).
+6. Records environment metadata in `meta.json` (mode, limits, worker range, node, dataset hash, plus `dataset`, `parallel`, `preload` and `workers_released_at`, the time the workers were released in `--preload` runs).
 7. Runs `summarize.py` on the result directory to generate `summary.md`.
 8. **Cleanup (guaranteed via `trap`)**:
    - Stops background metrics sampling.
@@ -151,6 +168,9 @@ python3 infra/bench/summarize.py infra/bench/results/*
 - **Throughput (images/min)**:
   $$\text{Throughput} = \frac{\text{Total Images}}{\min(\text{created\_at}) \to \max(\text{updated\_at}) \text{ in minutes}}$$
   Measures sustained image processing capacity from the ingestion of the first job to the completion of the last job.
+- **Drain Throughput (images/min)**:
+  $$\text{Drain Throughput} = \frac{\text{Total Images}}{\min(\text{updated\_at} - \text{processingTimeMs}) \to \max(\text{updated\_at}) \text{ in minutes}}$$
+  The time from the first job's **processing start** (estimated as `updated_at − processingTimeMs`) to the last job finished. It leaves out the time the first jobs waited for the upload, so it is the **worker-capacity number**: meaningful for every run, and the main one for `--preload` runs (the queue is full when the workers start). End-to-end throughput above also counts the upload time, so on a fast machine it can be much lower than the drain throughput.
 - **Throughput per Worker (images/min/worker)**:
   $$\text{Throughput per Worker} = \frac{\text{Throughput}}{\text{Peak Ready Workers}}$$
   Highlights scaling efficiency and shows diminishing returns when adding workers beyond CPU thread capacity.
@@ -164,6 +184,15 @@ python3 infra/bench/summarize.py infra/bench/results/*
   - *Time to first worker Ready*: Elapsed time from first job submission to the first worker reaching `Ready` status (cold start).
   - *Max Replicas*: Maximum number of worker pods launched by KEDA.
   - *Time back to min*: Cooldown time required for replicas to scale down to min replica count ($M$) after completing all work.
+- **Dataset / Preload** (comparison table): which image set the run used and whether it was a `--preload` run, taken from `meta.json` (older runs show `small` / `no`).
+
+- **CPU (counters)** (comparison table, `summary.md`):
+  `run.sh` also reads each worker pod's cumulative `container_cpu_usage_seconds_total` from the kubelet (`kubectl get --raw /api/v1/nodes/<node>/proxy/metrics/resource`, same `KUBE_CONTEXT`/`KUBECONFIG` as every other call) into `cpu_counters.csv`: once at the start of the processing window (just before the batches are submitted; in `--preload` runs, once the released workers are Ready) and once when all jobs are terminal. $$\text{CPU (counters)} = \frac{\Delta \text{cpu-seconds}}{\Delta t}$$ per worker, **averaged over the workers that exist at both ends** (workers KEDA starts or stops during an autoscale run are not counted; an autoscale run from 0 has none, so it falls back). `kubectl top` (metrics-server, ~15 s window) misses most of the work of a ~5 s GPU run (peak CPU 1m/2m), which is why the counters exist. If the node proxy is forbidden (likely on the lab tenant) or fails, `run.sh` warns, writes no `cpu_counters.csv`, and the column shows the `kubectl top` average marked **(sampled)**. The Peak/Avg CPU columns stay as they were.
+- **Processing time by subset** (second table, `summary.md`):
+  p50/p95 of the processing time for the **WIDER (faces)** and **VN plates** images separately. The subset comes from the manifest path of the run's dataset (`WIDER_val/` vs `Dataset/Test/`). Our jobs are mapped to images through `original_filename` (exported to `jobs.csv` by `run.sh`; runs made before this column existed have no subset rows), deface rows through the file name in `per_image.csv`. Deface only detects faces and leaves plates unredacted, so the fair speed comparison with our pipeline is the **WIDER subset**; its VN rows only show how fast it skips plate images.
+
+### Notes in `comparison.md`
+When `summarize.py` rewrites a machine folder's `comparison.md`, it replaces **only the generated table** (the `## Benchmark Comparison Summary` block with the subset table and the generated notes, or the table starting at `| Run |` if you removed the heading). Everything above it (your `>` notes) and any other section after it is kept.
 
 ### Reading the Results: Diminishing Returns & Node Saturation
 On a single 4-thread host (`home-server`):
@@ -181,6 +210,8 @@ On a single 4-thread host (`home-server`):
    YOLO model weights are loaded lazily on the first inference request. In fixed mode and autoscale mode with $M > 0$, the warm-up batch hides this initialization cost. In autoscale cold-start mode ($M = 0$), cold-start latency is explicitly captured.
 3. **Image Resolution**:
    Images are evaluated at their native resolutions (WIDER FACE validation images are typically ~1024px along the longest dimension; Vietnamese license plate images vary from ~640px to ~1920px).
+4. **Large-set run time**:
+   On the lab CPU (~30 images/min) a 1000-image run takes **~30+ minutes per run**. The large set is meant for the GPU node, where a worker handles an image in tens of milliseconds.
 
 ---
 
@@ -229,6 +260,14 @@ For benchmarking on a developer laptop (e.g. WSL2 Ubuntu 24.04 with an NVIDIA GP
    infra/bench/run.sh --machine laptop-rtx3050 --autoscale --min 0 --max 3
    ```
 
+   Large set (1000 images) to measure worker capacity rather than upload speed:
+   ```bash
+   infra/bench/dataset/fetch.sh --set large
+   infra/bench/run.sh --machine laptop-rtx3050 --dataset large --preload --workers 4
+   infra/bench/run.sh --machine laptop-rtx3050 --dataset large --parallel 4 --autoscale --min 0 --max 4
+   python3 infra/bench/summarize.py infra/bench/results/laptop-rtx3050-$(date -u +"%Y%m%d")-1000
+   ```
+
 3. **Run Standalone Deface Comparison**:
    ```bash
    # GPU mode (auto-detects CUDAExecutionProvider)
@@ -236,7 +275,12 @@ For benchmarking on a developer laptop (e.g. WSL2 Ubuntu 24.04 with an NVIDIA GP
 
    # CPU mode
    infra/bench/compare/deface.sh --machine laptop-rtx3050 --cpu
+
+   # Large set (1000 images): same options, results go to results/laptop-rtx3050-<date>-1000/
+   infra/bench/compare/deface.sh --machine laptop-rtx3050 --dataset large
+   infra/bench/compare/deface.sh --machine laptop-rtx3050 --dataset large --cpu
    ```
+   `--dataset large` runs `fetch.sh --set large` first, which verifies all 1000 hashes (no download when already verified).
 
 4. **Generate Combined Comparison Summary**:
    ```bash
@@ -268,12 +312,14 @@ infra/bench/results/
     ├── 20261030-153000-deface-cpu/
     └── comparison.md
 ```
+Runs with `--dataset large` go to a separate sibling folder, e.g. `laptop-rtx3050-20261030-1000/`, with their own `comparison.md`.
 
 Each run folder contains:
-- `jobs.csv` (or `per_image.csv` for deface): Job timestamps and per-image processing times.
+- `jobs.csv` (or `per_image.csv` for deface): Job timestamps, per-image processing times and the uploaded file name (`original_filename`).
+- `cpu_counters.csv`: cumulative worker CPU seconds at the start and end of the run (only when the node proxy is readable).
 - `top.csv`: CPU and RAM usage samples (pipeline runs).
 - `replicas.csv`: Pod scaling dynamics over time (pipeline runs).
-- `meta.json`: Environment metadata (mode, limits, CPU count, GPU model).
+- `meta.json`: Environment metadata (mode, limits, CPU count, GPU model, dataset, parallel, preload).
 - `summary.md`: Individual run performance and latency report.
 
 ---

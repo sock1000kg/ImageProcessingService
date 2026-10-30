@@ -3,7 +3,6 @@ import asyncio
 import json
 import logging
 import signal
-import sys
 import nats
 import nats.errors
 from .config import settings

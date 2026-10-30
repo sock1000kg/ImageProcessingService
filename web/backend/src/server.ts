@@ -1,8 +1,9 @@
 import { createApp } from "./app";
 import { config } from "./config";
-import { cleanupExpiredBatches, closeDatabase } from "./db";
+import { closeDatabase } from "./db";
 import { closeMessaging, connectMessaging } from "./messaging";
 import { verifyBuckets } from "./storage";
+import { cleanupExpiredBatches } from "./services/batch.service";
 
 let cleanupTimer: NodeJS.Timeout | null = null;
 

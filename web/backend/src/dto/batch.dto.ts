@@ -40,7 +40,24 @@ export interface ReportImageDTO {
   originalFilename: string;
   status: string;
   counts: Record<string, number> | null;
+  detections: ReportDetectionDTO[];
+  model: string | null;
+  processingTimeMs: number | null;
+  similarityThreshold: number | null;
   error: unknown | null;
+}
+
+export interface ReportDetectionDTO {
+  label: string | null;
+  confidence: number | null;
+  box: number[] | null;
+  redacted: boolean | null;
+  whitelisted: boolean | null;
+  whitelistRef: number | null;
+  similarity: number | null;
+  lowConfidence: boolean | null;
+  needsReview: boolean | null;
+  similarityNearThreshold: boolean | null;
 }
 
 export interface ReportTotalsDTO {
@@ -54,11 +71,17 @@ export interface ReportTotalsDTO {
   lowConfidence: number;
 }
 
+export interface ReportLowConfidenceDetectionDTO extends ReportDetectionDTO {
+  jobId: string;
+  originalFilename: string;
+}
+
 export interface ReportResponseDTO {
   batchId: string;
   status: string;
   totals: ReportTotalsDTO;
   images: ReportImageDTO[];
+  lowConfidenceDetections: ReportLowConfidenceDetectionDTO[];
 }
 
 export function toJobResponse(job: PrismaJob): JobResponseDTO;
@@ -117,13 +140,17 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
   let redacted = 0;
   let whitelisted = 0;
   let lowConfidence = 0;
+  const lowConfidenceDetections: ReportLowConfidenceDetectionDTO[] = [];
+  const batchConfig = parseBatchConfig(batch.config);
 
   const perImage: ReportImageDTO[] = jobs.map((job) => {
     if (job.status === "COMPLETED") completed++;
     if (job.status === "FAILED") failed++;
 
-    const summary = job.resultSummary as Record<string, unknown> | null;
-    const summaryCounts = (summary?.counts as Record<string, number> | undefined) ?? undefined;
+    const summary = isRecord(job.resultSummary) ? job.resultSummary : null;
+    const summaryCounts = isNumberRecord(summary?.counts) ? summary.counts : undefined;
+    const rawDetections = Array.isArray(summary?.detections) ? summary.detections : [];
+    const detections = rawDetections.map((raw) => toReportDetection(raw, batchConfig.similarityThreshold));
     if (summaryCounts) {
       if (typeof summaryCounts.face === "number") faces += summaryCounts.face;
       if (typeof summaryCounts.plate === "number") plates += summaryCounts.plate;
@@ -132,12 +159,28 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
       if (typeof wl === "number") whitelisted += wl;
       if (typeof summaryCounts.lowConfidence === "number") lowConfidence += summaryCounts.lowConfidence;
     }
+    for (const detection of detections) {
+      if (detection.lowConfidence === true || detection.needsReview === true) {
+        if (!summaryCounts || typeof summaryCounts.lowConfidence !== "number") {
+          lowConfidence++;
+        }
+        lowConfidenceDetections.push({
+          ...detection,
+          jobId: job.id,
+          originalFilename: job.originalFilename,
+        });
+      }
+    }
 
     return {
       jobId: job.id,
       originalFilename: job.originalFilename,
       status: job.status,
       counts: summaryCounts ?? null,
+      detections,
+      model: typeof summary?.model === "string" ? summary.model : null,
+      processingTimeMs: typeof summary?.processingTimeMs === "number" ? summary.processingTimeMs : null,
+      similarityThreshold: batchConfig.similarityThreshold,
       error: job.error,
     };
   });
@@ -156,5 +199,37 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
       lowConfidence,
     },
     images: perImage,
+    lowConfidenceDetections,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNumberRecord(value: unknown): value is Record<string, number> {
+  return isRecord(value) && Object.values(value).every((item) => typeof item === "number");
+}
+
+function toReportDetection(value: unknown, similarityThreshold: number): ReportDetectionDTO {
+  const detection = isRecord(value) ? value : {};
+  const similarity = typeof detection.similarity === "number" ? detection.similarity : null;
+  const nearThreshold =
+    similarity === null ? null : Math.abs(similarity - similarityThreshold) <= 0.05;
+
+  return {
+    label: typeof detection.label === "string" ? detection.label : null,
+    confidence: typeof detection.confidence === "number" ? detection.confidence : null,
+    box:
+      Array.isArray(detection.box) && detection.box.every((item) => typeof item === "number")
+        ? detection.box
+        : null,
+    redacted: typeof detection.redacted === "boolean" ? detection.redacted : null,
+    whitelisted: typeof detection.whitelisted === "boolean" ? detection.whitelisted : null,
+    whitelistRef: typeof detection.whitelistRef === "number" ? detection.whitelistRef : null,
+    similarity,
+    lowConfidence: typeof detection.lowConfidence === "boolean" ? detection.lowConfidence : null,
+    needsReview: typeof detection.needsReview === "boolean" ? detection.needsReview : null,
+    similarityNearThreshold: nearThreshold,
   };
 }

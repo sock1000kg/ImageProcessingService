@@ -12,6 +12,48 @@ export type Job = {
   updatedAt: string;
 };
 
+export type Detection = {
+  label: string | null;
+  confidence: number | null;
+  box: number[] | null;
+  redacted: boolean | null;
+  whitelisted: boolean | null;
+  whitelistRef: number | null;
+  similarity: number | null;
+  lowConfidence: boolean | null;
+  needsReview: boolean | null;
+  similarityNearThreshold: boolean | null;
+};
+
+export type ReportImage = {
+  jobId: string;
+  originalFilename: string;
+  status: string;
+  counts: Record<string, number> | null;
+  detections: Detection[];
+  model: string | null;
+  processingTimeMs: number | null;
+  similarityThreshold: number | null;
+  error: { code?: string; message?: string } | null;
+};
+
+export type BatchReport = {
+  batchId: string;
+  status: string;
+  totals: {
+    images: number;
+    completed: number;
+    failed: number;
+    faces: number;
+    plates: number;
+    redacted: number;
+    whitelisted: number;
+    lowConfidence: number;
+  };
+  images: ReportImage[];
+  lowConfidenceDetections: Array<Detection & { jobId: string; originalFilename: string }>;
+};
+
 export type Batch = {
   id: string;
   status: string;

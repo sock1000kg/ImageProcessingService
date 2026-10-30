@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { getJobById, getJobOriginalStream } from "../services/batch.service";
+import { getJobById, getJobOriginalStream, retryFailedJob } from "../services/batch.service";
 import { notFound } from "../errors";
 
 export async function getJobHandler(
@@ -34,6 +34,7 @@ export async function getJobOriginalHandler(
     if (streamInfo.contentType) {
       response.setHeader("Content-Type", streamInfo.contentType);
     }
+
     if (streamInfo.contentLength !== undefined) {
       response.setHeader("Content-Length", streamInfo.contentLength);
     }
@@ -43,6 +44,20 @@ export async function getJobOriginalHandler(
     });
 
     streamInfo.stream.pipe(response);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function retryJobHandler(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const job = await retryFailedJob(id);
+    response.status(202).json({ job });
   } catch (error) {
     next(error);
   }

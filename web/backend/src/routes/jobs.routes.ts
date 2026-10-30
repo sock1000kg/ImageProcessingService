@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { getJobHandler, getJobOriginalHandler } from "../controllers/jobs.controller";
+import { getJobHandler, getJobOriginalHandler, retryJobHandler } from "../controllers/jobs.controller";
 
 export const jobsRouter = Router();
 
 jobsRouter.get("/:id", getJobHandler);
 jobsRouter.get("/:id/original", getJobOriginalHandler);
+jobsRouter.post("/:id/retry", retryJobHandler);

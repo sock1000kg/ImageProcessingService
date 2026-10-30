@@ -57,6 +57,45 @@ export async function getJob(id: string) {
   });
 }
 
+export async function getActiveRetryJob(job: {
+  id: string;
+  batchId: string;
+  inputKey: string;
+}) {
+  return prisma.job.findFirst({
+    where: {
+      batchId: job.batchId,
+      inputKey: job.inputKey,
+      id: { not: job.id },
+      status: { not: JobStatus.FAILED },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function insertRetryJob(job: {
+  id: string;
+  batchId: string;
+  originalFilename: string;
+  inputKey: string;
+  outputKey: string;
+}) {
+  return prisma.job.create({
+    data: {
+      id: job.id,
+      batchId: job.batchId,
+      originalFilename: job.originalFilename,
+      inputKey: job.inputKey,
+      outputKey: job.outputKey,
+      status: JobStatus.PENDING,
+    },
+  });
+}
+
+export async function deleteJob(id: string): Promise<void> {
+  await prisma.job.deleteMany({ where: { id } });
+}
+
 export async function getBatch(id: string) {
   return prisma.batch.findUnique({
     where: { id },
@@ -135,6 +174,14 @@ export async function cleanupExpiredBatches(): Promise<number> {
     },
   });
   return result.count;
+}
+
+export async function getExpiredBatches() {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return prisma.batch.findMany({
+    where: { createdAt: { lt: cutoff } },
+    select: { id: true },
+  });
 }
 
 export async function getStats(): Promise<Record<string, number>> {

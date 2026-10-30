@@ -1,0 +1,5 @@
+import { Detection } from "../types";
+export function DetectionList({ detections }: { detections: Detection[] }) {
+  if (!detections.length) return <div className="empty-inline">No detection details were returned for this image.</div>;
+  return <div className="detection-list">{detections.map((detection, index) => <div className={`detection-row ${detection.lowConfidence || detection.needsReview ? "warning-row" : ""}`} key={`${detection.label}-${index}`}><div><strong>{detection.label ?? "Unknown"}</strong><small>{detection.box ? `[${detection.box.join(", ")}]` : "Box unavailable"}</small></div><span>{detection.confidence === null ? "—" : `${Math.round(detection.confidence * 100)}%`}</span><span>{detection.redacted ? "Redacted" : detection.whitelisted ? "Whitelisted" : "Unchanged"}</span>{detection.similarity !== null && <span>Similarity {detection.similarity.toFixed(2)}</span>}{(detection.lowConfidence || detection.needsReview) && <span className="warning-text">Review</span>}</div>)}</div>;
+}

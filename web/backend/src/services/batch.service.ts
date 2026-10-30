@@ -3,11 +3,15 @@ import path from "node:path";
 import { config } from "../config";
 import {
   countNonTerminalJobs,
+  deleteJob,
   deleteBatchRow,
+  getActiveRetryJob,
   getBatch,
+  getExpiredBatches,
   getJob,
   getJobsByBatchId,
   insertBatchAndJobs,
+  insertRetryJob,
   markBatchWhitelistDeleted,
   updateJobQueued,
   updateJobState,
@@ -32,7 +36,7 @@ import {
   toReportResponse,
   ValidatedJobEvent,
 } from "../dto";
-import { badRequest, payloadTooLarge, unavailable } from "../errors";
+import { badRequest, gone, payloadTooLarge, unavailable } from "../errors";
 
 export { toBatchResponse, toJobResponse, toReportResponse };
 export const serializeJob = toJobResponse;
@@ -198,6 +202,77 @@ export async function getJobById(id: string): Promise<JobResponseDTO | null> {
   return toJobResponse(job);
 }
 
+export async function retryFailedJob(id: string): Promise<JobResponseDTO> {
+  const failedJob = await getJob(id);
+  if (!failedJob) {
+    throw gone("Job not found or its batch has expired", "JOB_EXPIRED");
+  }
+  if (failedJob.status !== JobStatus.FAILED) {
+    throw badRequest("Only FAILED jobs can be retried", "JOB_NOT_FAILED");
+  }
+
+  const batch = await getBatch(failedJob.batchId);
+  if (!batch) {
+    throw gone("Batch has expired", "BATCH_EXPIRED");
+  }
+  if (batch.createdAt.getTime() < Date.now() - 24 * 60 * 60 * 1000) {
+    throw gone("Batch has expired", "BATCH_EXPIRED");
+  }
+  if (batch.whitelistKeys.length > 0 && batch.whitelistDeletedAt !== null) {
+    throw gone("Whitelist files have expired and cannot be used for retry", "WHITELIST_EXPIRED");
+  }
+  if (!(await storage.objectExists(UPLOADS_BUCKET, failedJob.inputKey))) {
+    throw gone("Original input has expired and cannot be retried", "INPUT_EXPIRED");
+  }
+  for (const whitelistKey of batch.whitelistKeys) {
+    if (!(await storage.objectExists(UPLOADS_BUCKET, whitelistKey))) {
+      throw gone("Whitelist files have expired and cannot be used for retry", "WHITELIST_EXPIRED");
+    }
+  }
+
+  const activeRetry = await getActiveRetryJob(failedJob);
+  if (activeRetry) {
+    return toJobResponse(activeRetry)!;
+  }
+
+  const batchConfig = parseBatchConfigJson(batch.config);
+  const retryJobId = randomUUID();
+  const retryJob = {
+    id: retryJobId,
+    batchId: failedJob.batchId,
+    originalFilename: failedJob.originalFilename,
+    inputKey: failedJob.inputKey,
+    outputKey: `${failedJob.batchId}/${retryJobId}/result.${resolveOutputExtension(
+      batchConfig.format,
+      failedJob.originalFilename,
+    )}`,
+  };
+  await insertRetryJob(retryJob);
+
+  try {
+    const command = buildImageRedactCommand({
+      jobId: retryJob.id,
+      batchId: retryJob.batchId,
+      inputKey: retryJob.inputKey,
+      outputKey: retryJob.outputKey,
+      config: batchConfig,
+      whitelistKeys: batch.whitelistKeys,
+    });
+    await publishJob("jobs.image", command as unknown as Record<string, unknown>);
+    await updateJobQueued(retryJob.id);
+  } catch (error) {
+    await deleteJob(retryJob.id);
+    console.error(`Failed to publish retry command for job ${id}`, error);
+    throw unavailable("Job queue is unavailable");
+  }
+
+  const createdRetry = await getJob(retryJob.id);
+  if (!createdRetry) {
+    throw unavailable("Retry job could not be created");
+  }
+  return toJobResponse(createdRetry)!;
+}
+
 export async function getJobOriginalStream(id: string) {
   const job = await getJob(id);
   if (!job) return null;
@@ -256,4 +331,29 @@ export async function checkAndCleanBatchWhitelist(batchId: string): Promise<void
   } catch (error) {
     console.error(`Failed to update whitelistDeletedAt for batch ${batchId}`, error);
   }
+}
+
+export async function cleanupExpiredBatches(): Promise<number> {
+  const expiredBatches = await getExpiredBatches();
+  let deleted = 0;
+
+  for (const batch of expiredBatches) {
+    for (const bucket of [UPLOADS_BUCKET, RESULTS_BUCKET]) {
+      try {
+        await storage.deletePrefix(bucket, `${batch.id}/`);
+      } catch (error) {
+        console.error(`Failed to clean expired objects for batch ${batch.id} in ${bucket}`, error);
+      }
+    }
+
+    try {
+      if (await deleteBatchRow(batch.id)) {
+        deleted++;
+      }
+    } catch (error) {
+      console.error(`Failed to delete expired batch row ${batch.id}`, error);
+    }
+  }
+
+  return deleted;
 }

@@ -3,6 +3,7 @@ import {
   HeadBucketCommand,
   PutObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
@@ -79,6 +80,19 @@ export async function getObjectStream(
   }
 }
 
+export async function objectExists(bucket: string, key: string): Promise<boolean> {
+  try {
+    await s3Client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    return true;
+  } catch (error: unknown) {
+    const err = error as { $metadata?: { httpStatusCode?: number }; name?: string };
+    if (err?.$metadata?.httpStatusCode === 404 || err?.name === "NotFound" || err?.name === "NoSuchKey") {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export async function deletePrefix(bucket: string, prefix: string): Promise<void> {
   let continuationToken: string | undefined = undefined;
   let isTruncated: boolean | undefined = true;
@@ -122,6 +136,7 @@ export const storage = {
   bucketExists,
   putObject,
   getObjectStream,
+  objectExists,
   deletePrefix,
   verifyBuckets,
 };

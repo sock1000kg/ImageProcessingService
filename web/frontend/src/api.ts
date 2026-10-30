@@ -1,4 +1,4 @@
-import { Batch, Job } from "./types";
+import { Batch, BatchReport, Job } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -42,8 +42,12 @@ export function getBatch(id: string): Promise<{ batch: Batch }> {
   return request(`/api/batches/${id}`);
 }
 
-export function getBatchReport(id: string): Promise<{ report: Record<string, unknown> }> {
-  return request(`/api/batches/${id}/report`);
+export function getBatchReport(id: string): Promise<{ report: BatchReport }> {
+  return request<{ report: BatchReport }>(`/api/batches/${id}/report`);
+}
+
+export function retryJob(id: string): Promise<{ job: Job }> {
+  return request(`/api/jobs/${id}/retry`, { method: "POST" });
 }
 
 export function deleteBatch(id: string): Promise<void> {

@@ -2,7 +2,8 @@
 # Baseline benchmark runner for the imgproc image pipeline.
 #
 # Usage:
-#   run.sh [--workers N | --autoscale [--min M] [--max N]] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
+#   run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large] [--parallel P] [--preload]
+#          [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 #
 # Options:
 #   --workers N         Fixed replica mode (N: 1 to 6). Annotates ScaledObject,
@@ -10,11 +11,16 @@
 #   --autoscale         Autoscale mode with optional min/max replicas (1 to 6).
 #   --min M             Minimum replicas for autoscale mode (0 to 6, default: current ScaledObject value, e.g. 0).
 #   --max N             Maximum replicas for autoscale mode (1 to 6, default: current ScaledObject value, e.g. 3).
+#   --dataset small|large  Image set: small = 100 images / 5 batches (default), large = 1000 images / 50 batches
+#                       (dataset/images-1000.txt; fetch with dataset/fetch.sh --set large).
+#   --parallel P        Upload up to P batches at the same time (default: 1 = one after another).
+#   --preload           Fixed mode only: pause workers at 0, upload every batch so the jobs wait in the queue,
+#                       then release N workers. Measures how fast the workers drain a full queue.
 #   --machine NAME      Machine/node name for results directory (default: worker pod node name).
 #   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
 #   --out DIR           Output directory for benchmark results
-#                       (default: infra/bench/results/<machine>-<YYYYMMDD>/<UTC>-<mode>/).
-#   --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800).
+#                       (default: infra/bench/results/<machine>-<YYYYMMDD>[-1000]/<UTC>-<mode>/).
+#   --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800, large dataset: 7200).
 #   -h, --help          Show this help message and exit.
 set -euo pipefail
 
@@ -22,12 +28,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATASET_DIR="$SCRIPT_DIR/dataset"
 IMAGES_DIR="$DATASET_DIR/images"
 IMAGES_TXT="$DATASET_DIR/images.txt"
+EXPECTED_IMAGES=100
+BATCH_SIZE=20
 
 usage() {
   cat <<'EOF'
-Usage: run.sh [--workers N | --autoscale [--min M] [--max N]] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
+Usage: run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large] [--parallel P] [--preload]
+              [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 
-Runs the baseline image pipeline benchmark (100 images in 5 batches of 20).
+Runs the baseline image pipeline benchmark (batches of 20 images: small = 100 images / 5 batches, large = 1000 images / 50 batches).
 
 Options:
   --workers N         Fixed replica mode (N: 1 to 6). Annotates ScaledObject,
@@ -35,11 +44,15 @@ Options:
   --autoscale         Autoscale mode with optional min/max replicas (1 to 6).
   --min M             Minimum replicas for autoscale mode (0 to 6, default: current ScaledObject value, e.g. 0).
   --max N             Maximum replicas for autoscale mode (1 to 6, default: current ScaledObject value, e.g. 3).
+  --dataset small|large  Image set: small = 100 images (default), large = 1000 images (fetch with dataset/fetch.sh --set large).
+  --parallel P        Upload up to P batches at the same time (default: 1 = one after another).
+  --preload           Fixed mode only: pause workers at 0, upload every batch so the jobs wait in the queue,
+                      then release N workers. Measures how fast the workers drain a full queue.
   --machine NAME      Machine/node name for results directory (default: worker pod node name).
   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
   --out DIR           Output directory for benchmark results
-                      (default: infra/bench/results/<machine>-<YYYYMMDD>/<UTC>-<mode>/).
-  --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800).
+                      (default: infra/bench/results/<machine>-<YYYYMMDD>[-1000 for large]/<UTC>-<mode>/).
+  --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800, large dataset: 7200).
   -h, --help          Show this help message and exit.
 EOF
 }
@@ -54,7 +67,10 @@ AUTOSCALE_MAX=""
 MACHINE=""
 API_URL=""
 OUT_DIR=""
-TIMEOUT=1800
+TIMEOUT=""
+DATASET="small"
+PARALLEL=1
+PRELOAD=0
 
 print_node_cpu_warning() {
   local count="$1"
@@ -138,6 +154,28 @@ while [ "$#" -gt 0 ]; do
       TIMEOUT="$2"
       shift 2
       ;;
+    --dataset)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --dataset" >&2; exit 1; }
+      DATASET="$2"
+      if [ "$DATASET" != "small" ] && [ "$DATASET" != "large" ]; then
+        echo "ERROR: --dataset must be 'small' or 'large' (got '$DATASET')" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --parallel)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --parallel" >&2; exit 1; }
+      PARALLEL="$2"
+      if [[ ! "$PARALLEL" =~ ^[0-9]+$ ]] || [ "$PARALLEL" -lt 1 ]; then
+        echo "ERROR: --parallel must be an integer >= 1 (got '$PARALLEL')" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --preload)
+      PRELOAD=1
+      shift 1
+      ;;
     -h|--help)
       usage
       exit 0
@@ -154,6 +192,24 @@ if [ -z "$MODE" ]; then
   echo "ERROR: Either --workers N (1-6) or --autoscale must be specified." >&2
   usage >&2
   exit 1
+fi
+
+if [ "$PRELOAD" -eq 1 ] && [ "$MODE" != "fixed" ]; then
+  echo "ERROR: --preload only works with --workers N (fixed mode); autoscale needs the workers to scale up from the queue." >&2
+  exit 1
+fi
+
+if [ "$DATASET" = "large" ]; then
+  IMAGES_DIR="$DATASET_DIR/images-1000"
+  IMAGES_TXT="$DATASET_DIR/images-1000.txt"
+  EXPECTED_IMAGES=1000
+  TIMEOUT="${TIMEOUT:-7200}"
+fi
+TIMEOUT="${TIMEOUT:-1800}"
+NUM_BATCHES=$((EXPECTED_IMAGES / BATCH_SIZE))
+RESULTS_SUFFIX=""
+if [ "$DATASET" = "large" ]; then
+  RESULTS_SUFFIX="-1000"
 fi
 
 if [ "$MODE" = "fixed" ] && { [ -n "$AUTOSCALE_MIN" ] || [ -n "$AUTOSCALE_MAX" ]; }; then
@@ -228,9 +284,9 @@ fi
 
 if [ -z "$OUT_DIR" ]; then
   if [ "$MODE" = "fixed" ]; then
-    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${DATE_UTC}/${TIMESTAMP_UTC}-fixed-${WORKERS}w"
+    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${DATE_UTC}${RESULTS_SUFFIX}/${TIMESTAMP_UTC}-fixed-${WORKERS}w"
   else
-    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${DATE_UTC}/${TIMESTAMP_UTC}-autoscale-${AUTOSCALE_MIN}-${AUTOSCALE_MAX}"
+    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${DATE_UTC}${RESULTS_SUFFIX}/${TIMESTAMP_UTC}-autoscale-${AUTOSCALE_MIN}-${AUTOSCALE_MAX}"
   fi
 fi
 
@@ -242,11 +298,24 @@ mkdir -p "$OUT_DIR"
 # -----------------------------------------------------------------------------
 PORT_FORWARD_PID=""
 SAMPLER_PID=""
+UPLOAD_PIDS=()
+UPLOAD_TMP=""
 ALL_BATCH_IDS=()
+RELEASE_TIME=""
 
 cleanup() {
   local exit_code=$?
   echo "Cleaning up benchmark run..."
+
+  # 0. Stop uploads still in flight (parallel mode)
+  for u_pid in ${UPLOAD_PIDS[@]+"${UPLOAD_PIDS[@]}"}; do
+    pkill -P "$u_pid" 2>/dev/null || true
+    kill "$u_pid" 2>/dev/null || true
+  done
+
+  if [ -n "$UPLOAD_TMP" ]; then
+    rm -rf "$UPLOAD_TMP"
+  fi
 
   # 1. Stop metrics sampler
   if [ -n "$SAMPLER_PID" ] && kill -0 "$SAMPLER_PID" 2>/dev/null; then
@@ -298,8 +367,8 @@ trap cleanup EXIT INT TERM
 # 3. Verify dataset presence
 # -----------------------------------------------------------------------------
 if [ ! -d "$IMAGES_DIR" ] || [ ! -f "$IMAGES_TXT" ]; then
-  echo "Images directory or images.txt not found. Running fetch.sh..."
-  bash "$DATASET_DIR/fetch.sh"
+  echo "Images directory or $(basename "$IMAGES_TXT") not found. Running fetch.sh..."
+  bash "$DATASET_DIR/fetch.sh" --set "$DATASET"
 fi
 
 IMAGE_FILES=()
@@ -308,7 +377,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   [ -z "$line" ] && continue
   [[ "$line" =~ ^# ]] && continue
   read -r col1 col2 _ <<< "$line"
-  if [ "${#col1}" -eq 64 ]; then
+  if [[ "$col1" =~ ^[0-9a-fA-F]{64}$ ]]; then
     fname="$(basename "$col2")"
   else
     fname="$(basename "$col1")"
@@ -316,8 +385,8 @@ while IFS= read -r line || [ -n "$line" ]; do
   IMAGE_FILES+=("$fname")
 done < "$IMAGES_TXT"
 
-if [ "${#IMAGE_FILES[@]}" -ne 100 ]; then
-  echo "ERROR: Expected 100 files from $IMAGES_TXT, found ${#IMAGE_FILES[@]}." >&2
+if [ "${#IMAGE_FILES[@]}" -ne "$EXPECTED_IMAGES" ]; then
+  echo "ERROR: Expected $EXPECTED_IMAGES files from $IMAGES_TXT, found ${#IMAGE_FILES[@]}." >&2
   exit 1
 fi
 
@@ -350,12 +419,73 @@ if [ -z "$API_URL" ]; then
   echo "Web API is ready."
 fi
 
+# Waits until the deployment has exactly $1 Ready pods and no others (incl. Terminating); $2 = number of 2s tries.
+wait_exact_replicas() {
+  local target="$1" tries="$2"
+  spec_replicas=0
+  ready_replicas=0
+  pod_count=0
+  for ((t = 0; t < tries; t++)); do
+    spec_replicas="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
+    ready_replicas="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+    pod_count="$("${KUBECTL[@]}" get pods -l app.kubernetes.io/name=image-worker --no-headers 2>/dev/null | grep -c . || true)"
+    spec_replicas="${spec_replicas:-0}"
+    ready_replicas="${ready_replicas:-0}"
+    pod_count="${pod_count:-0}"
+    if [ "$spec_replicas" -eq "$target" ] && [ "$ready_replicas" -eq "$target" ] && [ "$pod_count" -eq "$target" ]; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+# Appends each worker pod's cumulative CPU seconds (kubelet container_cpu_usage_seconds_total, read through the
+# node proxy) to $OUT_DIR/cpu_counters.csv with phase $1 (start|end). Writes nothing if the raw call is forbidden
+# or fails; summarize.py then falls back to the sampled kubectl top numbers.
+CPU_COUNTERS_WARNED=0
+read_cpu_counters() {
+  local phase="$1" nodes node raw
+  nodes="$("${KUBECTL[@]}" get pods -l app.kubernetes.io/name=image-worker -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>/dev/null | sort -u || true)"
+  for node in $nodes; do
+    if ! raw="$("${KUBECTL[@]}" get --raw "/api/v1/nodes/$node/proxy/metrics/resource" 2>/dev/null)"; then
+      if [ "$CPU_COUNTERS_WARNED" -eq 0 ]; then
+        echo "WARNING: cannot read /api/v1/nodes/$node/proxy/metrics/resource; CPU (counters) will fall back to sampled kubectl top." >&2
+        CPU_COUNTERS_WARNED=1
+      fi
+      continue
+    fi
+    if [ ! -f "$OUT_DIR/cpu_counters.csv" ]; then
+      echo "phase,timestamp,node,pod,cpu_seconds" > "$OUT_DIR/cpu_counters.csv"
+    fi
+    printf '%s\n' "$raw" | awk -v phase="$phase" -v node="$node" -v now="$(date +%s)" '
+      /^container_cpu_usage_seconds_total\{/ && /namespace="imgproc"/ && /container="image-worker"/ {
+        if (match($0, /pod="[^"]*"/) == 0) next
+        pod = substr($0, RSTART + 5, RLENGTH - 6)
+        n = split(substr($0, index($0, "} ") + 2), f, " ")
+        ts = (n >= 2) ? f[2] / 1000 : now
+        printf "%s,%s,%s,%s,%s\n", phase, ts, node, pod, f[1]
+      }' >> "$OUT_DIR/cpu_counters.csv"
+  done
+}
+
 # -----------------------------------------------------------------------------
 # 5. Cluster setup & Warm-up
 # -----------------------------------------------------------------------------
 START_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-if [ "$MODE" = "fixed" ]; then
+if [ "$PRELOAD" -eq 1 ]; then
+  # Preload: hold the workers at 0 so every job waits in the queue. No warm-up batch (it would sit behind the queue);
+  # the lazy model load happens on each worker's first job after the release. Cleanup removes the pause annotation.
+  echo "Preload: pausing ScaledObject/image-worker at 0 replicas..."
+  "${KUBECTL[@]}" annotate scaledobject image-worker "autoscaling.keda.sh/paused-replicas=0" --overwrite
+  echo "Waiting for deployment/image-worker to reach 0 pods..."
+  if ! wait_exact_replicas 0 120; then
+    echo "ERROR: image-worker did not reach 0 pods (spec: $spec_replicas, ready: $ready_replicas, pods: $pod_count)." >&2
+    exit 1
+  fi
+  echo "Workers paused at 0."
+elif [ "$MODE" = "fixed" ]; then
   echo "Setting ScaledObject/image-worker pause annotation to $WORKERS..."
   "${KUBECTL[@]}" annotate scaledobject image-worker "autoscaling.keda.sh/paused-replicas=$WORKERS" --overwrite
 
@@ -528,25 +658,80 @@ sample_metrics &
 SAMPLER_PID=$!
 
 # -----------------------------------------------------------------------------
-# 7. Submit benchmark batches (5 batches of 20)
+# 7. Submit benchmark batches (batches of 20, up to $PARALLEL uploads at the same time)
 # -----------------------------------------------------------------------------
 BENCH_BATCH_IDS=()
-echo "Submitting 100 images as 5 batches of 20 back-to-back..."
+UPLOAD_TMP="$(mktemp -d "$OUT_DIR/.upload.XXXXXX")"
 
-for b in {0..4}; do
-  start_idx=$((b * 20))
-  CURL_ARGS=(-fsS -X POST "$API_URL/api/batches" -F "config={\"targets\":[\"face\",\"plate\"],\"style\":\"blur\"}")
-  for ((i = 0; i < 20; i++)); do
-    idx=$((start_idx + i))
-    CURL_ARGS+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[idx]}")
+# CPU counters, start of the processing window: just before the batches are submitted (preload: once the released
+# workers are Ready, see below).
+if [ "$PRELOAD" -eq 0 ]; then
+  read_cpu_counters start
+fi
+
+# Uploads batch $1 (0-based) and writes its id to $UPLOAD_TMP/$1.
+submit_batch() {
+  local b="$1" start_idx=$(($1 * BATCH_SIZE)) idx resp
+  local curl_args=(-fsS -X POST "$API_URL/api/batches" -F "config={\"targets\":[\"face\",\"plate\"],\"style\":\"blur\"}")
+  for ((idx = start_idx; idx < start_idx + BATCH_SIZE; idx++)); do
+    curl_args+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[idx]}")
   done
+  resp="$(curl "${curl_args[@]}")"
+  python3 -c "import sys, json; print(json.load(sys.stdin)['batch']['id'])" <<< "$resp" > "$UPLOAD_TMP/$b"
+  echo "Submitted batch $((b + 1))/$NUM_BATCHES: $(cat "$UPLOAD_TMP/$b")"
+}
 
-  batch_resp="$(curl "${CURL_ARGS[@]}")"
-  b_id="$(python3 -c "import sys, json; print(json.load(sys.stdin)['batch']['id'])" <<< "$batch_resp")"
-  echo "Submitted batch $((b + 1))/5: $b_id"
-  BENCH_BATCH_IDS+=("$b_id")
-  ALL_BATCH_IDS+=("$b_id")
+echo "Submitting $EXPECTED_IMAGES images as $NUM_BATCHES batches of $BATCH_SIZE (up to $PARALLEL at a time)..."
+upload_failed=0
+for ((b = 0; b < NUM_BATCHES; b++)); do
+  if [ "$PARALLEL" -le 1 ]; then
+    submit_batch "$b"
+  else
+    while :; do
+      running=0
+      for u_pid in ${UPLOAD_PIDS[@]+"${UPLOAD_PIDS[@]}"}; do
+        if kill -0 "$u_pid" 2>/dev/null; then running=$((running + 1)); fi
+      done
+      [ "$running" -lt "$PARALLEL" ] && break
+      sleep 0.2
+    done
+    # The subshell must not run this script's cleanup trap when it is killed.
+    ( trap - EXIT INT TERM; submit_batch "$b" ) &
+    UPLOAD_PIDS+=("$!")
+  fi
 done
+if [ "$PARALLEL" -gt 1 ]; then
+  for u_pid in "${UPLOAD_PIDS[@]}"; do
+    wait "$u_pid" || upload_failed=1
+  done
+  UPLOAD_PIDS=()
+fi
+
+for ((b = 0; b < NUM_BATCHES; b++)); do
+  if [ -s "$UPLOAD_TMP/$b" ]; then
+    b_id="$(cat "$UPLOAD_TMP/$b")"
+    BENCH_BATCH_IDS+=("$b_id")
+    ALL_BATCH_IDS+=("$b_id")
+  fi
+done
+rm -rf "$UPLOAD_TMP"
+if [ "$upload_failed" -ne 0 ] || [ "${#BENCH_BATCH_IDS[@]}" -ne "$NUM_BATCHES" ]; then
+  echo "ERROR: Uploading batches failed (${#BENCH_BATCH_IDS[@]}/$NUM_BATCHES batches created)." >&2
+  exit 1
+fi
+
+if [ "$PRELOAD" -eq 1 ]; then
+  echo "All $NUM_BATCHES batches queued. Releasing $WORKERS worker(s)..."
+  RELEASE_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  "${KUBECTL[@]}" annotate scaledobject image-worker "autoscaling.keda.sh/paused-replicas=$WORKERS" --overwrite
+  echo "Waiting for deployment/image-worker to reach exactly $WORKERS ready replicas (no terminating pods)..."
+  if ! wait_exact_replicas "$WORKERS" 300; then
+    echo "ERROR: image-worker did not reach exactly $WORKERS ready replicas without terminating pods (spec: $spec_replicas, ready: $ready_replicas, pods: $pod_count)." >&2
+    exit 1
+  fi
+  echo "Workers ready: exactly $WORKERS (0 terminating)."
+  read_cpu_counters start
+fi
 
 # -----------------------------------------------------------------------------
 # 8. Wait for all benchmark jobs to become terminal
@@ -588,6 +773,7 @@ if [ "$all_terminal" -ne 1 ]; then
   exit 1
 fi
 echo "All benchmark jobs completed."
+read_cpu_counters end
 
 END_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -659,7 +845,8 @@ SQL_IDS="$(printf "'%s'," "${BENCH_BATCH_IDS[@]}" | sed 's/,$//')"
       replace(to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US'), ' ', 'T') || 'Z' AS created_at,
       replace(to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US'), ' ', 'T') || 'Z' AS updated_at,
       (result_summary->>'processingTimeMs')::int AS processing_time_ms,
-      result_summary->>'imageSize' AS image_size
+      result_summary->>'imageSize' AS image_size,
+      original_filename
     FROM jobs
     WHERE batch_id IN ($SQL_IDS)
     ORDER BY created_at ASC;
@@ -703,6 +890,7 @@ MODE="$MODE" WORKERS="${WORKERS:-}" AUTOSCALE_MIN="${AUTOSCALE_MIN:-}" AUTOSCALE
 ORIGINAL_MIN="${ORIGINAL_MIN:-}" ORIGINAL_MAX="${ORIGINAL_MAX:-}" CONTAINER_IMAGE="$CONTAINER_IMAGE" \
 CPU_LIMIT="$CPU_LIMIT" MEM_LIMIT="$MEM_LIMIT" NODE_NAME="$NODE_NAME" NODE_CPU_COUNT="$NODE_CPU_COUNT" \
 GPU="$GPU" IMAGES_TXT_HASH="$IMAGES_TXT_HASH" START_TIME="$START_TIME" END_TIME="$END_TIME" \
+DATASET="$DATASET" PARALLEL="$PARALLEL" PRELOAD="$PRELOAD" RELEASE_TIME="$RELEASE_TIME" \
 OUT_DIR="$OUT_DIR" python3 - <<'EOF'
 import json
 import os
@@ -730,6 +918,10 @@ meta = {
     "images_txt_hash": os.environ["IMAGES_TXT_HASH"],
     "start_time": os.environ["START_TIME"],
     "end_time": os.environ["END_TIME"],
+    "dataset": os.environ["DATASET"],
+    "parallel": num("PARALLEL"),
+    "preload": os.environ["PRELOAD"] == "1",
+    "workers_released_at": os.environ["RELEASE_TIME"] or None,
 }
 with open(os.path.join(os.environ["OUT_DIR"], "meta.json"), "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)

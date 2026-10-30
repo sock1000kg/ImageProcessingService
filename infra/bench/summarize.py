@@ -11,7 +11,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -75,6 +75,72 @@ def parse_memory(mem_str: str) -> float:
     return float(mem_str) / (1024.0 * 1024.0)
 
 
+DATASET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset")
+MANIFESTS = {"small": "images.txt", "large": "images-1000.txt"}
+SUBSETS = (("wider", "WIDER (faces)"), ("vn", "VN plates"))
+
+
+def load_subsets(dataset: str) -> Dict[str, str]:
+    """Map image file name -> subset ('wider' or 'vn') from the manifest paths of the dataset."""
+    path = os.path.join(DATASET_DIR, MANIFESTS.get(dataset, MANIFESTS["small"]))
+    mapping: Dict[str, str] = {}
+    if not os.path.isfile(path):
+        return mapping
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            parts = line.split()
+            if not parts or line.startswith("#"):
+                continue
+            src = parts[1] if re.fullmatch(r"[0-9a-fA-F]{64}", parts[0]) and len(parts) > 1 else parts[0]
+            if src.startswith("WIDER_val/"):
+                mapping[os.path.basename(src)] = "wider"
+            elif src.startswith("Dataset/Test/"):
+                mapping[os.path.basename(src)] = "vn"
+    return mapping
+
+
+def subset_stats(by_subset: Dict[str, List[float]]) -> Optional[Dict[str, Dict[str, float]]]:
+    """Per-subset processing time stats (n, p50, p95) or None when no image could be mapped."""
+    if not any(by_subset.get(k) for k, _ in SUBSETS):
+        return None
+    return {
+        k: {
+            "n": len(by_subset.get(k, [])),
+            "p50": percentile(by_subset.get(k, []), 50),
+            "p95": percentile(by_subset.get(k, []), 95),
+        }
+        for k, _ in SUBSETS
+    }
+
+
+def read_cpu_counters(res_dir: str) -> Optional[float]:
+    """Average CPU (millicores) per worker from cpu_counters.csv: delta cpu-seconds / window,
+    over the workers present at both the start and the end. None if there is no usable data."""
+    path = os.path.join(res_dir, "cpu_counters.csv")
+    if not os.path.isfile(path):
+        return None
+    start: Dict[Tuple[str, str], Tuple[float, float]] = {}
+    end: Dict[Tuple[str, str], Tuple[float, float]] = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            try:
+                key = (row["node"], row["pod"])
+                val = (float(row["timestamp"]), float(row["cpu_seconds"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if row.get("phase") == "start":
+                start[key] = val
+            elif row.get("phase") == "end":
+                end[key] = val
+    rates = []
+    for key, (t0, c0) in start.items():
+        if key in end:
+            t1, c1 = end[key]
+            if t1 > t0 and c1 >= c0:
+                rates.append((c1 - c0) / (t1 - t0) * 1000.0)
+    return sum(rates) / len(rates) if rates else None
+
+
 def analyze_dir(res_dir: str) -> Dict[str, Any]:
     """Parse results directory and compute benchmark metrics."""
     res_dir = os.path.abspath(res_dir)
@@ -102,6 +168,10 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
     images_txt_hash = meta.get("images_txt_hash", "unknown")
     meta_start = meta.get("start_time", "")
     meta_end = meta.get("end_time", "")
+    dataset = meta.get("dataset", "small")
+    preload = bool(meta.get("preload", False))
+    parallel = meta.get("parallel", 1)
+    released_at = meta.get("workers_released_at")
 
     # Check for deface run (per_image.csv)
     per_image_path = os.path.join(res_dir, "per_image.csv")
@@ -112,12 +182,18 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
         total_images = 0
         failed_count = 0
         proc_times: List[float] = []
+        subset_map = load_subsets(dataset)
+        by_subset: Dict[str, List[float]] = {}
         with open(per_image_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 total_images += 1
                 try:
-                    proc_times.append(float(row.get("duration_ms", 0.0)))
+                    ms = float(row.get("duration_ms", 0.0))
+                    proc_times.append(ms)
+                    sub = subset_map.get(os.path.basename(row.get("filename", "")))
+                    if sub:
+                        by_subset.setdefault(sub, []).append(ms)
                 except (ValueError, TypeError):
                     pass
         model_load_time = float(meta.get("model_load_time_seconds", 0.0))
@@ -169,6 +245,13 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
             "time_to_ready": None,
             "time_back_to_min": None,
             "time_back_to_zero": None,
+            "dataset": dataset,
+            "preload": False,
+            "parallel": None,
+            "workers_released_at": None,
+            "drain_throughput": None,
+            "subsets": subset_stats(by_subset),
+            "cpu_counters": None,
         }
 
     if mode == "autoscale":
@@ -196,6 +279,9 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
     e2e_latencies: List[float] = []
     created_times: List[datetime] = []
     updated_times: List[datetime] = []
+    start_times: List[datetime] = []
+    subset_map = load_subsets(dataset)
+    by_subset_jobs: Dict[str, List[float]] = {}
 
     if os.path.isfile(jobs_path):
         with open(jobs_path, "r", encoding="utf-8") as f:
@@ -219,7 +305,14 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
                 proc_str = row.get("processing_time_ms")
                 if proc_str and proc_str.strip():
                     try:
-                        proc_times.append(float(proc_str))
+                        proc_ms = float(proc_str)
+                        proc_times.append(proc_ms)
+                        sub = subset_map.get(os.path.basename(row.get("original_filename") or ""))
+                        if sub:
+                            by_subset_jobs.setdefault(sub, []).append(proc_ms)
+                        if updated_str:
+                            # Estimated moment a worker started this job
+                            start_times.append(parse_iso(updated_str) - timedelta(milliseconds=proc_ms))
                     except ValueError:
                         pass
 
@@ -234,6 +327,13 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
         t_last = None
         duration_sec = 0.0
         throughput = 0.0
+
+    # Drain throughput (images/min from the first job's processing start to the last job finished):
+    # the workers' capacity, independent of how fast the images were uploaded.
+    drain_throughput: Optional[float] = None
+    if start_times and updated_times:
+        drain_sec = max(0.001, (max(updated_times) - min(start_times)).total_seconds())
+        drain_throughput = (total_images / drain_sec) * 60.0
 
     # Percentiles
     proc_p50 = percentile(proc_times, 50)
@@ -355,6 +455,13 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
         "time_to_ready": time_to_ready,
         "time_back_to_min": time_back_to_min,
         "time_back_to_zero": time_back_to_min,
+        "dataset": dataset,
+        "preload": preload,
+        "parallel": parallel,
+        "workers_released_at": released_at,
+        "drain_throughput": drain_throughput,
+        "subsets": subset_stats(by_subset_jobs),
+        "cpu_counters": read_cpu_counters(res_dir),
     }
 
 
@@ -372,12 +479,22 @@ def write_single_summary(data: Dict[str, Any]) -> str:
     else:
         mode_str = data["mode"]
 
+    drain_str = f"{data['drain_throughput']:.2f}" if data.get("drain_throughput") is not None else "N/A"
+
+    cpu_str = (
+        f"{data['cpu_counters']:.0f} mCPU" if data.get("cpu_counters") is not None
+        else f"{data['avg_cpu']:.0f} mCPU (sampled)"
+    )
+
     md = f"""# Benchmark Summary: {data['dir_name']}
 
 ## Run Context
 | Parameter | Value |
 | --- | --- |
 | **Mode** | {mode_str} |
+| **Dataset** | {data['dataset']} |
+| **Parallel Uploads** | {data['parallel']} |
+| **Preload** | {'yes (workers released at ' + str(data['workers_released_at']) + ')' if data['preload'] else 'no'} |
 | **Container Image** | `{data['container_image']}` |
 | **CPU Limit** | {data['cpu_limit']} |
 | **Memory Limit** | {data['memory_limit']} |
@@ -394,7 +511,8 @@ def write_single_summary(data: Dict[str, Any]) -> str:
 | **Total Images** | {data['total_images']} |
 | **Failed Jobs** | {data['failed_count']} |
 | **Total Processing Duration** | {data['duration_sec']:.2f} s |
-| **Throughput** | **{data['throughput']:.2f} images/min** |
+| **Throughput (end-to-end)** | **{data['throughput']:.2f} images/min** |
+| **Drain Throughput** | **{drain_str} images/min** |
 | **Throughput per Worker** | **{data['thpt_per_worker']:.2f} images/min/worker** |
 
 ## Latency
@@ -408,7 +526,19 @@ def write_single_summary(data: Dict[str, Any]) -> str:
 | --- | --- | --- |
 | **CPU** | {data['peak_cpu']:.0f} mCPU | {data['avg_cpu']:.0f} mCPU |
 | **Memory (RAM)** | {data['peak_mem']:.1f} MiB | {data['avg_mem']:.1f} MiB |
+
+**CPU (counters)**: {cpu_str} per worker (Δ`container_cpu_usage_seconds_total` / window, workers present at start and end; `(sampled)` = `kubectl top` average).
 """
+
+    if data.get("subsets"):
+        md += """
+## Processing Time by Subset
+| Subset | Images | p50 | p95 |
+| --- | --- | --- | --- |
+"""
+        for key, label in SUBSETS:
+            st = data["subsets"][key]
+            md += f"| **{label}** | {st['n']} | {st['p50']:.1f} ms | {st['p95']:.1f} ms |\n"
 
     if data["mode"] == "autoscale":
         t_rdy = f"{data['time_to_ready']:.2f} s" if data['time_to_ready'] is not None else "N/A"
@@ -432,8 +562,8 @@ def format_combined_table(all_data: List[Dict[str, Any]]) -> str:
     lines = [
         "## Benchmark Comparison Summary",
         "",
-        "| Run | Mode | Range | Images | Failed | Throughput (img/min) | Thpt/Worker (img/min) | E2E Latency p50 | E2E Latency p95 | Proc Time p50 | Proc Time p95 | Peak CPU | Avg CPU/Worker | Peak RAM | Cold Start | Time back to min |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Run | Mode | Dataset | Preload | Range | Images | Failed | Throughput (img/min) | Drain Throughput (img/min) | Thpt/Worker (img/min) | E2E Latency p50 | E2E Latency p95 | Proc Time p50 | Proc Time p95 | Peak CPU | Avg CPU/Worker | CPU (counters) | Peak RAM | Cold Start | Time back to min |",
+        "|" + " --- |" * 20,
     ]
 
     has_deface = False
@@ -448,10 +578,12 @@ def format_combined_table(all_data: List[Dict[str, Any]]) -> str:
             proc_95 = f"{d['proc_p95']:.0f}ms"
             pk_cpu = "-"
             avg_cpu = "-"
+            cpu_cnt = "-"
             pk_mem = "-"
             c_start = f"{d.get('model_load_time', 0.0):.2f}s"
             s_down = "-"
             thpt_w = f"{d['thpt_per_worker']:.2f}"
+            preload_label = "-"
         else:
             m_label = d["mode"].capitalize()
             r_label = f"{d['worker_count']}" if d["mode"] == "fixed" else f"{d['min_replicas']}→{d['max_replicas_meta']}"
@@ -461,25 +593,94 @@ def format_combined_table(all_data: List[Dict[str, Any]]) -> str:
             proc_95 = f"{d['proc_p95']:.0f}ms"
             pk_cpu = f"{d['peak_cpu']:.0f}m"
             avg_cpu = f"{d['avg_cpu']:.0f}m"
+            cpu_cnt = (
+                f"{d['cpu_counters']:.0f}m" if d.get("cpu_counters") is not None
+                else f"{d['avg_cpu']:.0f}m (sampled)"
+            )
             pk_mem = f"{d['peak_mem']:.0f}MiB"
             c_start = f"{d['time_to_ready']:.1f}s" if d["time_to_ready"] is not None else "-"
             s_down = f"{d['time_back_to_min']:.1f}s" if d["time_back_to_min"] is not None else "-"
             thpt_w = f"{d['thpt_per_worker']:.2f}"
+            preload_label = "yes" if d["preload"] else "no"
 
+        drain = f"**{d['drain_throughput']:.2f}**" if d.get("drain_throughput") is not None else "-"
         lines.append(
-            f"| `{d['dir_name']}` | {m_label} | {r_label} | {d['total_images']} | {d['failed_count']} | "
-            f"**{d['throughput']:.2f}** | {thpt_w} | {e2e_50} | {e2e_95} | {proc_50} | {proc_95} | "
-            f"{pk_cpu} | {avg_cpu} | {pk_mem} | {c_start} | {s_down} |"
+            f"| `{d['dir_name']}` | {m_label} | {d['dataset']} | {preload_label} | {r_label} | {d['total_images']} | {d['failed_count']} | "
+            f"**{d['throughput']:.2f}** | {drain} | {thpt_w} | {e2e_50} | {e2e_95} | {proc_50} | {proc_95} | "
+            f"{pk_cpu} | {avg_cpu} | {cpu_cnt} | {pk_mem} | {c_start} | {s_down} |"
         )
+
+    with_subsets = [d for d in all_data if d.get("subsets")]
+    if with_subsets:
+        lines += [
+            "",
+            SUBSET_HEADING,
+            "",
+            "| Run | Dataset | WIDER (faces) images | WIDER p50 | WIDER p95 | VN plates images | VN p50 | VN p95 |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for d in with_subsets:
+            w, v = d["subsets"]["wider"], d["subsets"]["vn"]
+            lines.append(
+                f"| `{d['dir_name']}` | {d['dataset']} | {w['n']} | {w['p50']:.0f}ms | {w['p95']:.0f}ms | "
+                f"{v['n']} | {v['p50']:.0f}ms | {v['p95']:.0f}ms |"
+            )
 
     if has_deface:
         lines.append("")
         lines.append(
-            "> **Note**: faces only (no plates), local files, no queue/upload, "
-            "so compare with our `processingTimeMs`, not our end-to-end time."
+            "> **Note (deface)**: faces only (plates stay unredacted), local files, no queue/upload, so compare with our "
+            "`processingTimeMs`, not our end-to-end time. The fair speed comparison is the WIDER (faces) subset."
         )
+    lines.append("")
+    lines.append(
+        "> **Note (CPU)**: `CPU (counters)` = Δ`container_cpu_usage_seconds_total` / window per worker "
+        "(workers present at the start and the end of the run); `(sampled)` = `kubectl top` average."
+    )
 
     return "\n".join(lines)
+
+
+GENERATED_HEADING = "## Benchmark Comparison Summary"
+TABLE_HEADER_PREFIX = "| Run |"
+SUBSET_HEADING = "### Processing time by subset"
+# Lines that belong to the generated block besides table rows (the first one is the pre-subset note format)
+GENERATED_PREFIXES = ("> **Note**: faces only", "> **Note (deface)**", "> **Note (CPU)**", SUBSET_HEADING)
+
+
+def merge_comparison(existing: Optional[str], combined: str) -> str:
+    """Replace only the generated table block in an existing comparison.md.
+
+    Everything above the table (the user's notes) and anything after the generated block is kept.
+    The block starts at the generated heading, or at the table header row if the heading was removed.
+    """
+    if not existing:
+        return combined + "\n"
+    lines = existing.split("\n")
+    start = next((i for i, ln in enumerate(lines) if ln.strip() == GENERATED_HEADING), None)
+    if start is None:
+        start = next((i for i, ln in enumerate(lines) if ln.startswith(TABLE_HEADER_PREFIX)), None)
+    if start is None:
+        # No generated block yet: keep all notes and append the table below them.
+        return existing.rstrip("\n") + "\n\n" + combined + "\n"
+
+    end = start
+    for i in range(start, len(lines)):
+        ln = lines[i]
+        if i == start or not ln.strip() or ln.startswith("|") or ln.startswith(GENERATED_PREFIXES):
+            end = i + 1
+        else:
+            break
+    new_block = combined.split("\n")
+    if lines[start].strip() != GENERATED_HEADING:
+        new_block = new_block[2:]  # the user removed the heading, keep it removed
+    tail = lines[end:]
+    while tail and not tail[-1].strip():
+        tail.pop()
+    out = lines[:start] + new_block
+    if tail:
+        out += [""] + [ln for ln in tail]
+    return "\n".join(out) + "\n"
 
 
 def resolve_run_dirs(inputs: List[str]) -> Tuple[List[str], Optional[str]]:
@@ -551,8 +752,12 @@ def main() -> None:
 
     if machine_folder:
         comp_file = os.path.join(machine_folder, "comparison.md")
+        existing: Optional[str] = None
+        if os.path.isfile(comp_file):
+            with open(comp_file, "r", encoding="utf-8") as f:
+                existing = f.read()
         with open(comp_file, "w", encoding="utf-8") as f:
-            f.write(combined + "\n")
+            f.write(merge_comparison(existing, combined))
         print(f"Wrote combined comparison table to {comp_file}")
 
 

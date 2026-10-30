@@ -121,13 +121,13 @@ fi
 # Wait for k3s kubeconfig and node to become Ready
 echo "==> Waiting for k3s server node to reach Ready state..."
 for _ in $(seq 1 60); do
-  if [ -f /etc/rancher/k3s/k3s.yaml ] && k3s kubectl get nodes 2>/dev/null | grep -q " Ready"; then
+  if [ -f /etc/rancher/k3s/k3s.yaml ] && k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get nodes 2>/dev/null | grep -q " Ready"; then
     break
   fi
   sleep 2
 done
 
-if ! k3s kubectl get nodes 2>/dev/null | grep -q " Ready"; then
+if ! k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get nodes 2>/dev/null | grep -q " Ready"; then
   echo "ERROR: k3s node did not become Ready within 120 seconds. Check /var/log/k3s-bench.log" >&2
   exit 1
 fi

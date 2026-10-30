@@ -51,6 +51,7 @@ This document outlines the complete plan to deploy the foundational infrastructu
         - [x] Configure the MinIO `results` bucket for public read-only access.
         - [x] Set up an HTTPRoute `minio-results` on the lab's `traefik-gateway` (ns `traefik`) routing `/results/` directly to MinIO `minio:9000` without path rewrite (Same-Origin Routing). Public hostname (`imgproc.sock1000kg.io.vn`) is configured by the user in the Cloudflare dashboard pointing at `http://traefik.traefik.svc.cluster.local:80`.
         - [x] Configure MinIO lifecycle policies (TTL) to automatically delete objects in `uploads` and `results` sau 24 giờ (MVP data deletion).
+        - [ ] Phase 2, ship together with the web media library (contract §5): drop the lifecycle rule on both buckets (data is kept until the user deletes it; the web enforces the optional `RETENTION_DAYS`). `setup-buckets.sh` must remove the existing rule on re-run (`mc ilm rule rm --all`), not only skip importing it.
 *   **Verification:**
         - [ ] Verify PostgreSQL connectivity from a temporary client pod.
         - [ ] Upload a test image to the `results` bucket and verify it is publicly accessible via the `/results/...` ingress route.

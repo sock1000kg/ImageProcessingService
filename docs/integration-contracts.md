@@ -164,7 +164,7 @@ Cùng hai script đó chạy ở **cả local lẫn cluster**, nên code chạy 
 
 - Stream dùng retention **workqueue**: mỗi message chỉ được một consumer nhận. Vì vậy **không được tạo thêm consumer** trên các stream này (NATS sẽ từ chối, và KEDA chỉ theo dõi lag của đúng các consumer trên).
 - Mọi consumer dùng explicit ack. Worker ack sau khi upload kết quả xong. Job xử lý lâu hơn `ack_wait` phải gửi `in_progress()` định kỳ.
-- Bucket MinIO: `uploads` (private), `results` (public chỉ đọc qua `/results/<key>`). Cả hai tự xoá object sau **24 giờ**.
+- Bucket MinIO: `uploads` (private), `results` (public chỉ đọc qua `/results/<key>`). Phase 1: cả hai tự xoá object sau **24 giờ**. Từ Phase 2: giữ tới khi người dùng xoá (mục 5).
 - Mỗi worker Deployment chỉ phục vụ **một pool** (một stream + một consumer, cấu hình qua env), để KEDA scale từng pool độc lập.
 
 **Khi worker chết giữa chừng / lỗi tạm thời:**
@@ -201,12 +201,14 @@ Không dùng file compose riêng của từng team cho NATS/MinIO, vì chúng kh
 - Ảnh mẫu whitelist: `uploads/<batchId>/whitelist/face-<n>.<ext>` (private, không bao giờ public).
 - URL public của kết quả: `/results/<key trong bucket results>`. `batchId`/`jobId` là UUID v4, khó đoán, và đó là cơ chế bảo vệ link public duy nhất ở Phase 1.
 - Ảnh gốc ở `uploads` là private. UI cần hiển thị ảnh gốc (thanh trượt before/after) thì Backend cung cấp qua API (stream hoặc presigned URL ngắn hạn).
-- Mọi object tự xoá sau 24 giờ (mục 4).
+- Thời gian giữ object: xem "Xoá dữ liệu" bên dưới.
 
 **Xoá dữ liệu** (đề tài: "xoá dữ liệu sau khi xử lý theo hạn hoặc khi người dùng yêu cầu"):
-- **Theo hạn:** MinIO lifecycle xoá object sau 24h. Backend xoá (hoặc đánh dấu `EXPIRED`) batch/job quá 24h trong PostgreSQL, để UI không trỏ tới object đã mất.
+- **Theo hạn:**
+    - Phase 1 (chưa có tài khoản, không có chỗ tìm lại batch cũ): MinIO lifecycle xoá mọi object sau 24h. Backend xoá (hoặc đánh dấu `EXPIRED`) batch/job quá 24h trong PostgreSQL, để UI không trỏ tới object đã mất.
+    - Từ Phase 2 (có thư viện media): ảnh gốc và kết quả **giữ tới khi người dùng xoá**. Infra bỏ lifecycle của cả hai bucket. Người quản trị instance có thể đặt env `RETENTION_DAYS` để Backend dọn batch cũ hơn N ngày (cả MinIO và PG); để trống = giữ mãi. Giữ ảnh gốc để người dùng sửa ảnh, thử lại ảnh lỗi, chạy lại batch với cấu hình khác mà không phải tải lên lại.
 - **Khi người dùng yêu cầu:** Backend xoá prefix `uploads/<batchId>/` và `results/<batchId>/` trên MinIO, rồi xoá dòng PG. Phase 1 không có tài khoản, nên ai có link batch (UUID) thì được xoá.
-- **Ảnh mẫu whitelist** là dữ liệu sinh trắc: Backend xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch đã kết thúc, không đợi 24h. Sau đó thử lại ảnh lỗi của batch có whitelist trả 410 (không được chạy lại mà thiếu whitelist, vì sẽ che cả người quen). Người dùng tạo batch mới.
+- **Ảnh mẫu whitelist** là dữ liệu sinh trắc: Backend xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch đã kết thúc, không đợi 24h. Sau đó thử lại ảnh lỗi của batch có whitelist trả 410 (không được chạy lại mà thiếu whitelist, vì sẽ che cả người quen). Người dùng tạo batch mới. Ngoại lệ duy nhất (Phase 2, chưa chốt): danh sách khuôn mặt người dùng **chủ động** bấm lưu, giữ tới khi người dùng xoá danh sách.
 
 ---
 
@@ -231,7 +233,7 @@ Không dùng file compose riêng của từng team cho NATS/MinIO, vì chúng kh
 ### Infrastructure owns
 
 - Streams, consumers, buckets and their settings (mục 4)
-- MinIO lifecycle (TTL 24h) and the public `/results/` route
+- MinIO lifecycle (TTL 24h on both buckets in Phase 1, removed in Phase 2, see §5) and the public `/results/` route
 - KEDA ScaledObjects, worker Deployments, resource limits
 
 ### NATS owns

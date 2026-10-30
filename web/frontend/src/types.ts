@@ -23,7 +23,13 @@ export type Detection = {
   lowConfidence: boolean | null;
   needsReview: boolean | null;
   similarityNearThreshold: boolean | null;
+  reviewReasons: ReviewReason[];
 };
+
+export type ReviewReason =
+  | "Low confidence"
+  | "Similarity near whitelist threshold"
+  | "Engine reported needsReview";
 
 export type ReportImage = {
   jobId: string;
@@ -31,6 +37,10 @@ export type ReportImage = {
   status: string;
   counts: Record<string, number> | null;
   detections: Detection[];
+  needsReview: boolean;
+  reviewReasons: ReviewReason[];
+  lowestRedactedConfidence: number | null;
+  reviewDetections: Detection[];
   model: string | null;
   processingTimeMs: number | null;
   similarityThreshold: number | null;
@@ -52,6 +62,8 @@ export type BatchReport = {
   };
   images: ReportImage[];
   lowConfidenceDetections: Array<Detection & { jobId: string; originalFilename: string }>;
+  reviewImages: Array<{ jobId: string; originalFilename: string; reviewReasons: ReviewReason[] }>;
+  reviewDetections: Array<Detection & { jobId: string; originalFilename: string }>;
 };
 
 export type Batch = {

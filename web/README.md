@@ -215,7 +215,7 @@ The Engine must have its Python environment, model weights, and configuration re
 | --- | --- | --- |
 | `POST` | `/api/batches` | Multipart upload: `files` (1..20), `whitelist` (0..5), `config` JSON string |
 | `GET` | `/api/batches/:id` | Batch details and jobs |
-| `GET` | `/api/batches/:id/report` | Batch report with totals and detections when provided by Engine |
+| `GET` | `/api/batches/:id/report` | Batch report with totals, review images/reasons, and detections when provided by Engine |
 | `DELETE` | `/api/batches/:id` | Delete the batch and its `uploads`/`results` objects |
 | `GET` | `/api/jobs/:id` | Job status and details |
 | `POST` | `/api/jobs/:id/retry` | Retry a `FAILED` job with a new job ID and output key |
@@ -233,6 +233,10 @@ The Engine must have its Python environment, model weights, and configuration re
 - `config`: serialized JSON configuration.
 
 The backend creates one job per image and publishes one `image-redact` command per job. The three-step `DRAFT`/`files`/`start` API described in the longer Web plan is not implemented yet.
+
+The Create Batch page also supports selecting a folder (including nested folders) in browsers that expose `webkitdirectory`. Files are validated locally before submission: only JPG/JPEG, PNG, and WEBP are accepted, each file is limited to 50 MB, and a batch is limited to 20 files. Invalid or excess files are reported and are never added to `FormData`; choosing a folder does not upload until **Create secure batch** is pressed. Folder selection is a UI convenience only—the API contract remains the same single multipart request.
+
+The report keeps Engine-provided review signals authoritative. An image is marked `needsReview` only when a detection has `lowConfidence: true`, `needsReview: true`, or a provided `similarity` value is within `0.05` of the configured `similarityThreshold`. Missing similarity, confidence, boxes, or flags remain `null`/empty and are not fabricated. Each image also exposes `reviewReasons`, `reviewDetections`, and `lowestRedactedConfidence`; the latter is calculated only from redacted detections that contain confidence.
 
 ## Error response format
 

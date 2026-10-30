@@ -37,7 +37,7 @@ Tất cả stream, consumer và bucket do **Infra tạo sẵn** (xem mục 4). A
 ### Các trường chung
 * `jobId` *(UUID v4)*: định danh job.
 * `batchId` *(UUID v4, tuỳ chọn)*: batch chứa job. Worker không dùng, chỉ trả lại trong event.
-* `type` *(string)*: `image-redact`, `video-redact`.
+* `type` *(string)*: `image-redact`, `video-redact`, `image-render` (Phase 2).
 * `input` / `output`: `{bucket, key}` trên MinIO (đường dẫn xem mục 5).
 * `params` *(object)*: cấu hình theo từng loại job (bên dưới).
 
@@ -46,7 +46,7 @@ Tất cả stream, consumer và bucket do **Infra tạo sẵn** (xem mục 4). A
 | :--- | :--- | :--- | :--- |
 | `targets` | `["face","plate"]` | cả hai | Loại đối tượng cần che. |
 | `style` | `"blur"` \| `"pixelate"` \| `"blackout"` | `"blur"` | Gaussian blur / mosaic / băng đen. |
-| `strength` | số nguyên | blur: 25, pixelate: 12 | Bán kính blur hoặc kích thước ô pixel. Bỏ qua với `blackout`. |
+| `strength` | số nguyên | blur: 15, pixelate: 8 | **Tương đối theo kích thước box** (sau khi nới `padding`), để mặt to hay nhỏ đều bị che như nhau. blur: bán kính Gaussian = `strength`% chiều rộng box (1–50). pixelate: số ô theo chiều rộng box (3–32, càng nhỏ càng thô). Bỏ qua với `blackout`. *(Đề xuất, chờ Engine xác nhận. Trước đây là số px cố định: pixelate 12px trên mặt 600px còn ~50×50 ô, vẫn nhận ra người.)* |
 | `padding` | số thực 0–0.5 | 0.1 | Nới rộng box theo tỉ lệ để che kín mép. |
 
 ### Chất lượng đầu ra (`params.output`, dùng chung cho mọi loại)
@@ -89,10 +89,36 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
 * `confidenceThreshold`: dưới ngưỡng này thì bỏ qua phát hiện.
 * `reviewThreshold`: phát hiện có confidence dưới ngưỡng này vẫn được che, nhưng bị đánh dấu `lowConfidence` để người dùng kiểm tra lại.
 * `whitelist.faces`: ảnh chân dung mẫu (tuỳ chọn). Khuôn mặt có cosine similarity ≥ `similarityThreshold` với **bất kỳ** mẫu nào thì **không** bị che. Ưu tiên tránh nhận nhầm người lạ, nên khi phân vân thì che.
-* Whitelist biển số cần OCR nên để **Phase 2**.
+* `whitelist.mode` *(Phase 2, đề xuất, chờ Engine xác nhận)*: `"allow"` (mặc định, như trên: khuôn mặt khớp mẫu thì **không** che) hoặc `"block"` (ngược lại: **chỉ** che khuôn mặt khớp mẫu, khuôn mặt khác giữ nguyên). Mỗi job chỉ một chế độ. Chế độ `block` cần ít nhất một ảnh mẫu (Backend kiểm tra) và hỏng theo hướng **lộ** (khớp trượt thì người cần che bị lộ), nên Web gửi `similarityThreshold` thấp hơn và đánh dấu khuôn mặt sát ngưỡng để kiểm tra. Chế độ chỉ áp cho khuôn mặt (và biển số khi có `whitelist.plates`); `targets` vẫn quyết định loại nào được xét. Trong `resultSummary` ở chế độ `block`: khuôn mặt khớp có `redacted: true` kèm `whitelistRef`, `whitelisted` luôn `false`; `counts` thêm `blockedFace` (số khuôn mặt bị che vì khớp mẫu).
+* `whitelist.plates` *(Phase 2, Should, cần OCR, đề xuất)*: danh sách biển số, ví dụ `["30A12345", "51G-678.90"]`. So khớp sau khi chuẩn hoá cả hai phía (viết hoa, bỏ khoảng trắng, `-`, `.`), phải **trùng hoàn toàn**. OCR không đọc được hoặc không chắc thì coi như không khớp (chế độ `allow` → vẫn che). `whitelist.mode` áp cho cả biển số.
 
-### B. `video-redact` (subject `jobs.video`, Phase 2)
-Cùng `params` như `image-redact`, thêm theo dõi đối tượng (ByteTrack) để vết che không nhấp nháy. Giữ nguyên âm thanh gốc bằng FFmpeg. Đầu vào MP4 (H.264), 15–60 giây. Đầu ra MP4. Chi tiết `resultSummary` chốt khi bắt đầu Phase 2.
+### B. `video-redact` (subject `jobs.video`, Phase 2, đề xuất, chờ Engine xác nhận)
+Cùng `params` như `image-redact` (`redaction`, `output.quality` → CRF theo bảng trên, `confidenceThreshold`, `reviewThreshold`, `whitelist`), cùng shape command, `input.key` là `.../input.mp4`, `output.key` là `.../result.mp4`.
+* Đầu vào: MP4 H.264, 15–60 giây. **Backend** kiểm tra trước khi tạo job (codec, thời lượng); file lọt qua mà Engine không đọc được → `INVALID_INPUT_FILE`.
+* Đầu ra: MP4 H.264, **giữ nguyên độ phân giải và fps**, **copy nguyên audio gốc** (không encode lại). Xoá metadata vị trí.
+* Theo dõi đối tượng (ByteTrack) để mỗi người/biển số là một **track** có `trackId`; vết che không nhấp nháy. Mất phát hiện vài khung trong một track thì nội suy box để vẫn che (giới hạn số khung nội suy do Engine chọn).
+* Whitelist so theo **track** (embedding của track, không phải từng khung).
+* Tiến độ: event `PROCESSING` với `progress` = % số khung đã xử lý, tối đa ~1 event/2 giây.
+
+### C. `image-render` (subject `jobs.image`, Phase 2 Could, đề xuất, chờ Engine xác nhận)
+Che lại một ảnh theo **danh sách box có sẵn**, không chạy model. Dùng cho nút "Sửa ảnh" của Web: người dùng bật/tắt box, vẽ thêm box, đổi style/độ mạnh. Mỗi lần sửa là một job mới (`jobId` mới, kết quả ở key mới theo mục 5), ảnh kết quả cũ giữ nguyên tới khi Backend xoá.
+```json
+{
+  "jobId": "9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d",
+  "batchId": "0f1e2d3c-4b5a-4697-8877-665544332211",
+  "type": "image-render",
+  "input":  { "bucket": "uploads", "key": "0f1e2d3c-4b5a-4697-8877-665544332211/a1b2c3d4-5678-40ab-8def-112233445566/input.jpg" },
+  "output": { "bucket": "results", "key": "0f1e2d3c-4b5a-4697-8877-665544332211/9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d/result.jpg" },
+  "params": {
+    "redaction": { "style": "blur", "strength": 15, "padding": 0.1 },
+    "output": { "quality": "high" },
+    "boxes": [ { "label": "face", "box": [34, 12, 120, 250] }, { "label": "custom", "box": [500, 600, 700, 660] } ]
+  }
+}
+```
+* `input` là **ảnh gốc** (không che chồng lên kết quả cũ). `boxes` theo pixel ảnh gốc, **trước** `padding`, cùng quy ước với `detections` (Web gửi lại các detection người dùng giữ + box tự vẽ). `label` chỉ để ghi lại: `face`, `plate`, `custom`.
+* Danh sách rỗng được (xuất ảnh không che gì). Box ngoài biên ảnh thì cắt vào trong; box rỗng/sai → `INVALID_INPUT_FILE`.
+* Định dạng, chất lượng, xoá EXIF: như `image-redact`.
 
 ---
 
@@ -133,6 +159,33 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
 * `box` = `[x1, y1, x2, y2]` theo pixel của ảnh gốc, **trước** khi nới `padding`. UI dùng các box này để liệt kê/đánh dấu phát hiện trên ảnh.
 * `whitelistRef`: vị trí (từ 0) của ảnh mẫu trong `params.whitelist.faces` khớp với khuôn mặt này. Chỉ có khi `whitelisted: true`. Dùng để báo cáo "người X xuất hiện trong N ảnh". `similarity` (giá trị cao nhất so với các mẫu) có ở **mọi** khuôn mặt khi batch có whitelist, kể cả khuôn mặt không khớp, để Web biết khuôn mặt nào sát ngưỡng.
 * `model` cho biết model nào đã chạy (pretrained `yolov8n-oiv7` ở Phase 1, model fine-tune sau này), để báo cáo ghi rõ.
+
+### B2. `COMPLETED` (`video-redact`, đề xuất, chờ Engine xác nhận)
+```json
+"resultSummary": {
+  "video": { "width": 1920, "height": 1080, "fps": 30, "durationMs": 42000, "frames": 1260, "hasAudio": true },
+  "counts": { "faceTracks": 5, "plateTracks": 2, "whitelistedFaceTracks": 1, "redactedTracks": 6, "lowConfidenceTracks": 1 },
+  "tracks": [
+    { "trackId": 1, "label": "face", "startMs": 0, "endMs": 4200, "maxConfidence": 0.93, "meanConfidence": 0.81,
+      "redacted": true, "whitelisted": false, "similarity": 0.21,
+      "bestFrameMs": 1200, "box": [34, 12, 120, 250],
+      "lowConfidenceRanges": [], "gapRanges": [] },
+    { "trackId": 3, "label": "face", "startMs": 9000, "endMs": 16000, "maxConfidence": 0.62, "meanConfidence": 0.44,
+      "redacted": true, "whitelisted": false, "similarity": 0.57,
+      "bestFrameMs": 12000, "box": [600, 90, 640, 140],
+      "lowConfidenceRanges": [[12000, 15000]], "gapRanges": [[15200, 15600]] }
+  ],
+  "redaction": { "style": "blur", "strength": 15, "padding": 0.1 },
+  "model": "yolov8n-oiv7", "tracker": "bytetrack",
+  "processingTimeMs": 95000
+}
+```
+* Một phần tử `tracks` = một người/biển số xuất hiện liên tục (theo `trackId`). Thời gian tính bằng ms từ đầu video. `box` + `bestFrameMs`: box ở khung có confidence cao nhất, để Web hiện ảnh thu nhỏ của track.
+* `lowConfidenceRanges`: các đoạn track có confidence dưới `reviewThreshold` (vẫn được che). `gapRanges`: các đoạn track **mất phát hiện quá giới hạn nội suy**, tức có thể **không được che** trong đoạn đó (rủi ro lớn nhất của video). `similarity`, `whitelistRef`: như ảnh, nhưng theo track.
+* Engine chỉ báo sự thật. **Web** quyết định đoạn nào cần kiểm tra (`lowConfidenceRanges`, `gapRanges`, `similarity` sát ngưỡng) và cho tua tới đó.
+
+### B3. `COMPLETED` (`image-render`, đề xuất)
+`resultSummary`: `{ "imageSize": [1920, 1080], "boxes": 2, "redaction": { ... }, "processingTimeMs": 35 }`. Không có `detections` (không chạy model).
 
 ### C. `FAILED`
 ```json

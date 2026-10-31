@@ -24,6 +24,8 @@ engine/models/models/
 # Benchmark dataset and download cache
 infra/bench/dataset/images/
 infra/bench/dataset/images-1000/
+infra/bench/dataset/images-max/
 infra/bench/dataset/.cache/
+infra/bench/dataset/labels-*.jsonl
 infra/bench/.cache/
 

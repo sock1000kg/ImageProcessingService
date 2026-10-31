@@ -141,6 +141,27 @@ describe("DTO Validation and Schemas (Task 26)", () => {
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }
     });
+
+    it("returns 400 with message pointing to /files when files field is present on POST /api/batches", async () => {
+      const app = createApp();
+      const server = http.createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const formData = new FormData();
+        formData.append("files", new Blob(["content"]), "image.jpg");
+        const res = await fetch(`http://127.0.0.1:${port}/api/batches`, {
+          method: "POST",
+          body: formData,
+        });
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as { error: { code: string; message: string } };
+        expect(body.error.message).toContain("/files");
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
   });
 
   describe("Upload Files Validation Helper", () => {

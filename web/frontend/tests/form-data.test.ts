@@ -1,37 +1,136 @@
-import { describe, expect, it } from "vitest";
-import { buildBatchFormData } from "../src/api";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { uploadBatch, UploadProgress } from "../src/api";
 import { getFileIdentity, getFolderName, validateImageFiles } from "../src/components/file-selection";
 import { sortBatchJobs } from "../src/components/BatchImageList";
 
-describe("Frontend Batch Form Data Builder", () => {
-  it("builds FormData containing files, whitelist, and serialized config", () => {
+describe("Frontend Batch Upload and Validation", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uploadBatch: creates draft, uploads files 2 at a time, and starts batch when all succeed", async () => {
     const file1 = new File(["test1"], "image1.jpg", { type: "image/jpeg" });
     const file2 = new File(["test2"], "image2.png", { type: "image/png" });
     const faceRef = new File(["ref"], "face-ref.jpg", { type: "image/jpeg" });
+    const config = { targets: ["face"], style: "blur" };
 
-    const config = {
-      targets: ["face", "plate"],
-      style: "pixelate",
-      strength: 12,
-      quality: "high",
-      format: "original",
-    };
+    const fetchCalls: Array<{ url: string; method?: string }> = [];
 
-    const formData = buildBatchFormData([file1, file2], [faceRef], config);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        fetchCalls.push({ url, method: init?.method });
+        if (url === "/api/batches" && init?.method === "POST") {
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              batch: { id: "test-batch-1", status: "DRAFT", config, whitelistKeys: [], whitelistDeletedAt: null, createdAt: new Date().toISOString(), jobs: [] },
+            }),
+          };
+        }
+        if (url.includes("/files") && init?.method === "POST") {
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              job: { id: "job-" + Math.random(), originalFilename: "img", status: "PENDING" },
+            }),
+          };
+        }
+        if (url === "/api/batches/test-batch-1/start" && init?.method === "POST") {
+          return {
+            ok: true,
+            status: 202,
+            json: async () => ({
+              batch: { id: "test-batch-1", status: "PROCESSING", config, whitelistKeys: [], whitelistDeletedAt: null, createdAt: new Date().toISOString(), jobs: [] },
+            }),
+          };
+        }
+        return { ok: false, status: 404, json: async () => ({ error: { message: "Not found" } }) };
+      }),
+    );
 
-    expect(formData.getAll("files")).toHaveLength(2);
-    expect(formData.getAll("whitelist")).toHaveLength(1);
-    expect(formData.get("config")).toBe(JSON.stringify(config));
+    const progressReports: UploadProgress[] = [];
+    const result = await uploadBatch(
+      [file1, file2],
+      [faceRef],
+      config,
+      (p) => progressReports.push(p),
+    );
+
+    expect(result.failed).toHaveLength(0);
+    expect(result.batch.status).toBe("PROCESSING");
+    expect(fetchCalls.some((c) => c.url === "/api/batches" && c.method === "POST")).toBe(true);
+    expect(fetchCalls.filter((c) => c.url.includes("/files")).length).toBe(2);
+    expect(fetchCalls.some((c) => c.url.includes("/start") && c.method === "POST")).toBe(true);
+    expect(progressReports.length).toBe(2);
+    expect(progressReports[1].done).toBe(2);
   });
 
-  it("handles empty whitelist correctly", () => {
-    const file = new File(["content"], "photo.webp", { type: "image/webp" });
-    const config = { style: "blur" };
+  it("uploadBatch: when one file fails twice, failed has it and start is not called", async () => {
+    const file1 = new File(["test1"], "image1.jpg", { type: "image/jpeg" });
+    const file2 = new File(["test2"], "image2.png", { type: "image/png" });
+    const config = { targets: ["face"], style: "blur" };
 
-    const formData = buildBatchFormData([file], [], config);
-    expect(formData.getAll("files")).toHaveLength(1);
-    expect(formData.getAll("whitelist")).toHaveLength(0);
-    expect(formData.get("config")).toBe(JSON.stringify(config));
+    const fetchCalls: Array<{ url: string; method?: string }> = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        fetchCalls.push({ url, method: init?.method });
+        if (url === "/api/batches" && init?.method === "POST") {
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              batch: { id: "test-batch-fail", status: "DRAFT", config, whitelistKeys: [], whitelistDeletedAt: null, createdAt: new Date().toISOString(), jobs: [] },
+            }),
+          };
+        }
+        if (url.includes("/files") && init?.method === "POST") {
+          const body = init?.body as FormData;
+          const file = body?.get("file") as File;
+          // file2 fails on every attempt
+          if (file?.name === "image2.png") {
+            return {
+              ok: false,
+              status: 500,
+              json: async () => ({ error: { message: "Simulated upload failure" } }),
+            };
+          }
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              job: { id: "job-1", originalFilename: file?.name, status: "PENDING" },
+            }),
+          };
+        }
+        if (url.includes("/start") && init?.method === "POST") {
+          return {
+            ok: true,
+            status: 202,
+            json: async () => ({ batch: { id: "test-batch-fail", status: "PROCESSING" } }),
+          };
+        }
+        return { ok: false, status: 404, json: async () => ({ error: { message: "Not found" } }) };
+      }),
+    );
+
+    const progressReports: UploadProgress[] = [];
+    const result = await uploadBatch(
+      [file1, file2],
+      [],
+      config,
+      (p) => progressReports.push(p),
+    );
+
+    // image2 failed twice (1 attempt + 1 retry)
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].name).toBe("image2.png");
+    // Start must NOT be called
+    expect(fetchCalls.some((c) => c.url.includes("/start"))).toBe(false);
   });
 
   it("accepts supported images and rejects unsupported or oversized files", () => {

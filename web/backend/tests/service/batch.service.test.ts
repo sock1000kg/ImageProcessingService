@@ -4,11 +4,13 @@ import { config } from "../../src/config";
 import { closeDatabase } from "../../src/db";
 import { storage } from "../../src/storage";
 import {
+  addBatchFile,
   applyJobEvent,
   checkAndCleanBatchWhitelist,
-  createBatch,
+  createDraftBatch,
   deleteBatchById,
   getBatchById,
+  startBatch,
 } from "../../src/services/batch.service";
 import { connectMessaging, closeMessaging } from "../../src/messaging";
 
@@ -30,38 +32,12 @@ describe("Batch Service Integration Tests", () => {
     await closeDatabase();
   });
 
-  it("creates a batch, verifies §2A command in IMAGE_JOBS, applies events, cleans whitelist, and deletes batch", async () => {
+  it("creates a draft, uploads 3 files, starts batch, verifies commands, enforces limits and idempotency", async () => {
     // 1. Get initial stream state
     const initialStreamInfo = await jsm.streams.info("IMAGE_JOBS");
     const startSeq = initialStreamInfo.state.last_seq;
 
-    // 2. Create batch with 2 images and 1 whitelist photo
-    const file1: Express.Multer.File = {
-      fieldname: "files",
-      originalname: "sample1.jpg",
-      encoding: "7bit",
-      mimetype: "image/jpeg",
-      size: 1024,
-      buffer: Buffer.from("dummy-jpeg-1"),
-      stream: null as any,
-      destination: "",
-      filename: "",
-      path: "",
-    };
-
-    const file2: Express.Multer.File = {
-      fieldname: "files",
-      originalname: "sample2.png",
-      encoding: "7bit",
-      mimetype: "image/png",
-      size: 2048,
-      buffer: Buffer.from("dummy-png-2"),
-      stream: null as any,
-      destination: "",
-      filename: "",
-      path: "",
-    };
-
+    // 2. Create draft batch with 1 whitelist photo
     const whitelistFile: Express.Multer.File = {
       fieldname: "whitelist",
       originalname: "face.jpg",
@@ -75,8 +51,7 @@ describe("Batch Service Integration Tests", () => {
       path: "",
     };
 
-    const batch = await createBatch({
-      files: [file1, file2],
+    const draftBatch = await createDraftBatch({
       whitelist: [whitelistFile],
       rawConfig: {
         style: "pixelate",
@@ -85,18 +60,72 @@ describe("Batch Service Integration Tests", () => {
       },
     });
 
-    expect(batch).toBeDefined();
-    expect(batch.jobs).toHaveLength(2);
-    expect(batch.status).toBe("PROCESSING");
-    expect(batch.whitelistKeys).toHaveLength(1);
+    expect(draftBatch).toBeDefined();
+    expect(draftBatch.status).toBe("DRAFT");
+    expect(draftBatch.jobs).toHaveLength(0);
+    expect(draftBatch.whitelistKeys).toHaveLength(1);
 
-    const batchId = batch.id;
-    const [job1, job2] = batch.jobs;
+    const batchId = draftBatch.id;
 
-    // 3. Verify §2A command in IMAGE_JOBS via stream getMessage by sequence (never creating a consumer)
-    const updatedStreamInfo = await jsm.streams.info("IMAGE_JOBS");
-    const endSeq = updatedStreamInfo.state.last_seq;
-    expect(endSeq).toBeGreaterThan(startSeq);
+    // 3. Upload 3 files one-by-one
+    const file1: Express.Multer.File = {
+      fieldname: "file",
+      originalname: "sample1.jpg",
+      encoding: "7bit",
+      mimetype: "image/jpeg",
+      size: 1024,
+      buffer: Buffer.from("dummy-jpeg-1"),
+      stream: null as any,
+      destination: "",
+      filename: "",
+      path: "",
+    };
+
+    const file2: Express.Multer.File = {
+      fieldname: "file",
+      originalname: "sample2.png",
+      encoding: "7bit",
+      mimetype: "image/png",
+      size: 2048,
+      buffer: Buffer.from("dummy-png-2"),
+      stream: null as any,
+      destination: "",
+      filename: "",
+      path: "",
+    };
+
+    const file3: Express.Multer.File = {
+      fieldname: "file",
+      originalname: "sample3.webp",
+      encoding: "7bit",
+      mimetype: "image/webp",
+      size: 1536,
+      buffer: Buffer.from("dummy-webp-3"),
+      stream: null as any,
+      destination: "",
+      filename: "",
+      path: "",
+    };
+
+    const job1 = await addBatchFile(batchId, file1);
+    const job2 = await addBatchFile(batchId, file2);
+    const job3 = await addBatchFile(batchId, file3);
+
+    expect(job1.status).toBe("PENDING");
+    expect(job2.status).toBe("PENDING");
+    expect(job3.status).toBe("PENDING");
+
+    // Before start: no commands published yet
+    const midStreamInfo = await jsm.streams.info("IMAGE_JOBS");
+    expect(midStreamInfo.state.last_seq).toBe(startSeq);
+
+    // 4. Start batch -> 3 commands published, batch is not DRAFT
+    const startedBatch = await startBatch(batchId);
+    expect(startedBatch.status).not.toBe("DRAFT");
+    expect(startedBatch.status).toBe("PROCESSING");
+
+    const endSeq = (await jsm.streams.info("IMAGE_JOBS")).state.last_seq;
+    expect(endSeq).toBe(startSeq + 3);
 
     const receivedCommands: any[] = [];
     for (let seq = startSeq + 1; seq <= endSeq; seq++) {
@@ -107,11 +136,36 @@ describe("Batch Service Integration Tests", () => {
           receivedCommands.push(data);
         }
       } catch {
-        // message might not exist or be from another subject
+        // message might not exist
       }
     }
+    expect(receivedCommands).toHaveLength(3);
 
-    expect(receivedCommands).toHaveLength(2);
+    // 5. Calling start again -> no duplicate publish
+    const startedAgain = await startBatch(batchId);
+    const afterSecondStartSeq = (await jsm.streams.info("IMAGE_JOBS")).state.last_seq;
+    expect(afterSecondStartSeq).toBe(endSeq);
+
+    // 6. Upload after start -> 409 BATCH_STARTED
+    await expect(addBatchFile(batchId, file1)).rejects.toMatchObject({
+      status: 409,
+      code: "BATCH_STARTED",
+    });
+
+    // 7. Upload over limit -> 409 BATCH_FULL
+    const originalMaxFiles = config.BATCH_MAX_FILES;
+    try {
+      (config as any).BATCH_MAX_FILES = 1;
+      const limitBatch = await createDraftBatch({ rawConfig: {} });
+      await addBatchFile(limitBatch.id, file1);
+      await expect(addBatchFile(limitBatch.id, file2)).rejects.toMatchObject({
+        status: 409,
+        code: "BATCH_FULL",
+      });
+      await deleteBatchById(limitBatch.id);
+    } finally {
+      (config as any).BATCH_MAX_FILES = originalMaxFiles;
+    }
 
     const cmd1 = receivedCommands.find((c) => c.jobId === job1.id);
     expect(cmd1).toBeDefined();
@@ -133,7 +187,7 @@ describe("Batch Service Integration Tests", () => {
     });
     expect(cmd1.params.output.quality).toBe("high");
     expect(cmd1.params.whitelist.faces).toEqual([
-      { bucket: "uploads", key: batch.whitelistKeys[0] },
+      { bucket: "uploads", key: draftBatch.whitelistKeys[0] },
     ]);
 
     // 4. Applying events moves jobs and batch to the right state

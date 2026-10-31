@@ -134,17 +134,18 @@ The runner script is [`infra/bench/run.sh`](run.sh).
 
 ### Workflow & Options
 ```bash
-infra/bench/run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large] [--parallel P] [--preload] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
+infra/bench/run.sh [--workers N | --autoscale [--min M] [--max N]] [--imgsz N] [--dataset small|large|max] [--parallel P] [--preload] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 ```
 
 - `--workers N`: Fixed mode with 1 to 6 replicas.
 - `--autoscale`: Autoscale mode (defaults to 0 to 3 replicas).
 - `--min M`: Minimum replicas for autoscale mode (0 to 6).
 - `--max N`: Maximum replicas for autoscale mode (1 to 6).
+- `--imgsz N`: YOLO inference input dimension in pixels (must be a positive integer multiple of 32, e.g. 640, 960, 1280; default: 640). Sets `YOLO_IMGSZ=N` on `deployment/image-worker` before starting, verifies after workers become Ready (or after the first worker pod becomes Ready in autoscale mode with `--min 0`) that worker pod logs contain `input size <N>px` (aborting immediately if unsupported), and restores or unsets the original environment variable on completion or interruption via `cleanup()`.
 - `--api URL`: URL to Web API. If omitted, starts `kubectl port-forward svc/web` automatically and waits for readiness.
-- `--out DIR`: Output directory (default: `infra/bench/results/<UTC-timestamp>-<mode>/`).
-- `--timeout SECONDS`: Maximum timeout in seconds (default: 1800; 7200 with `--dataset large`).
-- `--dataset small|large`: `small` (default) = 100 images in 5 batches, `large` = 1000 images in 50 batches (see "Large Dataset"). Large runs go to `results/<machine>-<date>-1000/` by default, so they never mix with the 100-image tables.
+- `--out DIR`: Output directory (default: `infra/bench/results/<machine>-<set>/<imgsz>px/<UTC-timestamp>-<mode>/`, e.g. `results/laptop-rtx3050-1000/640px/20261031-120000-fixed-3w/`).
+- `--timeout SECONDS`: Maximum timeout in seconds (default: 1800; 7200 with `--dataset large`, 27000 with `--dataset max`).
+- `--dataset small|large|max`: `small` (default) = 100 images in 5 batches, `large` = 1000 images in 50 batches, `max` = 3726 images (see dataset sections). Runs default to `results/<machine>-<set>/<imgsz>px/` so datasets and resolutions never mix.
 - `--parallel P`: Upload up to $P$ batches at the same time (default 1 = one batch after another, as before). Even with 1000 images, sequential uploads can arrive slower than a fast worker drains them; `--parallel 4` keeps the queue full.
 - `--preload`: Fixed mode only (refused with `--autoscale`, before touching the cluster). Sets `paused-replicas=0` and waits until there are 0 worker pods, uploads **every** batch (the jobs wait in the queue), then sets `paused-replicas=N`, waits until exactly $N$ pods are Ready and continues as usual. The upload speed is out of the measurement: use the **Drain Throughput** of these runs as the worker-capacity number. There is no warm-up batch (it would queue behind the preloaded jobs), so each worker loads the model on its first job after the release. The pause annotation is removed by `cleanup()` even on Ctrl-C or failure.
 
@@ -277,30 +278,33 @@ For benchmarking on a developer laptop (e.g. WSL2 Ubuntu 24.04 with an NVIDIA GP
    Large set (1000 images) to measure worker capacity rather than upload speed:
    ```bash
    infra/bench/dataset/fetch.sh --set large
-   infra/bench/run.sh --machine laptop-rtx3050 --dataset large --preload --workers 4
-   infra/bench/run.sh --machine laptop-rtx3050 --dataset large --parallel 4 --autoscale --min 0 --max 4
-   python3 infra/bench/summarize.py infra/bench/results/laptop-rtx3050-$(date -u +"%Y%m%d")-1000
+   infra/bench/run.sh --machine laptop-rtx3050 --dataset large --preload --workers 4 --imgsz 640
+   infra/bench/run.sh --machine laptop-rtx3050 --dataset large --preload --workers 4 --imgsz 960
+   infra/bench/run.sh --machine laptop-rtx3050 --dataset large --preload --workers 4 --imgsz 1280
+   python3 infra/bench/summarize.py infra/bench/results/laptop-rtx3050-1000/640px/* \
+     --deface infra/bench/results/laptop-rtx3050-1000/deface/*/*
    ```
 
 3. **Run Standalone Deface Comparison**:
    ```bash
-   # GPU mode (auto-detects CUDAExecutionProvider)
+   # GPU mode (auto-detects CUDAExecutionProvider) - saves to results/laptop-rtx3050-100/deface/full/...
    infra/bench/compare/deface.sh --machine laptop-rtx3050
 
-   # CPU mode
-   infra/bench/compare/deface.sh --machine laptop-rtx3050 --cpu
+   # Reduced resolution (640x480) - saves to results/laptop-rtx3050-100/deface/640x480/...
+   infra/bench/compare/deface.sh --machine laptop-rtx3050 --scale 640x480
 
-   # Large set (1000 images): same options, results go to results/laptop-rtx3050-<date>-1000/
+   # Large set (1000 images): saves to results/laptop-rtx3050-1000/deface/...
    infra/bench/compare/deface.sh --machine laptop-rtx3050 --dataset large
-   infra/bench/compare/deface.sh --machine laptop-rtx3050 --dataset large --cpu
+   infra/bench/compare/deface.sh --machine laptop-rtx3050 --dataset large --scale 640x480
    ```
    `--dataset large` runs `fetch.sh --set large` first, which verifies all 1000 hashes (no download when already verified).
 
 4. **Generate Combined Comparison Summary**:
    ```bash
-   python3 infra/bench/summarize.py infra/bench/results/laptop-rtx3050-$(date -u +"%Y%m%d")
+   python3 infra/bench/summarize.py infra/bench/results/laptop-rtx3050-1000/640px/* \
+     --deface infra/bench/results/laptop-rtx3050-1000/deface/*/*
    ```
-   This generates and prints the combined comparison table and writes `comparison.md` directly inside the machine folder.
+   This generates and prints the combined comparison table and writes `comparison.md` directly inside `results/laptop-rtx3050-1000/640px/`.
 
 5. **Tear down local cluster**:
    ```bash
@@ -312,21 +316,45 @@ For benchmarking on a developer laptop (e.g. WSL2 Ubuntu 24.04 with an NVIDIA GP
 
 ## 6. Results Directory Layout
 
-Results are segregated by machine and date:
+Results are structured hierarchically by machine, dataset size, and input resolution, with shared deface runs:
 ```
 infra/bench/results/
-├── home-server-20261030/            # Lab server runs
-│   ├── 20261030-101056-fixed-1w/
-│   ├── 20261030-140727-fixed-2w/
-│   └── comparison.md
-└── laptop-rtx3050-20261030/          # Laptop runs
-    ├── 20261030-150000-fixed-1w/
-    ├── 20261030-151000-autoscale-0-3/
-    ├── 20261030-152000-deface-gpu/
-    ├── 20261030-153000-deface-cpu/
-    └── comparison.md
+├── home-server-100/                  # Lab server runs (100 images)
+│   ├── 640px/                        # 640px runs (evidence of 2-worker sweet spot)
+│   │   ├── 20261030-101056-fixed-1w/
+│   │   ├── 20261030-140727-fixed-2w/
+│   │   ├── ...
+│   │   ├── comparison.md
+│   │   └── accuracy.md
+│   └── deface/                       # Shared deface runs for 100-image set
+│       └── full/
+│           └── 20261030-152000-deface-gpu/
+└── laptop-rtx3050-1000/              # Laptop runs (1000 images)
+    ├── 640px/
+    │   ├── 20261031-010000-fixed-3w/
+    │   ├── comparison.md
+    │   └── accuracy.md
+    ├── 960px/
+    │   ├── 20261031-020000-fixed-3w/
+    │   └── comparison.md
+    ├── 1280px/
+    │   ├── 20261031-030000-fixed-3w/
+    │   └── comparison.md
+    └── deface/                       # Shared deface runs across input sizes
+        ├── full/
+        │   └── 20261031-001000-deface-gpu/
+        └── 640x480/
+            └── 20261031-002000-deface-gpu/
 ```
-Runs with `--dataset large` go to a separate sibling folder, e.g. `laptop-rtx3050-20261030-1000/`, with their own `comparison.md`.
+
+### Layout Rules:
+- **Pipeline Runs (`run.sh`)**: Output directory defaults to `results/<machine>-<set>/<imgsz>px/<UTC>-<mode>/` where `<set>` is `100`, `1000`, or `max`, and `<imgsz>` is the input resolution (e.g. `640`, `960`, `1280`).
+- **Deface Runs (`deface.sh`)**: Deface operates independently of YOLO input size and is shared across input resolution evaluations. Output directory defaults to `results/<machine>-<set>/deface/<full|WxH>/<UTC>-deface-<gpu|cpu>/`.
+- **Summaries (`summarize.py`) & Combined Accuracy (`evaluate.py --combine`)**:
+  - Accept `--deface DIR...` to include shared deface runs in the summary table.
+  - Automatically enforce dataset matching: passing a deface run from a different dataset (e.g. `100` when evaluating `1000`) is refused with a clear error.
+  - Write `comparison.md` and `accuracy.md` into the `<imgsz>px/` folder (or common machine folder if runs are direct children).
+  - Existing user notes formatted as blockquotes (`> ...`) at the top of `comparison.md` are preserved across rewrites.
 
 Each run folder contains:
 - `jobs.csv` (or `per_image.csv` for deface): Job timestamps, per-image processing times and the uploaded file name (`original_filename`).
@@ -369,8 +397,82 @@ bash infra/bench/dataset/fetch.sh --set large --labels
 bash infra/bench/dataset/fetch.sh --set max --labels
 ```
 - Ground truth annotations are saved as JSONL to `infra/bench/dataset/labels-<set>.jsonl` (gitignored).
-- **WIDER FACE subset (`wider`)**: Faces extracted from `wider_face_split/wider_face_val_bbx_gt.txt`. Annotations marked `invalid=1` are flagged `ignore: true`.
-- **Vietnamese license plates subset (`vn`)**: License plates extracted from YOLO annotations (`Dataset/Test/*.txt` and `Dataset/Valid/*.txt`, class ID `0` represents vehicle plates). Normalized YOLO coordinates are converted to pixel bounding boxes `[x1, y1, x2, y2]`.
+- **WIDER FACE subset (`wider`)**: Faces extracted from `wider_face_split/wider_face_val_bbx_gt.txt`. Annotations marked `invalid=1` are flagged `ignore: true`. Each valid face preserves human-annotated attribute labels (`attrs`) as well as an objective measured Laplacian `sharpness` score.
+- **Vietnamese license plates subset (`vn`)**: License plates extracted from YOLO annotations (`Dataset/Test/*.txt` and `Dataset/Valid/*.txt`, class ID `0` represents vehicle plates). Normalized YOLO coordinates are converted to pixel bounding boxes `[x1, y1, x2, y2]`. Plates carry no facial attributes or sharpness metrics.
+
+### WIDER FACE Attributes & Measured Sharpness
+
+#### 1. WIDER FACE Attribute Definitions (Verbatim from `wider_face_split/readme.txt`)
+The ground truth annotations provide human-labeled categorical attributes for each face:
+```
+blur:
+  clear->0
+  normal blur->1
+  heavy blur->2
+
+expression:
+  typical expression->0
+  exaggerate expression->1
+
+illumination:
+  normal illumination->0
+  extreme illumination->1
+
+occlusion:
+  no occlusion->0
+  partial occlusion->1
+  heavy occlusion->2
+
+pose:
+  typical pose->0
+  atypical pose->1
+
+invalid:
+  false->0(valid image)
+  true->1(invalid image)
+```
+
+**Citation**: Yang, Shuo, Ping Luo, Chen-Change Loy, and Xiaoou Tang. "WIDER FACE: A Face Detection Benchmark." In *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)*, 2016.
+
+Per the CVPR 2016 benchmark paper:
+- **Occlusion**:
+  - `no occlusion (0)`: 0% of face region is occluded.
+  - `partial occlusion (1)`: 1% to 30% of face region is occluded.
+  - `heavy occlusion (2)`: 31% to 100% of face region is occluded.
+- **Blur**:
+  - `clear (0)`: well-focused, sharp facial details.
+  - `normal blur (1)`: slight defocus or minor motion blur.
+  - `heavy blur (2)`: severe blur where facial features are barely recognizable.
+- **Expression**:
+  - `typical expression (0)`: neutral or typical facial expression.
+  - `exaggerate expression (1)`: exaggerated facial expression.
+- **Illumination**:
+  - `normal illumination (0)`: standard lighting conditions.
+  - `extreme illumination (1)`: extreme lighting (strong backlighting, harsh shadows, severe under- or over-exposure).
+- **Pose**:
+  - `typical pose (0)`: frontal or standard profile pose.
+  - `atypical pose (1)`: extreme yaw/pitch angle or inverted face.
+
+#### 2. Measured Sharpness
+WIDER's blur ratings represent qualitative human judgments. To provide an objective, repeatable physical metric for edge definition, `fetch.sh --labels` computes a measured sharpness value on every face crop using `infra/bench/.cache/accuracy-venv` (`numpy==2.2.3`, `pillow==11.1.0`):
+
+**Formula**:
+1. Crop bounding box $[x_1, y_1, x_2, y_2]$ from the original image.
+2. Convert crop to grayscale.
+3. Resize to a normalized $64 \times 64$ pixels using bilinear interpolation.
+4. Convolve with standard 3×3 Laplacian filter kernel with reflect padding (`mode="reflect"`):
+   $$\mathbf{K} = \begin{bmatrix} 0 & 1 & 0 \\ 1 & -4 & 1 \\ 0 & 1 & 0 \end{bmatrix}$$
+5. Sharpness is the sample variance across the 64×64 filtered values:
+   $$\text{sharpness} = \text{Var}(\text{Laplacian})$$
+
+**Fixed Buckets**:
+- `very blurry`: $\text{sharpness} < 25$
+- `blurry`: $25 \le \text{sharpness} < 100$
+- `soft`: $100 \le \text{sharpness} < 400$
+- `sharp`: $\text{sharpness} \ge 400$
+
+> [!NOTE]
+> **Caveat on Tiny & Unusable Faces**: Faces smaller than 64×64 pixels (especially `tiny` <16px and `small` 16–32px) are upscaled via bilinear interpolation to 64×64, which naturally attenuates high frequencies and causes them to register with lower sharpness scores. Sharpness breakdowns should always be interpreted together with the face size buckets. Faces with unreadable image files or empty/degenerate cropped boundaries omit `sharpness` rather than defaulting to 0.0, avoiding skew in the `very blurry` bucket.
 
 ### Executing Accuracy Benchmark Runs
 To build full precision–recall curves and compute AP@0.5, runs are performed with confidence down to `0.05` while exporting raw detections:
@@ -378,35 +480,36 @@ To build full precision–recall curves and compute AP@0.5, runs are performed w
 1. **Our Engine**:
    ```bash
    bash infra/bench/run.sh --machine laptop-rtx3050 --dataset large --preload --parallel 4 --workers 3 \
-     --confidence 0.05 --save-detections
+     --imgsz 640 --confidence 0.05 --save-detections
    ```
-   Exports `job_id`, `original_filename`, `detections`, and `imageSize` directly from PostgreSQL into `detections.jsonl`.
+   Exports `job_id`, `original_filename`, `detections`, and `imageSize` directly from PostgreSQL into `detections.jsonl`. Output is saved to `results/laptop-rtx3050-1000/640px/<UTC>-.../`.
 
 2. **Deface (CenterFace ONNX)**:
    ```bash
-   # Native full resolution
+   # Native full resolution (results/laptop-rtx3050-1000/deface/full/<UTC>-...)
    bash infra/bench/compare/deface.sh --machine laptop-rtx3050 --dataset large \
      --threshold 0.05 --save-detections
 
-   # 640-class reduced resolution (CenterFace in_shape 640x480)
+   # 640-class reduced resolution (results/laptop-rtx3050-1000/deface/640x480/<UTC>-...)
    bash infra/bench/compare/deface.sh --machine laptop-rtx3050 --dataset large \
      --threshold 0.05 --scale 640x480 --save-detections
    ```
-   Detections and bounding boxes are saved directly from the single CenterFace inference pass.
+   Detections and bounding boxes are saved directly from the single CenterFace inference pass into `detections.jsonl`.
 
 ### Evaluation Rules & Metrics (`infra/bench/accuracy/evaluate.py`)
 Run the Python evaluator on individual runs or combined directories:
 ```bash
 # Evaluate a single run:
-python3 infra/bench/accuracy/evaluate.py infra/bench/results/laptop-rtx3050-20261030-1000/<run_dir> \
+python3 infra/bench/accuracy/evaluate.py \
+  infra/bench/results/laptop-rtx3050-1000/640px/<run_dir> \
   --labels infra/bench/dataset/labels-large.jsonl
 
-# Generate combined comparison table:
+# Generate combined comparison report (including shared deface runs):
 python3 infra/bench/accuracy/evaluate.py \
-  infra/bench/results/laptop-rtx3050-20261030-1000/20261030-*-fixed-* \
-  infra/bench/results/laptop-rtx3050-20261030-1000/20261030-*-deface-* \
+  infra/bench/results/laptop-rtx3050-1000/640px/20261031-*-fixed-* \
+  --deface infra/bench/results/laptop-rtx3050-1000/deface/*/* \
   --combine --labels infra/bench/dataset/labels-large.jsonl \
-  --out infra/bench/results/laptop-rtx3050-20261030-1000/accuracy.md
+  --out infra/bench/results/laptop-rtx3050-1000/640px/accuracy.md
 ```
 
 #### Evaluation Rules:
@@ -418,11 +521,11 @@ python3 infra/bench/accuracy/evaluate.py \
 - **Privacy Recall**: A ground truth target is counted as privacy-protected if its bounding box area is covered ≥ 70% by the redacted area:
   - For our engine: predicted box expanded by `padding` (0.1 default).
   - For deface: predicted box expanded by `mask_scale` 1.3 (ellipse approximated by its bounding box).
-- **Face Size Breakdown**: Non-ignore faces are broken down by GT box width into four size buckets:
-  - `tiny`: width < 16 px
-  - `small`: 16 px ≤ width < 32 px
-  - `medium`: 32 px ≤ width ≤ 96 px
-  - `large`: width > 96 px
+- **Breakdown Tables**:
+  - **Size breakdown**: `tiny` (<16px), `small` (16–32px), `medium` (32–96px), `large` (>96px).
+  - **Attribute breakdown (faces only)**: `blur` (clear, normal blur, heavy blur), `expression` (typical, exaggerate), `illumination` (normal, extreme), `occlusion` (none, partial, heavy), `pose` (typical, atypical).
+  - **Sharpness breakdown (faces only)**: `very blurry` (<25), `blurry` (25–100), `soft` (100–400), `sharp` (≥400).
+  - Ground truth counts (`GT`) are displayed for each breakdown row.
 - **Deface License Plates**: Deface does not support license plate detection; its plate rows report "not supported" and recall 0 by design.
 
 ### Caveats & Methodological Notes

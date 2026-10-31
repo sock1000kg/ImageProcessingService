@@ -18,6 +18,143 @@ import re
 import sys
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+# Sharpness buckets: very blurry < 25, blurry 25–100, soft 100–400, sharp ≥ 400
+SHARPNESS_BUCKETS: List[Tuple[str, str, float, float]] = [
+    ("very_blurry", "< 25", 0.0, 25.0),
+    ("blurry", "25–100", 25.0, 100.0),
+    ("soft", "100–400", 100.0, 400.0),
+    ("sharp", "≥ 400", 400.0, float("inf")),
+]
+
+# WIDER FACE attribute mappings verbatim from wider_face_split/readme.txt
+WIDER_ATTR_DEFS: Dict[str, Dict[int, str]] = {
+    "blur": {0: "clear", 1: "normal blur", 2: "heavy blur"},
+    "expression": {0: "typical expression", 1: "exaggerate expression"},
+    "illumination": {0: "normal illumination", 1: "extreme illumination"},
+    "occlusion": {0: "no occlusion", 1: "partial occlusion", 2: "heavy occlusion"},
+    "pose": {0: "typical pose", 1: "atypical pose"},
+}
+
+
+def _pure_python_sharpness(grid: List[List[float]]) -> float:
+    """Compute Laplacian variance with reflect padding on 64x64 float grid."""
+    laps = []
+    for r in range(64):
+        rm1 = r - 1 if r > 0 else 1
+        rp1 = r + 1 if r < 63 else 62
+        row_r = grid[r]
+        row_rm1 = grid[rm1]
+        row_rp1 = grid[rp1]
+        for c in range(64):
+            cm1 = c - 1 if c > 0 else 1
+            cp1 = c + 1 if c < 63 else 62
+            val = float(row_rm1[c] + row_rp1[c] + row_r[cm1] + row_r[cp1] - 4.0 * row_r[c])
+            laps.append(val)
+    mean = sum(laps) / len(laps)
+    var = sum((x - mean) ** 2 for x in laps) / len(laps)
+    return float(var)
+
+
+def compute_sharpness(img_or_crop: Any) -> float:
+    """Compute measured sharpness on a cropped face image.
+
+    Crop is converted to grayscale, resized to 64x64 (bilinear), filtered with
+    the 3x3 Laplacian kernel [[0, 1, 0], [1, -4, 1], [0, 1, 0]] (reflect padding),
+    and the variance of the result is returned.
+    Supports PIL Image, 2D numpy array, or 2D list of pixel intensities.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        import glob
+        _site_pkgs = glob.glob(
+            os.path.join(
+                os.path.dirname(__file__), "..", ".cache", "accuracy-venv", "lib", "python*", "site-packages"
+            )
+        )
+        if _site_pkgs and _site_pkgs[0] not in sys.path:
+            sys.path.insert(0, _site_pkgs[0])
+        try:
+            from PIL import Image
+        except ImportError:
+            Image = None
+
+    try:
+        import numpy as np
+    except ImportError:
+        import glob
+        _site_pkgs = glob.glob(
+            os.path.join(
+                os.path.dirname(__file__), "..", ".cache", "accuracy-venv", "lib", "python*", "site-packages"
+            )
+        )
+        if _site_pkgs and _site_pkgs[0] not in sys.path:
+            sys.path.insert(0, _site_pkgs[0])
+        try:
+            import numpy as np
+        except ImportError:
+            np = None
+
+    if Image is not None and isinstance(img_or_crop, Image.Image):
+        if img_or_crop.mode != "L":
+            img_or_crop = img_or_crop.convert("L")
+        if img_or_crop.size != (64, 64):
+            resample = getattr(Image, "Resampling", Image).BILINEAR
+            img_or_crop = img_or_crop.resize((64, 64), resample=resample)
+        if np is not None:
+            arr = np.array(img_or_crop, dtype=np.float64)
+            padded = np.pad(arr, 1, mode="reflect")
+            lap = (
+                padded[:-2, 1:-1]
+                + padded[2:, 1:-1]
+                + padded[1:-1, :-2]
+                + padded[1:-1, 2:]
+                - 4.0 * padded[1:-1, 1:-1]
+            )
+            return float(np.var(lap))
+        else:
+            raw_pixels = list(img_or_crop.getdata())
+            grid = [
+                [float(raw_pixels[r * 64 + c]) for c in range(64)] for r in range(64)
+            ]
+            return _pure_python_sharpness(grid)
+
+    if np is not None and isinstance(img_or_crop, np.ndarray):
+        if img_or_crop.shape != (64, 64):
+            if Image is not None:
+                im = Image.fromarray(img_or_crop.astype(np.uint8)).convert("L")
+                resample = getattr(Image, "Resampling", Image).BILINEAR
+                im = im.resize((64, 64), resample=resample)
+                arr = np.array(im, dtype=np.float64)
+            else:
+                raise ValueError("Resizing numpy array to (64, 64) requires Pillow")
+        else:
+            arr = img_or_crop.astype(np.float64)
+        padded = np.pad(arr, 1, mode="reflect")
+        lap = (
+            padded[:-2, 1:-1]
+            + padded[2:, 1:-1]
+            + padded[1:-1, :-2]
+            + padded[1:-1, 2:]
+            - 4.0 * padded[1:-1, 1:-1]
+        )
+        return float(np.var(lap))
+
+    # Fallback for 2D list of numbers
+    if isinstance(img_or_crop, list) and len(img_or_crop) > 0 and isinstance(img_or_crop[0], list):
+        if len(img_or_crop) == 64 and len(img_or_crop[0]) == 64:
+            return _pure_python_sharpness(img_or_crop)
+        elif Image is not None and np is not None:
+            arr = np.array(img_or_crop, dtype=np.uint8)
+            im = Image.fromarray(arr).convert("L")
+            resample = getattr(Image, "Resampling", Image).BILINEAR
+            im = im.resize((64, 64), resample=resample)
+            return compute_sharpness(im)
+        else:
+            raise ValueError("Input 2D list must be 64x64 when Pillow/numpy are not available")
+
+    raise TypeError(f"Unsupported input type for compute_sharpness: {type(img_or_crop)}")
+
 
 def compute_iou(boxA: List[float], boxB: List[float]) -> float:
     """Compute Intersection over Union between two boxes [x1, y1, x2, y2]."""
@@ -227,6 +364,8 @@ def evaluate_class(
                     "gt_idx": v_idx,
                     "box": box,
                     "width": bw,
+                    "attrs": b.get("attrs", {}),
+                    "sharpness": b.get("sharpness"),
                 })
         valid_gt[fname] = v_list
         ignore_gt[fname] = i_list
@@ -418,6 +557,8 @@ def evaluate_class(
 
     # 5. Face size breakdown (tiny < 16, small 16–32, medium 32–96, large > 96)
     size_breakdown: Optional[Dict[str, Dict[str, Any]]] = None
+    attribute_breakdown: Optional[Dict[str, Dict[str, Any]]] = None
+    sharpness_breakdown: Optional[Dict[str, Dict[str, Any]]] = None
     if target_class == "face":
         buckets = {
             "tiny": {"min": 0.0, "max": 16.0, "count": 0, "matched": 0, "protected": 0},
@@ -454,6 +595,49 @@ def evaluate_class(
                 "privacy_recall": round(pr_val, 4),
             }
 
+        # Attribute breakdown
+        attribute_breakdown = {}
+        for attr_key, attr_vals in WIDER_ATTR_DEFS.items():
+            for val_num, val_name in attr_vals.items():
+                key_name = f"{attr_key}: {val_name}"
+                items = [
+                    it for it in gt_details
+                    if it.get("attrs", {}).get(attr_key) == val_num
+                ]
+                cnt = len(items)
+                matched = sum(1 for it in items if (it["fname"], it["gt_idx"]) in matched_gt_op)
+                protected = sum(1 for it in items if (it["fname"], it["gt_idx"]) in protected_gt)
+                r_val = (matched / cnt) if cnt > 0 else 0.0
+                pr_val = (protected / cnt) if cnt > 0 else 0.0
+                attribute_breakdown[key_name] = {
+                    "attribute": attr_key,
+                    "value": val_num,
+                    "name": val_name,
+                    "count": cnt,
+                    "recall": round(r_val, 4),
+                    "privacy_recall": round(pr_val, 4),
+                }
+
+        # Sharpness breakdown
+        sharpness_breakdown = {}
+        for b_key, b_range, min_v, max_v in SHARPNESS_BUCKETS:
+            items = [
+                it for it in gt_details
+                if it.get("sharpness") is not None and min_v <= float(it["sharpness"]) < max_v
+            ]
+            cnt = len(items)
+            matched = sum(1 for it in items if (it["fname"], it["gt_idx"]) in matched_gt_op)
+            protected = sum(1 for it in items if (it["fname"], it["gt_idx"]) in protected_gt)
+            r_val = (matched / cnt) if cnt > 0 else 0.0
+            pr_val = (protected / cnt) if cnt > 0 else 0.0
+            sharpness_breakdown[b_key] = {
+                "label": b_key.replace("_", " ").capitalize(),
+                "range": b_range,
+                "count": cnt,
+                "recall": round(r_val, 4),
+                "privacy_recall": round(pr_val, 4),
+            }
+
     return {
         "supported": True,
         "gt_count": total_valid_gt,
@@ -475,6 +659,8 @@ def evaluate_class(
         },
         "privacy_recall": round(privacy_recall, 4),
         "face_sizes": size_breakdown,
+        "face_attributes": attribute_breakdown,
+        "face_sharpness": sharpness_breakdown,
     }
 
 
@@ -534,6 +720,8 @@ def evaluate_run(
             "plate": plate_metrics,
         },
         "face_sizes": face_metrics.get("face_sizes", {}),
+        "face_attributes": face_metrics.get("face_attributes", {}),
+        "face_sharpness": face_metrics.get("face_sharpness", {}),
     }
 
 
@@ -551,6 +739,8 @@ def write_single_report(run_dir: str, eval_res: Dict[str, Any]) -> None:
     fm = eval_res["metrics"]["face"]
     pm = eval_res["metrics"]["plate"]
     sizes = eval_res["face_sizes"] or {}
+    attrs = eval_res.get("face_attributes") or {}
+    sharp = eval_res.get("face_sharpness") or {}
 
     lines = [
         f"# Detection Accuracy & Privacy Recall Report",
@@ -608,6 +798,41 @@ def write_single_report(run_dir: str, eval_res: Dict[str, Any]) -> None:
             f"{s_data.get('recall', 0.0):.4f} | {s_data.get('privacy_recall', 0.0):.4f} |"
         )
 
+    lines.extend([
+        f"",
+        f"## Face Detection by WIDER Attribute",
+        f"",
+        f"| Attribute | Value | GT Count | Recall (IoU>=0.5) | Privacy Recall (>=70% cov) |",
+        f"| --- | --- | --- | --- | --- |",
+    ])
+    for attr_key, attr_vals in WIDER_ATTR_DEFS.items():
+        for val_num, val_name in attr_vals.items():
+            key_name = f"{attr_key}: {val_name}"
+            a_data = attrs.get(key_name, {})
+            cnt = a_data.get("count", 0)
+            rec = a_data.get("recall", 0.0)
+            priv = a_data.get("privacy_recall", 0.0)
+            lines.append(
+                f"| {attr_key.capitalize()} | {val_name} ({val_num}) | {cnt} | {rec:.4f} | {priv:.4f} |"
+            )
+
+    lines.extend([
+        f"",
+        f"## Face Detection by Measured Sharpness",
+        f"",
+        f"| Sharpness Bucket | Variance Range | GT Count | Recall (IoU>=0.5) | Privacy Recall (>=70% cov) |",
+        f"| --- | --- | --- | --- | --- |",
+    ])
+    for b_key, b_range, _, _ in SHARPNESS_BUCKETS:
+        sh_data = sharp.get(b_key, {})
+        label = sh_data.get("label", b_key.replace("_", " ").capitalize())
+        cnt = sh_data.get("count", 0)
+        rec = sh_data.get("recall", 0.0)
+        priv = sh_data.get("privacy_recall", 0.0)
+        lines.append(
+            f"| {label} | {b_range} | {cnt} | {rec:.4f} | {priv:.4f} |"
+        )
+
     lines.append("")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
@@ -619,7 +844,7 @@ def generate_combined_report(
     """Generate combined accuracy markdown report matching benchmark conventions."""
     notes_block = [
         "> Accuracy & Privacy Recall Benchmark Comparison:",
-        "> - Model differences: our engine uses YOLOv8n-oiv7 at 640px letterboxed input; deface uses CenterFace ONNX.",
+        "> - Model differences: our engine uses YOLOv8n-oiv7 at configured imgsz (default 640px) letterboxed input; deface uses CenterFace ONNX.",
         "> - Matching rule: greedy matching by confidence score, IoU >= 0.5, each non-ignore GT used at most once.",
         "> - Ignore boxes: WIDER FACE invalid=1 annotations are flagged ignore; predictions matching ignore boxes are neither TP nor FP.",
         "> - Subset scoring: faces are scored exclusively on the WIDER subset; plates exclusively on the VN subset.",
@@ -635,6 +860,9 @@ def generate_combined_report(
 
     table_rows = []
     size_rows = []
+    sharpness_rows = []
+    attr_detail_rows = []
+    sharpness_detail_rows = []
     best_f1_rows = []
 
     for r in eval_results:
@@ -646,7 +874,7 @@ def generate_combined_report(
         if is_deface:
             scale_desc = meta.get("scale", "full")
         else:
-            scale_desc = "640px"
+            scale_desc = f"{meta.get('imgsz', 640)}px"
 
         fm = r["metrics"]["face"]
         pm = r["metrics"]["plate"]
@@ -687,6 +915,41 @@ def generate_combined_report(
             f"{l_s.get('recall', 0.0):.3f} / {l_s.get('privacy_recall', 0.0):.3f} |"
         )
 
+        # Face sharpness row
+        sharp = r.get("face_sharpness", {})
+        vb_s = sharp.get("very_blurry", {})
+        b_s = sharp.get("blurry", {})
+        so_s = sharp.get("soft", {})
+        sh_s = sharp.get("sharp", {})
+
+        sharpness_rows.append(
+            f"| `{run_name}` | {tool} | "
+            f"{vb_s.get('recall', 0.0):.3f} / {vb_s.get('privacy_recall', 0.0):.3f} | "
+            f"{b_s.get('recall', 0.0):.3f} / {b_s.get('privacy_recall', 0.0):.3f} | "
+            f"{so_s.get('recall', 0.0):.3f} / {so_s.get('privacy_recall', 0.0):.3f} | "
+            f"{sh_s.get('recall', 0.0):.3f} / {sh_s.get('privacy_recall', 0.0):.3f} |"
+        )
+
+        # Attribute detail rows
+        attrs = r.get("face_attributes", {})
+        for attr_key, attr_vals in WIDER_ATTR_DEFS.items():
+            for val_num, val_name in attr_vals.items():
+                key_name = f"{attr_key}: {val_name}"
+                a_data = attrs.get(key_name, {})
+                attr_detail_rows.append(
+                    f"| `{run_name}` | {attr_key}: {val_name} | {a_data.get('count', 0)} | "
+                    f"{a_data.get('recall', 0.0):.4f} | {a_data.get('privacy_recall', 0.0):.4f} |"
+                )
+
+        # Sharpness detail rows
+        for b_key, b_range, _, _ in SHARPNESS_BUCKETS:
+            sh_data = sharp.get(b_key, {})
+            label = sh_data.get("label", b_key.replace("_", " ").capitalize())
+            sharpness_detail_rows.append(
+                f"| `{run_name}` | {label} | {b_range} | {sh_data.get('count', 0)} | "
+                f"{sh_data.get('recall', 0.0):.4f} | {sh_data.get('privacy_recall', 0.0):.4f} |"
+            )
+
         # Best-F1 rows
         best_f1_rows.append(
             f"| `{run_name}` | face | {fm['operating']['threshold']:.2f} | {fm['operating']['f1']:.4f} | "
@@ -705,6 +968,24 @@ def generate_combined_report(
         "| Run | Tool | Tiny (<16px) R / Priv | Small (16–32px) R / Priv | Medium (32–96px) R / Priv | Large (>96px) R / Priv |",
         "| --- | --- | --- | --- | --- | --- |",
     ] + size_rows + [
+        "",
+        "### Face Recall & Privacy Recall by Measured Sharpness",
+        "",
+        "| Run | Tool | Very Blurry (<25) R / Priv | Blurry (25–100) R / Priv | Soft (100–400) R / Priv | Sharp (≥400) R / Priv |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ] + sharpness_rows + [
+        "",
+        "### Face Breakdown by WIDER Attribute",
+        "",
+        "| Run | Attribute Value | GT Count | Recall (IoU>=0.5) | Privacy Recall (>=70% cov) |",
+        "| --- | --- | --- | --- | --- |",
+    ] + attr_detail_rows + [
+        "",
+        "### Face Breakdown by Measured Sharpness",
+        "",
+        "| Run | Sharpness Bucket | Variance Range | GT Count | Recall (IoU>=0.5) | Privacy Recall (>=70% cov) |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ] + sharpness_detail_rows + [
         "",
         "### Operating Thresholds vs Best-F1",
         "",
@@ -745,6 +1026,12 @@ def main() -> None:
     parser.add_argument(
         "--out",
         help="Output markdown path for combined report (default: machine folder accuracy.md)",
+    )
+    parser.add_argument(
+        "--deface",
+        nargs="+",
+        default=[],
+        help="Deface run directory/directories to include in comparison table",
     )
     parser.add_argument(
         "--list-images",
@@ -818,6 +1105,44 @@ def main() -> None:
             )
         else:
             print("  Plates: not supported")
+
+    def norm_dataset(ds: Any) -> str:
+        s = str(ds).strip().lower()
+        if s in ("small", "100"):
+            return "small"
+        if s in ("large", "1000"):
+            return "large"
+        if s in ("max", "3726"):
+            return "max"
+        return s
+
+    if args.deface:
+        main_dataset = None
+        for r in eval_results:
+            main_dataset = norm_dataset(r.get("meta", {}).get("dataset", "small"))
+            if main_dataset:
+                break
+        main_dataset = main_dataset or "small"
+
+        for ddir in args.deface:
+            if not os.path.isdir(ddir):
+                sys.exit(f"ERROR: Deface run directory not found: {ddir}")
+            d_meta_file = os.path.join(ddir, "meta.json")
+            d_dataset = "small"
+            if os.path.isfile(d_meta_file):
+                with open(d_meta_file, "r", encoding="utf-8") as f:
+                    d_meta = json.load(f)
+                d_dataset = norm_dataset(d_meta.get("dataset", "small"))
+            if d_dataset != main_dataset:
+                sys.exit(
+                    f"ERROR: Dataset mismatch: main runs are dataset '{main_dataset}', but deface run '{ddir}' has dataset '{d_dataset}'"
+                )
+            print(f"Evaluating deface run {ddir}...")
+            d_eval = evaluate_run(
+                ddir, labels_file, operating_threshold_arg=args.operating_threshold
+            )
+            write_single_report(ddir, d_eval)
+            eval_results.append(d_eval)
 
     if args.combine:
         # Determine output location

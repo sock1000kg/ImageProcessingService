@@ -21,11 +21,15 @@ import unittest
 sys.path.insert(0, os.path.dirname(__file__))
 from evaluate import (
     evaluate_run,
+    write_single_report,
     generate_combined_report,
     compute_iou,
     compute_coverage,
     load_labels,
     manifest_path_to_filename,
+    compute_sharpness,
+    SHARPNESS_BUCKETS,
+    WIDER_ATTR_DEFS,
 )
 
 
@@ -557,6 +561,350 @@ class TestAccuracyEvaluation(unittest.TestCase):
         self.assertIn("--labels", fetch_res.stdout)
         self.assertIn("--set", fetch_res.stdout)
         self.assertIn("max", fetch_res.stdout)
+
+    def test_hand_made_labels_attributes_and_sharpness_breakdown(self):
+        """Test hand-made labels with known attributes and sharpness -> correct per-bucket recall."""
+        labels_file = os.path.join(self.test_dir, "hand_labels.jsonl")
+        run_dir = os.path.join(self.test_dir, "run_breakdown")
+        os.makedirs(run_dir, exist_ok=True)
+
+        # 4 boxes with specific attributes and sharpness:
+        # Box 1: [100, 100, 200, 200], blur=0, expr=0, illum=0, occl=0, pose=0, sharpness=10.0 (very_blurry)
+        # Box 2: [300, 100, 400, 200], blur=1, expr=1, illum=0, occl=1, pose=0, sharpness=60.0 (blurry)
+        # Box 3: [100, 300, 200, 400], blur=2, expr=0, illum=1, occl=2, pose=1, sharpness=250.0 (soft)
+        # Box 4: [300, 300, 400, 400], blur=2, expr=1, illum=1, occl=2, pose=1, sharpness=550.0 (sharp)
+        labels = [
+            {
+                "image": "WIDER_val/images/test_img.jpg",
+                "subset": "wider",
+                "boxes": [
+                    {
+                        "label": "face",
+                        "box": [100, 100, 200, 200],
+                        "ignore": False,
+                        "attrs": {"blur": 0, "expression": 0, "illumination": 0, "occlusion": 0, "pose": 0},
+                        "sharpness": 10.0,
+                    },
+                    {
+                        "label": "face",
+                        "box": [300, 100, 400, 200],
+                        "ignore": False,
+                        "attrs": {"blur": 1, "expression": 1, "illumination": 0, "occlusion": 1, "pose": 0},
+                        "sharpness": 60.0,
+                    },
+                    {
+                        "label": "face",
+                        "box": [100, 300, 200, 400],
+                        "ignore": False,
+                        "attrs": {"blur": 2, "expression": 0, "illumination": 1, "occlusion": 2, "pose": 1},
+                        "sharpness": 250.0,
+                    },
+                    {
+                        "label": "face",
+                        "box": [300, 300, 400, 400],
+                        "ignore": False,
+                        "attrs": {"blur": 2, "expression": 1, "illumination": 1, "occlusion": 2, "pose": 1},
+                        "sharpness": 550.0,
+                    },
+                    {
+                        "label": "face",
+                        "box": [450, 450, 500, 500],
+                        "ignore": False,
+                        "attrs": {"blur": 0, "expression": 0, "illumination": 0, "occlusion": 0, "pose": 0},
+                        # Box 5: sharpness omitted/None (e.g. unusable crop), must be skipped by sharpness breakdown
+                    },
+                ],
+            }
+        ]
+        with open(labels_file, "w", encoding="utf-8") as f:
+            for l in labels:
+                f.write(json.dumps(l) + "\n")
+
+        # Predictions:
+        # Match Box 1 perfectly: [100, 100, 200, 200]
+        # Match Box 4 perfectly: [300, 300, 400, 400]
+        # Box 3 shifted: [135, 300, 240, 400] (IoU < 0.5, but privacy coverage >= 70%)
+        # Box 2 is completely missed (no prediction near it)
+        dets = [
+            {
+                "original_filename": "test_img.jpg",
+                "image_size": [600, 600],
+                "detections": [
+                    {"label": "face", "confidence": 0.95, "box": [100, 100, 200, 200]},
+                    {"label": "face", "confidence": 0.92, "box": [300, 300, 400, 400]},
+                    {"label": "face", "confidence": 0.88, "box": [135, 300, 240, 400]},
+                ],
+            }
+        ]
+        with open(os.path.join(run_dir, "detections.jsonl"), "w", encoding="utf-8") as f:
+            for d in dets:
+                f.write(json.dumps(d) + "\n")
+
+        with open(os.path.join(run_dir, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump({"mode": "fixed", "padding": 0.1, "imgsz": 640}, f)
+
+        res = evaluate_run(run_dir, labels_file, operating_threshold_arg=0.35)
+        write_single_report(run_dir, res)
+
+        sh = res["face_sharpness"]
+        self.assertEqual(sh["very_blurry"]["count"], 1)
+        self.assertEqual(sh["very_blurry"]["recall"], 1.0)
+        self.assertEqual(sh["very_blurry"]["privacy_recall"], 1.0)
+
+        self.assertEqual(sh["blurry"]["count"], 1)
+        self.assertEqual(sh["blurry"]["recall"], 0.0)
+        self.assertEqual(sh["blurry"]["privacy_recall"], 0.0)
+
+        self.assertEqual(sh["soft"]["count"], 1)
+        self.assertEqual(sh["soft"]["recall"], 0.0)
+        self.assertEqual(sh["soft"]["privacy_recall"], 1.0)
+
+        self.assertEqual(sh["sharp"]["count"], 1)
+        self.assertEqual(sh["sharp"]["recall"], 1.0)
+        self.assertEqual(sh["sharp"]["privacy_recall"], 1.0)
+
+        at = res["face_attributes"]
+        self.assertEqual(at["blur: clear"]["count"], 2)  # Box 1 and Box 5
+        self.assertEqual(at["blur: clear"]["recall"], 0.5)  # 1 matched out of 2
+        self.assertEqual(at["blur: clear"]["privacy_recall"], 0.5)  # 1 protected out of 2
+
+        self.assertEqual(at["blur: normal blur"]["count"], 1)
+        self.assertEqual(at["blur: normal blur"]["recall"], 0.0)
+        self.assertEqual(at["blur: normal blur"]["privacy_recall"], 0.0)
+
+        self.assertEqual(at["blur: heavy blur"]["count"], 2)
+        self.assertEqual(at["blur: heavy blur"]["recall"], 0.5)
+        self.assertEqual(at["blur: heavy blur"]["privacy_recall"], 1.0)
+
+        self.assertEqual(at["occlusion: heavy occlusion"]["count"], 2)
+        self.assertEqual(at["occlusion: heavy occlusion"]["recall"], 0.5)
+        self.assertEqual(at["occlusion: heavy occlusion"]["privacy_recall"], 1.0)
+
+        # Check accuracy.md contains the sections and tables
+        with open(os.path.join(run_dir, "accuracy.md"), "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("## Face Detection by WIDER Attribute", content)
+        self.assertIn("## Face Detection by Measured Sharpness", content)
+        self.assertIn("clear (0)", content)
+        self.assertIn("heavy blur (2)", content)
+        self.assertIn("Very blurry", content)
+
+    def test_compute_sharpness_synthetic_checkerboard_and_flat(self):
+        """Test compute_sharpness on a synthetic sharp checkerboard vs blurred copy and flat image."""
+        try:
+            from PIL import Image, ImageFilter
+            has_pil = True
+        except ImportError:
+            has_pil = False
+
+        # 1. Flat image (constant 128) -> variance == 0.0
+        flat_grid = [[128.0 for _ in range(64)] for _ in range(64)]
+        self.assertEqual(compute_sharpness(flat_grid), 0.0)
+
+        if has_pil:
+            flat_img = Image.new("L", (64, 64), color=128)
+            self.assertEqual(compute_sharpness(flat_img), 0.0)
+
+            # 2. Synthetic checkerboard
+            import numpy as np
+            cb = np.zeros((64, 64), dtype=np.uint8)
+            cb[::2, ::2] = 255
+            cb[1::2, 1::2] = 255
+            sharp_img = Image.fromarray(cb)
+            blurred_img = sharp_img.filter(ImageFilter.GaussianBlur(radius=2))
+
+            s_sharp = compute_sharpness(sharp_img)
+            s_blurred = compute_sharpness(blurred_img)
+            self.assertGreater(s_sharp, 100000.0)
+            self.assertGreater(s_sharp, 10.0 * s_blurred)
+        else:
+            # Test pure python checkerboard
+            cb_grid = [[255.0 if (r % 2 == c % 2) else 0.0 for c in range(64)] for r in range(64)]
+            s_sharp = compute_sharpness(cb_grid)
+            self.assertGreater(s_sharp, 100000.0)
+
+    def test_imgsz_cli_flag_and_validation(self):
+        """Verify run.sh --help shows --imgsz and --imgsz 1000 is refused before any cluster call."""
+        import subprocess
+
+        bench_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        run_script = os.path.join(bench_root, "run.sh")
+
+        # 1. --help shows --imgsz
+        res = subprocess.run(
+            ["bash", run_script, "--help"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("--imgsz", res.stdout)
+
+        # 2. --imgsz 1000 (not multiple of 32) is refused
+        res_bad = subprocess.run(
+            ["bash", run_script, "--workers", "1", "--imgsz", "1000"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(res_bad.returncode, 0)
+        self.assertIn("--imgsz must be a positive integer multiple of 32", res_bad.stderr)
+
+        # 3. --imgsz 0 is refused
+        res_zero = subprocess.run(
+            ["bash", run_script, "--workers", "1", "--imgsz", "0"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(res_zero.returncode, 0)
+        self.assertIn("--imgsz must be a positive integer multiple of 32", res_zero.stderr)
+
+        # 4. --imgsz abc is refused
+        res_str = subprocess.run(
+            ["bash", run_script, "--workers", "1", "--imgsz", "abc"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(res_str.returncode, 0)
+        self.assertIn("--imgsz must be a positive integer multiple of 32", res_str.stderr)
+
+    def test_combine_deface_dataset_mismatch_refusal(self):
+        """evaluate.py --combine and summarize.py must refuse a dataset mismatch when --deface is passed."""
+        import subprocess
+
+        bench_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        eval_script = os.path.join(bench_root, "accuracy", "evaluate.py")
+        sum_script = os.path.join(bench_root, "summarize.py")
+
+        labels_file = os.path.join(self.test_dir, "labels.jsonl")
+        with open(labels_file, "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "image": "WIDER_val/images/face.jpg",
+                "subset": "wider",
+                "boxes": [{"label": "face", "box": [10, 10, 50, 50], "ignore": False}],
+            }) + "\n")
+
+        # Engine run with dataset "small"
+        r_engine = os.path.join(self.test_dir, "engine_small")
+        os.makedirs(r_engine, exist_ok=True)
+        with open(os.path.join(r_engine, "detections.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "original_filename": "face.jpg",
+                "image_size": [100, 100],
+                "detections": [{"label": "face", "confidence": 0.9, "box": [10, 10, 50, 50]}],
+            }) + "\n")
+        with open(os.path.join(r_engine, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump({"mode": "fixed", "dataset": "small", "imgsz": 640}, f)
+        with open(os.path.join(r_engine, "jobs.csv"), "w", encoding="utf-8") as f:
+            f.write("id,batch_id,original_filename,status,duration_ms,created_at,updated_at,processingTimeMs\n")
+            f.write("1,b1,face.jpg,COMPLETED,50,2026-10-30T10:00:00Z,2026-10-30T10:00:01Z,45\n")
+
+        # Deface run with dataset "large"
+        r_deface_mismatch = os.path.join(self.test_dir, "deface_large")
+        os.makedirs(r_deface_mismatch, exist_ok=True)
+        with open(os.path.join(r_deface_mismatch, "detections.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "original_filename": "face.jpg",
+                "image_size": [100, 100],
+                "detections": [{"label": "face", "confidence": 0.9, "box": [10, 10, 50, 50]}],
+            }) + "\n")
+        with open(os.path.join(r_deface_mismatch, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump({"mode": "deface", "tool": "deface", "dataset": "large", "scale": "full"}, f)
+        with open(os.path.join(r_deface_mismatch, "per_image.csv"), "w", encoding="utf-8") as f:
+            f.write("filename,duration_ms\n")
+            f.write("face.jpg,30\n")
+
+        # 1. evaluate.py --combine with dataset mismatch must exit with non-zero code
+        eval_proc = subprocess.run(
+            ["python3", eval_script, "--combine", r_engine, "--deface", r_deface_mismatch, "--labels", labels_file],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(eval_proc.returncode, 0)
+        self.assertIn("Dataset mismatch", eval_proc.stderr)
+
+        # 2. summarize.py with dataset mismatch must exit with non-zero code
+        sum_proc = subprocess.run(
+            ["python3", sum_script, r_engine, "--deface", r_deface_mismatch],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(sum_proc.returncode, 0)
+        self.assertIn("Dataset mismatch", sum_proc.stderr)
+
+    def test_combine_deface_dataset_matched(self):
+        """evaluate.py --combine and summarize.py must succeed and add rows when datasets match."""
+        import subprocess
+
+        bench_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        eval_script = os.path.join(bench_root, "accuracy", "evaluate.py")
+        sum_script = os.path.join(bench_root, "summarize.py")
+
+        labels_file = os.path.join(self.test_dir, "labels.jsonl")
+        with open(labels_file, "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "image": "WIDER_val/images/face.jpg",
+                "subset": "wider",
+                "boxes": [{"label": "face", "box": [10, 10, 50, 50], "ignore": False}],
+            }) + "\n")
+
+        # Engine run with dataset "small"
+        r_engine = os.path.join(self.test_dir, "engine_match")
+        os.makedirs(r_engine, exist_ok=True)
+        with open(os.path.join(r_engine, "detections.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "original_filename": "face.jpg",
+                "image_size": [100, 100],
+                "detections": [{"label": "face", "confidence": 0.9, "box": [10, 10, 50, 50]}],
+            }) + "\n")
+        with open(os.path.join(r_engine, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump({"mode": "fixed", "dataset": "small", "imgsz": 960}, f)
+        with open(os.path.join(r_engine, "jobs.csv"), "w", encoding="utf-8") as f:
+            f.write("id,batch_id,original_filename,status,duration_ms,created_at,updated_at,processingTimeMs\n")
+            f.write("1,b1,face.jpg,COMPLETED,50,2026-10-30T10:00:00Z,2026-10-30T10:00:01Z,45\n")
+
+        # Deface run with matching dataset "small"
+        r_deface = os.path.join(self.test_dir, "deface_match")
+        os.makedirs(r_deface, exist_ok=True)
+        with open(os.path.join(r_deface, "detections.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "original_filename": "face.jpg",
+                "image_size": [100, 100],
+                "detections": [{"label": "face", "confidence": 0.9, "box": [10, 10, 50, 50]}],
+            }) + "\n")
+        with open(os.path.join(r_deface, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump({"mode": "deface", "tool": "deface", "dataset": "small", "scale": "640x480"}, f)
+        with open(os.path.join(r_deface, "per_image.csv"), "w", encoding="utf-8") as f:
+            f.write("filename,duration_ms\n")
+            f.write("face.jpg,30\n")
+
+        # 1. evaluate.py --combine
+        out_acc = os.path.join(self.test_dir, "combined_acc.md")
+        eval_proc = subprocess.run(
+            ["python3", eval_script, "--combine", r_engine, "--deface", r_deface, "--labels", labels_file, "--out", out_acc],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(eval_proc.returncode, 0, f"eval failed: {eval_proc.stderr}")
+        with open(out_acc, "r", encoding="utf-8") as f:
+            acc_content = f.read()
+        self.assertIn("`engine_match`", acc_content)
+        self.assertIn("`deface_match`", acc_content)
+        self.assertIn("960px", acc_content)
+        self.assertIn("640x480", acc_content)
+
+        # 2. summarize.py
+        out_comp = os.path.join(self.test_dir, "comparison.md")
+        sum_proc = subprocess.run(
+            ["python3", sum_script, r_engine, "--deface", r_deface, "--out", out_comp],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(sum_proc.returncode, 0, f"summarize failed: {sum_proc.stderr}")
+        with open(out_comp, "r", encoding="utf-8") as f:
+            comp_content = f.read()
+        self.assertIn("`engine_match`", comp_content)
+        self.assertIn("`deface_match`", comp_content)
+        self.assertIn("960px", comp_content)
+        self.assertIn("640x480", comp_content)
 
 
 if __name__ == "__main__":

@@ -337,13 +337,26 @@ print(f"Acquired annotations for {len(vn_targets)} Vietnamese license plate imag
 EOF
 
   echo "Writing $LABELS_FILE..."
-  python3 - <<'EOF' "$IMAGES_TXT" "$IMAGES_DIR" "$WIDER_SPLIT_CACHE" "$VN_LABELS_CACHE" "$LABELS_FILE"
+  BENCH_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+  ACCURACY_VENV="$BENCH_ROOT/.cache/accuracy-venv"
+  if [ ! -f "$ACCURACY_VENV/bin/python" ]; then
+    echo "Creating virtualenv at $ACCURACY_VENV..."
+    python3 -m venv "$ACCURACY_VENV"
+  fi
+  if ! "$ACCURACY_VENV/bin/python" -c "import numpy, PIL" 2>/dev/null; then
+    echo "Installing pinned dependencies (numpy==2.2.3, pillow==11.1.0)..."
+    "$ACCURACY_VENV/bin/pip" install --quiet --upgrade pip
+    "$ACCURACY_VENV/bin/pip" install --quiet numpy==2.2.3 pillow==11.1.0
+  fi
+
+  "$ACCURACY_VENV/bin/python" - <<'EOF' "$IMAGES_TXT" "$IMAGES_DIR" "$WIDER_SPLIT_CACHE" "$VN_LABELS_CACHE" "$LABELS_FILE"
 import sys, os, re, zipfile, struct, json
+from PIL import Image
 
 images_txt, images_dir, wider_zip_path, vn_labels_dir, labels_out = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 bench_root = os.path.abspath(os.path.join(os.path.dirname(images_dir), ".."))
 sys.path.insert(0, os.path.join(bench_root, "accuracy"))
-from evaluate import manifest_path_to_filename
+from evaluate import manifest_path_to_filename, compute_sharpness
 
 def get_image_size(path):
     with open(path, "rb") as f:
@@ -397,6 +410,7 @@ while i < len(lines):
     i += 2 + count
 
 records = []
+unusable_faces = 0
 with open(images_txt, "r", encoding="utf-8") as f:
     for line in f:
         line = line.strip()
@@ -415,17 +429,57 @@ with open(images_txt, "r", encoding="utf-8") as f:
             wider_key = src_path[len(prefix):]
             raw_boxes = gt_wider.get(wider_key, [])
             boxes = []
+
+            img_pil = None
+            img_w, img_h = 0, 0
+            if os.path.isfile(img_dest):
+                try:
+                    img_pil = Image.open(img_dest).convert("L")
+                    img_w, img_h = img_pil.size
+                except Exception:
+                    img_pil = None
+
             for b in raw_boxes:
                 x1, y1, w, h = b[:4]
+                blur = b[4]
+                expression = b[5]
+                illumination = b[6]
                 invalid = b[7] if len(b) > 7 else 0
+                occlusion = b[8]
+                pose = b[9]
                 x2 = x1 + w
                 y2 = y1 + h
                 ign = bool(invalid == 1 or w <= 0 or h <= 0)
-                boxes.append({
+
+                sharpness = None
+                if img_pil is not None and w > 0 and h > 0:
+                    cx1 = max(0, min(img_w, x1))
+                    cy1 = max(0, min(img_h, y1))
+                    cx2 = max(0, min(img_w, x2))
+                    cy2 = max(0, min(img_h, y2))
+                    if cx2 > cx1 and cy2 > cy1:
+                        crop = img_pil.crop((cx1, cy1, cx2, cy2))
+                        sharpness = round(compute_sharpness(crop), 2)
+                    else:
+                        unusable_faces += 1
+                else:
+                    unusable_faces += 1
+
+                box_dict = {
                     "label": "face",
                     "box": [x1, y1, x2, y2],
                     "ignore": ign,
-                })
+                    "attrs": {
+                        "blur": blur,
+                        "expression": expression,
+                        "illumination": illumination,
+                        "occlusion": occlusion,
+                        "pose": pose,
+                    },
+                }
+                if sharpness is not None:
+                    box_dict["sharpness"] = sharpness
+                boxes.append(box_dict)
         elif src_path.startswith("Dataset/"):
             subset = "vn"
             dest_name = manifest_path_to_filename(src_path)
@@ -472,6 +526,8 @@ with open(labels_out, "w", encoding="utf-8") as out:
         out.write(json.dumps(rec) + "\n")
 
 print(f"Generated {len(records)} normalised ground truth labels in {labels_out}.")
+if unusable_faces > 0:
+    print(f"Note: {unusable_faces} face(s) had unusable image/crop; sharpness omitted.")
 EOF
   echo "Labels generation completed successfully."
 fi

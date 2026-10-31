@@ -3,6 +3,8 @@
  */
 
 export const MAX_BATCH_FILES = 100;
+/** Maximum reference face photos allowed for biometric whitelist matching. */
+export const MAX_WHITELIST_FILES = 5;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -489,5 +491,61 @@ export function classifyDrop(entries: WebkitEntry[]): ClassifiedDrop {
   return {
     kind: "mixed",
     entries,
+  };
+}
+
+/**
+ * Result of attempting to add incoming reference files to a whitelist.
+ */
+export interface AddWhitelistFilesResult {
+  files: File[];
+  issues: FileSelectionIssue[];
+}
+
+/**
+ * Validates, normalises, deduplicates, and appends reference photos for the face whitelist.
+ * Enforces the maximum allowed reference faces (default: MAX_WHITELIST_FILES = 5).
+ * Duplicates are skipped without creating issues; invalid formats or overflows beyond max
+ * return descriptive issues.
+ */
+export function addWhitelistFiles(
+  current: File[],
+  incoming: File[],
+  max = MAX_WHITELIST_FILES,
+): AddWhitelistFilesResult {
+  const issues: FileSelectionIssue[] = [];
+  const validationIssues = validateImageFiles(incoming);
+  const invalidFileSet = new Set(validationIssues.map((issue) => issue.file));
+
+  // Duplicates are identified by path/size/mtime identity matching either current or incoming
+  const seenIdentities = new Set(current.map(getFileIdentity));
+  const nextFiles = [...current];
+
+  for (const file of incoming) {
+    if (invalidFileSet.has(file)) {
+      continue;
+    }
+
+    const identity = getFileIdentity(file);
+    if (seenIdentities.has(identity)) {
+      continue;
+    }
+    seenIdentities.add(identity);
+
+    if (nextFiles.length < max) {
+      const mime = getInferredImageType(file);
+      const normalized = mime ? ensureFileType(file, mime) : file;
+      nextFiles.push(normalized);
+    } else {
+      issues.push({
+        file,
+        reason: `only ${max} reference faces allowed`,
+      });
+    }
+  }
+
+  return {
+    files: nextFiles,
+    issues: [...validationIssues, ...issues],
   };
 }

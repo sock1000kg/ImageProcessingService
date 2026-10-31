@@ -46,7 +46,7 @@ export function BatchImageList({ batch, report, selected, onSelect }: BatchImage
   const needsReview = (job: Job) => reportByJob.get(job.id)?.needsReview === true;
 
   return (
-    <div className="image-list">
+    <div className="image-list scroll-list">
       {jobs.map((job) => {
         const isSelected = selected === job.id;
         const flagged = needsReview(job);

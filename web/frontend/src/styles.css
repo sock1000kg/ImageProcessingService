@@ -352,10 +352,47 @@ button:disabled {
   padding: 8px 11px;
   font-size: 0.72rem;
 }
+.scroll-list {
+  max-height: 360px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
 .file-list {
   display: grid;
   gap: 7px;
   margin-top: 13px;
+}
+.file-preview-wrap .file-list {
+  margin-top: 0;
+}
+.file-list-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 13px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.file-list-title {
+  font-weight: 600;
+}
+.file-list-divider {
+  color: var(--muted);
+}
+.file-list-clear {
+  border: 0;
+  padding: 0;
+  color: var(--violet);
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.file-list-clear:hover {
+  color: var(--navy);
 }
 .file-row {
   display: flex;
@@ -365,6 +402,25 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 9px;
   background: #fff;
+}
+.thumbnail-container {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+}
+.thumbnail-badge {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--navy);
+  color: var(--surface);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.2;
 }
 .file-row img {
   width: 42px;
@@ -399,13 +455,27 @@ button:disabled {
 }
 .whitelist-box {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  gap: 12px;
   margin-top: 20px;
   padding: 15px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--soft);
+}
+.whitelist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.whitelist-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin-left: auto;
 }
 .whitelist-box h3 {
   margin: 3px 0;
@@ -916,8 +986,11 @@ output {
     height: 250px;
   }
   .whitelist-box {
+    align-items: stretch;
+  }
+  .whitelist-actions {
+    margin-left: 0;
     align-items: flex-start;
-    flex-wrap: wrap;
   }
   .whitelist-box .button {
     margin-left: 0;

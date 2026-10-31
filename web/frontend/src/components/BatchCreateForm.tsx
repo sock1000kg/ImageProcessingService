@@ -138,6 +138,14 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
     });
   };
 
+  const handleClearAll = () => {
+    setFiles([]);
+    setFileErrors({});
+    setRejectedFiles([]);
+    setFolderName(null);
+    setFolderSummary(null);
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!files.length || !config.targets.length || busy) return;
@@ -222,7 +230,13 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
         <FileDropzone files={files} errors={fileErrors} onFiles={addFiles} onFolderFiles={handleFolderFiles} />
         {folderSummary && <p className="folder-selection">{folderSummary}</p>}
         <RejectedFilesNotice issues={rejectedFiles} onDismiss={() => setRejectedFiles([])} />
-        <FilePreviewList files={files} errors={fileErrors} onRemove={handleRemoveFile} />
+        <FilePreviewList
+          files={files}
+          errors={fileErrors}
+          onRemove={handleRemoveFile}
+          title={`${files.length} images selected`}
+          onClear={handleClearAll}
+        />
         <WhitelistUploader files={whitelist} onChange={setWhitelist} />
       </div>
       <aside className="config-card">

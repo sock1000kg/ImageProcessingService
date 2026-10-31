@@ -30,5 +30,9 @@ class Settings(BaseModel):
     # YOLO input size in px (multiple of 32). Larger finds smaller faces/plates but is slower.
     yolo_imgsz: int = int(os.getenv("YOLO_IMGSZ", "640"))
 
+    # Resilience & Fault Tolerance
+    max_attempts: int = int(os.getenv("MAX_ATTEMPTS", "3"))
+    job_deadline_seconds: int = int(os.getenv("JOB_DEADLINE_SECONDS", "300"))
+
 
 settings = Settings()

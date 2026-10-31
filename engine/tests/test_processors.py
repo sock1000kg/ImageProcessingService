@@ -21,6 +21,8 @@ try:
         test_exif_removal,
         test_invalid_input_file,
         test_output_formats,
+        test_output_quality_presets,
+        test_alpha_compositing_to_jpeg,
         test_contract_result_summary_schema,
     )
 except ImportError:
@@ -31,6 +33,8 @@ except ImportError:
         test_exif_removal,
         test_invalid_input_file,
         test_output_formats,
+        test_output_quality_presets,
+        test_alpha_compositing_to_jpeg,
         test_contract_result_summary_schema,
     )
 
@@ -44,6 +48,8 @@ if __name__ == "__main__":
     test_exif_removal()
     test_invalid_input_file()
     test_output_formats()
+    test_output_quality_presets()
+    test_alpha_compositing_to_jpeg()
     test_contract_result_summary_schema()
     print("==================================================")
     print("🎉 TẤT CẢ PROCESSOR ĐÃ ĐẠT CHUẨN 100%!")

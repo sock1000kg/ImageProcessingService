@@ -260,6 +260,68 @@ def test_pixel_invariance_outside_box():
     print("=> TEST 7 PASSED!\n")
 
 
+def test_output_quality_presets():
+    print("--- [TEST 8] Output Quality Presets (standard, high, max) ---")
+    img_bytes = create_solid_image_with_square(w=400, h=400)
+    processor = ImageRedactProcessor(model_name="yolov8n-oiv7.pt")
+
+    # Test JPEG quality hierarchy: max >= high >= standard in byte size
+    sizes_jpg = {}
+    for q in ["standard", "high", "max"]:
+        out_bytes, _, _ = processor.process(
+            img_bytes,
+            params={"output": {"quality": q}},
+            output_key="test.jpg",
+        )
+        sizes_jpg[q] = len(out_bytes)
+        print(f"  ✅ JPEG quality '{q}': {sizes_jpg[q]} bytes")
+
+    assert sizes_jpg["max"] >= sizes_jpg["high"] >= sizes_jpg["standard"], "JPEG quality size ordering failed"
+
+    # Test WEBP quality
+    for q in ["standard", "high", "max"]:
+        out_bytes, _, mime = processor.process(
+            img_bytes,
+            params={"output": {"quality": q}},
+            output_key="test.webp",
+        )
+        assert mime == "image/webp"
+        assert len(out_bytes) > 0
+        print(f"  ✅ WEBP quality '{q}': {len(out_bytes)} bytes")
+
+    print("=> TEST 8 PASSED!\n")
+
+
+def test_alpha_compositing_to_jpeg():
+    print("--- [TEST 9] Alpha Channel Compositing to White Background for JPEG ---")
+    # Create RGBA image: transparent background (alpha=0), red square in center
+    rgba = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+    for x in range(30, 70):
+        for y in range(30, 70):
+            rgba.putpixel((x, y), (255, 0, 0, 255))
+
+    buf = io.BytesIO()
+    rgba.save(buf, format="PNG")
+    rgba_bytes = buf.getvalue()
+
+    processor = ImageRedactProcessor(model_name="yolov8n-oiv7.pt")
+    out_bytes, _, mime = processor.process(
+        rgba_bytes,
+        params={},
+        output_key="result.jpg",
+    )
+    assert mime == "image/jpeg"
+
+    # Decode output: corners that were transparent must now be solid white (255, 255, 255)
+    out_pil = Image.open(io.BytesIO(out_bytes))
+    corner_pixel = out_pil.getpixel((5, 5))
+    assert corner_pixel[0] >= 250 and corner_pixel[1] >= 250 and corner_pixel[2] >= 250, (
+        f"Corner pixel was not composited onto white background: {corner_pixel}"
+    )
+    print(f"  ✅ Transparent background successfully composited onto white: {corner_pixel}")
+    print("=> TEST 9 PASSED!\n")
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY BỘ UNIT TEST MILESTONE 1 (IMAGE-REDACT)")
@@ -270,6 +332,8 @@ if __name__ == "__main__":
     test_exif_removal()
     test_invalid_input_file()
     test_output_formats()
+    test_output_quality_presets()
+    test_alpha_compositing_to_jpeg()
     test_contract_result_summary_schema()
     print("==================================================")
     print("🎉 TẤT CẢ UNIT TESTS ĐỀU ĐẠT CHUẨN 100%!")

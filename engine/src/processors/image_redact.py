@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 from PIL import Image
 
+from ..config import settings
 from .base import BaseProcessor
 
 logger = logging.getLogger(__name__)
@@ -105,10 +106,19 @@ class ImageRedactProcessor(BaseProcessor):
         if not input_bytes or len(input_bytes) == 0:
             raise InvalidInputFileError("Input image file is empty (0 bytes).")
 
+        ext = os.path.splitext(output_key)[1].lower().replace(".", "") if output_key else "jpg"
+
         try:
             pil_img = Image.open(io.BytesIO(input_bytes))
             pil_img.load()  # Fully decode into memory to verify integrity
-            if pil_img.mode != "RGB":
+            has_alpha = (pil_img.mode in ("RGBA", "LA") or ("transparency" in pil_img.info))
+            if has_alpha and ext in ("jpg", "jpeg"):
+                # Composite onto solid white background per contract §2
+                white_bg = Image.new("RGB", pil_img.size, (255, 255, 255))
+                rgba_img = pil_img.convert("RGBA")
+                white_bg.paste(rgba_img, mask=rgba_img.split()[3])
+                pil_img = white_bg
+            elif pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
         except Exception as e:
             raise InvalidInputFileError(f"Cannot identify or decode image file: {e}")
@@ -212,24 +222,47 @@ class ImageRedactProcessor(BaseProcessor):
                 roi = img_bgr[py1:py2, px1:px2]
                 img_bgr[py1:py2, px1:px2] = self._apply_redaction_style(roi, style, strength)
 
-        # 6. Encode output image and strip EXIF
-        ext = os.path.splitext(output_key)[1].lower().replace(".", "") if output_key else "jpg"
+        # 6. Encode output image according to quality preset and strip EXIF
+        output_cfg = params.get("output", {}) if params else {}
+        quality_level = str(output_cfg.get("quality", "high")).lower()
+        if quality_level not in ("standard", "high", "max"):
+            quality_level = "high"
+
         if ext in ("jpg", "jpeg"):
             content_type = "image/jpeg"
             enc_fmt = ".jpg"
-            enc_params = [cv2.IMWRITE_JPEG_QUALITY, 92]
+            if quality_level == "standard":
+                enc_params = [cv2.IMWRITE_JPEG_QUALITY, 80]
+            elif quality_level == "max":
+                # Quality 95, chroma 4:4:4 per contract §2
+                enc_params = [
+                    cv2.IMWRITE_JPEG_QUALITY, 95,
+                    cv2.IMWRITE_JPEG_SAMPLING_FACTOR, cv2.IMWRITE_JPEG_SAMPLING_FACTOR_444,
+                ]
+            else:  # high (default)
+                enc_params = [cv2.IMWRITE_JPEG_QUALITY, 90]
+
         elif ext == "png":
             content_type = "image/png"
             enc_fmt = ".png"
+            # PNG is lossless, compression level 3 offers good speed/size balance
             enc_params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
+
         elif ext == "webp":
             content_type = "image/webp"
             enc_fmt = ".webp"
-            enc_params = [cv2.IMWRITE_WEBP_QUALITY, 90]
+            if quality_level == "standard":
+                enc_params = [cv2.IMWRITE_WEBP_QUALITY, 75]
+            elif quality_level == "max":
+                enc_params = [cv2.IMWRITE_WEBP_QUALITY, 101]  # > 100 indicates lossless in OpenCV
+            else:  # high (default)
+                enc_params = [cv2.IMWRITE_WEBP_QUALITY, 85]
+
         else:
+            # Fallback to JPEG high
             content_type = "image/jpeg"
             enc_fmt = ".jpg"
-            enc_params = [cv2.IMWRITE_JPEG_QUALITY, 92]
+            enc_params = [cv2.IMWRITE_JPEG_QUALITY, 90]
 
         success, encoded_buf = cv2.imencode(enc_fmt, img_bgr, enc_params)
         if not success:

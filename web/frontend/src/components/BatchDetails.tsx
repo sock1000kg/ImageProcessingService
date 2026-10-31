@@ -48,6 +48,7 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
 
   const selectedReport = report?.images.find((item) => item.jobId === selected?.id);
   const detections = selectedReport?.detections ?? [];
+  const hasWhitelist = Boolean(batch.whitelistKeys && batch.whitelistKeys.length > 0);
 
   const handleDownloadReport = () => {
     if (!report) return;
@@ -81,17 +82,18 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
               job={selected}
               detections={detections}
               reviewReasons={selectedReport?.reviewReasons ?? []}
+              hasWhitelist={hasWhitelist}
               onRetry={(job) => void retry(job)}
             />
           )}
+        </div>
 
-          <div className="report-card">
-            <div className="section-kicker">BATCH REPORT</div>
-            <BatchReport report={report} />
-            <button type="button" className="secondary-button" onClick={handleDownloadReport} disabled={!report}>
-              Download JSON report
-            </button>
-          </div>
+        <div className="report-card details-report-card">
+          <div className="section-kicker">BATCH REPORT</div>
+          <BatchReport report={report} onSelectImage={(jobId) => setSelectedId(jobId)} />
+          <button type="button" className="secondary-button" onClick={handleDownloadReport} disabled={!report}>
+            Download JSON report
+          </button>
         </div>
       </div>
 

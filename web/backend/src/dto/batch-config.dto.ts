@@ -1,18 +1,43 @@
 import { z } from "zod";
-import { BatchConfig } from "../types";
 import { badRequest } from "../errors";
 
+export const redactionTargetSchema = z.enum(["face", "plate"]);
+export type RedactionTarget = z.infer<typeof redactionTargetSchema>;
+
+export const redactionStyleSchema = z.enum(["blur", "pixelate", "blackout"]);
+export type RedactionStyle = z.infer<typeof redactionStyleSchema>;
+
+export const outputQualitySchema = z.enum(["standard", "high", "max"]);
+export type OutputQuality = z.infer<typeof outputQualitySchema>;
+
+export const outputFormatSchema = z.enum(["original", "jpg", "jpeg", "png", "webp"]);
+export type OutputFormat = z.infer<typeof outputFormatSchema>;
+
 export const rawBatchConfigSchema = z.object({
-  targets: z.array(z.enum(["face", "plate"])).min(1).default(["face", "plate"]),
-  style: z.enum(["blur", "pixelate", "blackout"]).default("blur"),
+  targets: z.array(redactionTargetSchema).min(1).default(["face", "plate"]),
+  style: redactionStyleSchema.default("blur"),
   strength: z.number().int().positive().optional(),
   padding: z.number().min(0).max(0.5).default(0.1),
-  quality: z.enum(["standard", "high", "max"]).default("high"),
-  format: z.enum(["original", "jpg", "jpeg", "png", "webp"]).default("original"),
+  quality: outputQualitySchema.default("high"),
+  format: outputFormatSchema.default("original"),
   confidenceThreshold: z.number().min(0).max(1).default(0.35),
   reviewThreshold: z.number().min(0).max(1).default(0.5),
   similarityThreshold: z.number().min(0).max(1).default(0.6),
 });
+
+export const batchConfigSchema = z.object({
+  targets: z.array(redactionTargetSchema),
+  style: redactionStyleSchema,
+  strength: z.number().int().positive().optional(),
+  padding: z.number().min(0).max(0.5),
+  quality: outputQualitySchema,
+  format: outputFormatSchema,
+  confidenceThreshold: z.number().min(0).max(1),
+  reviewThreshold: z.number().min(0).max(1),
+  similarityThreshold: z.number().min(0).max(1),
+});
+
+export type BatchConfig = z.infer<typeof batchConfigSchema>;
 
 export function parseBatchConfig(raw: unknown): BatchConfig {
   const data = rawBatchConfigSchema.parse(raw ?? {});

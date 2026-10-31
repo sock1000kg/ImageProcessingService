@@ -1,15 +1,43 @@
 import { z } from "zod";
 import { Batch as PrismaBatch, Job as PrismaJob } from "../generated/prisma/client";
 import { deriveBatchStatus } from "../domain/batch-status";
-import { parseBatchConfig } from "./batch-config.dto";
+import { BatchConfig, parseBatchConfig } from "./batch-config.dto";
 
-const resultSummarySchema = z.record(z.string(), z.unknown());
-const jobErrorSchema = z
+export const jobErrorSchema = z
   .object({
     code: z.string(),
     message: z.string(),
   })
   .passthrough();
+
+export type JobError = z.infer<typeof jobErrorSchema>;
+
+export const imageDetectionSummarySchema = z
+  .object({
+    label: z.string().optional(),
+    confidence: z.number().optional(),
+    box: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
+    redacted: z.boolean().optional(),
+    whitelisted: z.boolean().optional(),
+    lowConfidence: z.boolean().optional(),
+    similarity: z.number().optional(),
+    whitelistRef: z.number().int().optional(),
+    needsReview: z.boolean().optional(),
+  })
+  .passthrough();
+
+export type ImageDetectionSummary = z.infer<typeof imageDetectionSummarySchema>;
+
+export const imageResultSummarySchema = z
+  .object({
+    counts: z.record(z.string(), z.number()).optional(),
+    detections: z.array(imageDetectionSummarySchema).optional(),
+    model: z.string().optional(),
+    processingTimeMs: z.number().optional(),
+  })
+  .passthrough();
+
+export type ImageResultSummary = z.infer<typeof imageResultSummarySchema>;
 
 export interface JobResponseDTO {
   id: string;
@@ -20,7 +48,7 @@ export interface JobResponseDTO {
   stage: string | null;
   resultUrl: string | null;
   resultSummary: Record<string, unknown> | null;
-  error: { code: string; message: string } | null;
+  error: JobError | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -33,7 +61,7 @@ export type ReviewReason =
 export interface BatchResponseDTO {
   id: string;
   status: string;
-  config: Record<string, unknown>;
+  config: BatchConfig;
   whitelistKeys: string[];
   whitelistDeletedAt: string | null;
   createdAt: string;
@@ -107,14 +135,16 @@ export function toJobResponse(job: PrismaJob | null): JobResponseDTO | null {
 
   let summary: Record<string, unknown> | null = null;
   if (job.resultSummary) {
-    const parsed = resultSummarySchema.safeParse(job.resultSummary);
-    summary = parsed.success ? parsed.data : (job.resultSummary as Record<string, unknown>);
+    const parsed = imageResultSummarySchema.safeParse(job.resultSummary);
+    summary = parsed.success
+      ? (parsed.data as Record<string, unknown>)
+      : (job.resultSummary as Record<string, unknown>);
   }
 
-  let err: { code: string; message: string } | null = null;
+  let err: JobError | null = null;
   if (job.error) {
     const parsed = jobErrorSchema.safeParse(job.error);
-    err = parsed.success ? (parsed.data as { code: string; message: string }) : (job.error as { code: string; message: string });
+    err = parsed.success ? parsed.data : (job.error as { code: string; message: string });
   }
 
   return {
@@ -137,7 +167,7 @@ export function toBatchResponse(batch: PrismaBatch, jobs: PrismaJob[]): BatchRes
   return {
     id: batch.id,
     status: deriveBatchStatus(jobs.map((j) => j.status)),
-    config: configParsed as unknown as Record<string, unknown>,
+    config: configParsed,
     whitelistKeys: batch.whitelistKeys,
     whitelistDeletedAt: batch.whitelistDeletedAt
       ? (batch.whitelistDeletedAt instanceof Date ? batch.whitelistDeletedAt.toISOString() : String(batch.whitelistDeletedAt))
@@ -163,14 +193,23 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
     if (job.status === "COMPLETED") completed++;
     if (job.status === "FAILED") failed++;
 
-    const summary = isRecord(job.resultSummary) ? job.resultSummary : null;
-    const summaryCounts = isNumberRecord(summary?.counts) ? summary.counts : undefined;
-    const rawDetections = Array.isArray(summary?.detections) ? summary.detections : [];
+    let summary: ImageResultSummary | null = null;
+    if (job.resultSummary) {
+      const parsed = imageResultSummarySchema.safeParse(job.resultSummary);
+      if (parsed.success) {
+        summary = parsed.data;
+      }
+    }
+
+    const summaryCounts = summary?.counts ?? null;
+    const rawDetections = summary?.detections ?? [];
     const detections = rawDetections.map((raw) => toReportDetection(raw, batchConfig.similarityThreshold));
     const reviewDetections = detections.filter((detection) => detection.reviewReasons.length > 0);
     const reviewReasons = [...new Set(reviewDetections.flatMap((detection) => detection.reviewReasons))];
     const redactedConfidences = detections.flatMap((detection) =>
-      detection.redacted === true && detection.confidence !== null ? [detection.confidence] : [],
+      detection.redacted === true && detection.confidence !== null && detection.confidence !== undefined
+        ? [detection.confidence]
+        : [],
     );
     const lowestRedactedConfidence = redactedConfidences.length > 0 ? Math.min(...redactedConfidences) : null;
     if (summaryCounts) {
@@ -198,14 +237,14 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
       jobId: job.id,
       originalFilename: job.originalFilename,
       status: job.status,
-      counts: summaryCounts ?? null,
+      counts: summaryCounts,
       detections,
       needsReview: reviewReasons.length > 0,
       reviewReasons,
       lowestRedactedConfidence,
       reviewDetections,
-      model: typeof summary?.model === "string" ? summary.model : null,
-      processingTimeMs: typeof summary?.processingTimeMs === "number" ? summary.processingTimeMs : null,
+      model: summary?.model ?? null,
+      processingTimeMs: summary?.processingTimeMs ?? null,
       similarityThreshold: batchConfig.similarityThreshold,
       error: job.error,
     };
@@ -242,16 +281,10 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNumberRecord(value: unknown): value is Record<string, number> {
-  return isRecord(value) && Object.values(value).every((item) => typeof item === "number");
-}
-
-function toReportDetection(value: unknown, similarityThreshold: number): ReportDetectionDTO {
-  const detection = isRecord(value) ? value : {};
+function toReportDetection(
+  detection: ImageDetectionSummary,
+  similarityThreshold: number,
+): ReportDetectionDTO {
   const similarity = typeof detection.similarity === "number" ? detection.similarity : null;
   const nearThreshold =
     similarity === null ? null : Math.abs(similarity - similarityThreshold) <= 0.05;
@@ -261,12 +294,9 @@ function toReportDetection(value: unknown, similarityThreshold: number): ReportD
   if (nearThreshold === true) reviewReasons.push("Similarity near whitelist threshold");
 
   return {
-    label: typeof detection.label === "string" ? detection.label : null,
+    label: detection.label ?? null,
     confidence: typeof detection.confidence === "number" ? detection.confidence : null,
-    box:
-      Array.isArray(detection.box) && detection.box.every((item) => typeof item === "number")
-        ? detection.box
-        : null,
+    box: detection.box ?? null,
     redacted: typeof detection.redacted === "boolean" ? detection.redacted : null,
     whitelisted: typeof detection.whitelisted === "boolean" ? detection.whitelisted : null,
     whitelistRef: typeof detection.whitelistRef === "number" ? detection.whitelistRef : null,

@@ -12,6 +12,7 @@ import { config } from "./config";
 import { getJob } from "./db";
 import { applyJobEvent, checkAndCleanBatchWhitelist } from "./services/batch.service";
 import { jobEventSchema } from "./dto";
+import { ImageRedactCommand } from "./domain";
 
 const codec = StringCodec();
 let connection: NatsConnection | null = null;
@@ -75,7 +76,14 @@ async function handleEventMessage(message: JsMsg): Promise<void> {
 
   const validation = jobEventSchema.safeParse(parsed);
   if (!validation.success) {
-    console.error("Invalid worker event schema; terminating message", z.flattenError(validation.error));
+    const rawJobId =
+      typeof parsed === "object" && parsed !== null && "jobId" in parsed
+        ? (parsed as { jobId?: unknown }).jobId
+        : undefined;
+    console.error("Invalid worker event schema; terminating message", {
+      jobId: typeof rawJobId === "string" ? rawJobId : undefined,
+      issues: validation.error.issues,
+    });
     message.term();
     return;
   }
@@ -105,7 +113,10 @@ async function handleEventMessage(message: JsMsg): Promise<void> {
   }
 }
 
-export async function publishJob(subject: string, payload: Record<string, unknown>): Promise<void> {
+export async function publishJob(
+  subject: string,
+  payload: ImageRedactCommand | Record<string, unknown>,
+): Promise<void> {
   if (!jetStream) throw new Error("NATS connection is not ready");
   await jetStream.publish(subject, codec.encode(JSON.stringify(payload)));
 }

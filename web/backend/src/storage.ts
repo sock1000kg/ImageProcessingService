@@ -67,6 +67,7 @@ export async function getObjectStream(
     );
     if (!response.Body) return null;
     return {
+      // AWS SDK v3 response.Body is a Readable/IncomingMessage; cast to NodeJS.ReadableStream
       stream: response.Body as unknown as NodeJS.ReadableStream,
       contentType: response.ContentType,
       contentLength: response.ContentLength,

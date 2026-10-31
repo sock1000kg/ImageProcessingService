@@ -19,6 +19,7 @@ export async function insertBatchAndJobs(
     await tx.batch.create({
       data: {
         id: batch.id,
+        // Prisma InputJsonValue requires casting for structured JSON fields
         config: batch.config as unknown as Prisma.InputJsonValue,
         whitelistKeys: batch.whitelistKeys,
       },
@@ -137,10 +138,11 @@ export async function updateJobState(
       progress: state.progress,
       stage: state.stage,
       resultUrl: state.resultUrl,
+      // Prisma InputJsonValue requires casting for structured JSON fields
       resultSummary: state.resultSummary
-        ? (state.resultSummary as Prisma.InputJsonValue)
+        ? (state.resultSummary as unknown as Prisma.InputJsonValue)
         : Prisma.JsonNull,
-      error: state.error ? (state.error as Prisma.InputJsonValue) : Prisma.JsonNull,
+      error: state.error ? (state.error as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
     },
   });
 }

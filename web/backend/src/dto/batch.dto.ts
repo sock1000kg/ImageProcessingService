@@ -78,12 +78,14 @@ export interface ReportImageDTO {
   detections: ReportDetectionDTO[];
   needsReview: boolean;
   reviewReasons: ReviewReason[];
+  reviewNotes: string[];
   lowestRedactedConfidence: number | null;
   reviewDetections: ReportDetectionDTO[];
   model: string | null;
   processingTimeMs: number | null;
   similarityThreshold: number | null;
-  error: unknown | null;
+  error: JobError | null;
+  attempts: number;
 }
 
 export interface ReportDetectionDTO {
@@ -98,6 +100,7 @@ export interface ReportDetectionDTO {
   needsReview: boolean | null;
   similarityNearThreshold: boolean | null;
   reviewReasons: ReviewReason[];
+  reviewNotes: string[];
 }
 
 export interface ReportTotalsDTO {
@@ -116,19 +119,49 @@ export interface ReportLowConfidenceDetectionDTO extends ReportDetectionDTO {
   originalFilename: string;
 }
 
+export interface ReportFailedImageDTO {
+  jobId: string;
+  originalFilename: string;
+  code: string;
+  message: string;
+  attempts: number;
+}
+
+export interface ReportWhitelistPersonDTO {
+  whitelistRef: number;
+  whitelistKey: string;
+  images: Array<{
+    jobId: string;
+    originalFilename: string;
+  }>;
+  imageCount: number;
+  detectionCount: number;
+}
+
+export interface ReportProcessingTimeDTO {
+  total: number;
+  mean: number;
+  max: number;
+}
+
 export interface ReportResponseDTO {
   batchId: string;
   batchName: string;
   status: string;
   totals: ReportTotalsDTO;
   images: ReportImageDTO[];
+  failedImages: ReportFailedImageDTO[];
+  whitelistPeople: ReportWhitelistPersonDTO[];
   lowConfidenceDetections: ReportLowConfidenceDetectionDTO[];
   reviewImages: Array<{
     jobId: string;
     originalFilename: string;
     reviewReasons: ReviewReason[];
+    reviewNotes: string[];
   }>;
   reviewDetections: ReportLowConfidenceDetectionDTO[];
+  models: string[];
+  processingTimeMs: ReportProcessingTimeDTO | null;
 }
 
 export function toJobResponse(job: PrismaJob): JobResponseDTO;
@@ -185,7 +218,39 @@ export function toBatchResponse(batch: PrismaBatch, jobs: PrismaJob[]): BatchRes
 }
 
 export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportResponseDTO {
-  const images = jobs.length;
+  // 1. Latest attempt per image: group by inputKey (fallback to id), newest createdAt then id
+  const groups = new Map<string, PrismaJob[]>();
+  for (const job of jobs) {
+    const key = job.inputKey || job.id;
+    const list = groups.get(key);
+    if (list) {
+      list.push(job);
+    } else {
+      groups.set(key, [job]);
+    }
+  }
+
+  const getTime = (d: Date | string | number | undefined | null): number => {
+    if (d instanceof Date) return d.getTime();
+    if (typeof d === "string" || typeof d === "number") return new Date(d).getTime();
+    return 0;
+  };
+
+  const latestJobsWithAttempts: Array<{ job: PrismaJob; attempts: number }> = [];
+  for (const group of groups.values()) {
+    group.sort((a, b) => {
+      const diff = getTime(b.createdAt) - getTime(a.createdAt);
+      if (diff !== 0) return diff;
+      return String(b.id).localeCompare(String(a.id));
+    });
+    latestJobsWithAttempts.push({
+      job: group[0],
+      attempts: group.length,
+    });
+  }
+
+  const batchConfig = parseBatchConfig(batch.config);
+
   let completed = 0;
   let failed = 0;
   let faces = 0;
@@ -193,10 +258,8 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
   let redacted = 0;
   let whitelisted = 0;
   let lowConfidence = 0;
-  const lowConfidenceDetections: ReportLowConfidenceDetectionDTO[] = [];
-  const batchConfig = parseBatchConfig(batch.config);
 
-  const perImage: ReportImageDTO[] = jobs.map((job) => {
+  const perImage: ReportImageDTO[] = latestJobsWithAttempts.map(({ job, attempts }) => {
     if (job.status === "COMPLETED") completed++;
     if (job.status === "FAILED") failed++;
 
@@ -210,15 +273,33 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
 
     const summaryCounts = summary?.counts ?? null;
     const rawDetections = summary?.detections ?? [];
-    const detections = rawDetections.map((raw) => toReportDetection(raw, batchConfig.similarityThreshold));
+    const detections = rawDetections.map((raw) =>
+      toReportDetection(raw, batchConfig.similarityThreshold),
+    );
     const reviewDetections = detections.filter((detection) => detection.reviewReasons.length > 0);
     const reviewReasons = [...new Set(reviewDetections.flatMap((detection) => detection.reviewReasons))];
+
+    // Image notes: unique detection notes, kept-face notes first
+    const keptFaceNotes: string[] = [];
+    const otherNotes: string[] = [];
+    for (const detection of detections) {
+      for (const note of detection.reviewNotes) {
+        if (note.startsWith("kept face")) {
+          if (!keptFaceNotes.includes(note)) keptFaceNotes.push(note);
+        } else {
+          if (!otherNotes.includes(note)) otherNotes.push(note);
+        }
+      }
+    }
+    const reviewNotes = [...keptFaceNotes, ...otherNotes];
+
     const redactedConfidences = detections.flatMap((detection) =>
       detection.redacted === true && detection.confidence !== null && detection.confidence !== undefined
         ? [detection.confidence]
         : [],
     );
     const lowestRedactedConfidence = redactedConfidences.length > 0 ? Math.min(...redactedConfidences) : null;
+
     if (summaryCounts) {
       if (typeof summaryCounts.face === "number") faces += summaryCounts.face;
       if (typeof summaryCounts.plate === "number") plates += summaryCounts.plate;
@@ -232,11 +313,25 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
         if (!summaryCounts || typeof summaryCounts.lowConfidence !== "number") {
           lowConfidence++;
         }
-        lowConfidenceDetections.push({
-          ...detection,
-          jobId: job.id,
-          originalFilename: job.originalFilename,
-        });
+      }
+    }
+
+    let err: JobError | null = null;
+    if (job.error) {
+      const parsed = jobErrorSchema.safeParse(job.error);
+      if (parsed.success) {
+        err = parsed.data;
+      } else if (typeof job.error === "object" && job.error !== null) {
+        const obj = job.error as Record<string, unknown>;
+        err = {
+          code: typeof obj.code === "string" ? obj.code : "UNKNOWN_ERROR",
+          message: typeof obj.message === "string" ? obj.message : JSON.stringify(job.error),
+        };
+      } else {
+        err = {
+          code: "UNKNOWN_ERROR",
+          message: String(job.error),
+        };
       }
     }
 
@@ -248,32 +343,130 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
       detections,
       needsReview: reviewReasons.length > 0,
       reviewReasons,
+      reviewNotes,
       lowestRedactedConfidence,
       reviewDetections,
       model: summary?.model ?? null,
       processingTimeMs: summary?.processingTimeMs ?? null,
       similarityThreshold: batchConfig.similarityThreshold,
-      error: job.error,
+      error: err,
+      attempts,
     };
   });
 
-  const reviewImages = perImage
-    .filter((image) => image.needsReview)
-    .map(({ jobId, originalFilename, reviewReasons }) => ({ jobId, originalFilename, reviewReasons }));
-  const reviewDetections = perImage.flatMap((image) =>
-    image.reviewDetections.map((detection) => ({
-      ...detection,
+  // Sort images: needsReview first, then lowestRedactedConfidence ascending, then images with null,
+  // then FAILED images, with originalFilename as tie-break.
+  perImage.sort(compareReportImages);
+
+  const lowConfidenceDetections: ReportLowConfidenceDetectionDTO[] = [];
+  const reviewDetections: ReportLowConfidenceDetectionDTO[] = [];
+  const reviewImages: Array<{
+    jobId: string;
+    originalFilename: string;
+    reviewReasons: ReviewReason[];
+    reviewNotes: string[];
+  }> = [];
+
+  for (const image of perImage) {
+    if (image.needsReview) {
+      reviewImages.push({
+        jobId: image.jobId,
+        originalFilename: image.originalFilename,
+        reviewReasons: image.reviewReasons,
+        reviewNotes: image.reviewNotes,
+      });
+    }
+
+    for (const detection of image.detections) {
+      if (detection.lowConfidence === true) {
+        lowConfidenceDetections.push({
+          ...detection,
+          jobId: image.jobId,
+          originalFilename: image.originalFilename,
+        });
+      }
+    }
+
+    for (const detection of image.reviewDetections) {
+      reviewDetections.push({
+        ...detection,
+        jobId: image.jobId,
+        originalFilename: image.originalFilename,
+      });
+    }
+  }
+
+  const failedImages: ReportFailedImageDTO[] = perImage
+    .filter((image) => image.status === "FAILED")
+    .map((image) => ({
       jobId: image.jobId,
       originalFilename: image.originalFilename,
-    })),
-  );
+      code: image.error?.code ?? "UNKNOWN_ERROR",
+      message: image.error?.message ?? "Job failed",
+      attempts: image.attempts,
+    }));
+
+  const whitelistKeys = Array.isArray(batch.whitelistKeys) ? batch.whitelistKeys : [];
+  const whitelistPeople: ReportWhitelistPersonDTO[] = whitelistKeys.map((key, index) => ({
+    whitelistRef: index,
+    whitelistKey: key,
+    images: [],
+    imageCount: 0,
+    detectionCount: 0,
+  }));
+
+  for (const image of perImage) {
+    const seenRefs = new Set<number>();
+    for (const detection of image.detections) {
+      if (detection.whitelisted === true && typeof detection.whitelistRef === "number") {
+        const ref = detection.whitelistRef;
+        if (ref < 0 || ref >= whitelistKeys.length) {
+          console.warn(`whitelistRef ${ref} is outside the range of whitelistKeys (0..${whitelistKeys.length - 1})`);
+          continue;
+        }
+        whitelistPeople[ref].detectionCount++;
+        if (!seenRefs.has(ref)) {
+          seenRefs.add(ref);
+          whitelistPeople[ref].images.push({
+            jobId: image.jobId,
+            originalFilename: image.originalFilename,
+          });
+        }
+      }
+    }
+  }
+
+  for (const person of whitelistPeople) {
+    person.imageCount = person.images.length;
+  }
+
+  const completedImages = perImage.filter((img) => img.status === "COMPLETED");
+  const models = [
+    ...new Set(
+      completedImages
+        .map((img) => img.model)
+        .filter((m): m is string => typeof m === "string" && m.trim().length > 0),
+    ),
+  ];
+
+  const processingTimes = completedImages
+    .map((img) => img.processingTimeMs)
+    .filter((t): t is number => typeof t === "number" && !Number.isNaN(t));
+
+  let processingTimeMs: ReportProcessingTimeDTO | null = null;
+  if (processingTimes.length > 0) {
+    const total = processingTimes.reduce((acc, t) => acc + t, 0);
+    const mean = Math.round((total / processingTimes.length) * 100) / 100;
+    const max = Math.max(...processingTimes);
+    processingTimeMs = { total, mean, max };
+  }
 
   return {
     batchId: batch.id,
     batchName: batch.name,
-    status: deriveBatchStatus(jobs.map((j) => j.status), batch.startedAt),
+    status: deriveBatchStatus(latestJobsWithAttempts.map((j) => j.job.status), batch.startedAt),
     totals: {
-      images,
+      images: perImage.length,
       completed,
       failed,
       faces,
@@ -283,10 +476,46 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
       lowConfidence,
     },
     images: perImage,
+    failedImages,
+    whitelistPeople,
     lowConfidenceDetections,
     reviewImages,
     reviewDetections,
+    models,
+    processingTimeMs,
   };
+}
+
+function compareReportImages(a: ReportImageDTO, b: ReportImageDTO): number {
+  const getGroup = (img: ReportImageDTO): number => {
+    if (img.status === "FAILED") return 5;
+    if (img.needsReview) {
+      return img.lowestRedactedConfidence !== null ? 1 : 2;
+    }
+    return img.lowestRedactedConfidence !== null ? 3 : 4;
+  };
+
+  const groupA = getGroup(a);
+  const groupB = getGroup(b);
+
+  if (groupA !== groupB) {
+    return groupA - groupB;
+  }
+
+  if (groupA === 1 || groupA === 3) {
+    const confA = a.lowestRedactedConfidence!;
+    const confB = b.lowestRedactedConfidence!;
+    if (confA !== confB) {
+      return confA - confB;
+    }
+  }
+
+  const filenameCmp = a.originalFilename.localeCompare(b.originalFilename);
+  if (filenameCmp !== 0) {
+    return filenameCmp;
+  }
+
+  return a.jobId.localeCompare(b.jobId);
 }
 
 function toReportDetection(
@@ -301,6 +530,24 @@ function toReportDetection(
   if (detection.needsReview === true) reviewReasons.push("Engine reported needsReview");
   if (nearThreshold === true) reviewReasons.push("Similarity near whitelist threshold");
 
+  const reviewNotes: string[] = [];
+  if (detection.lowConfidence === true) {
+    const confStr = typeof detection.confidence === "number" ? ` ${detection.confidence.toFixed(2)}` : "";
+    reviewNotes.push(`low confidence${confStr}`);
+  }
+  if (nearThreshold === true) {
+    const simStr = typeof similarity === "number" ? similarity.toFixed(2) : "0.00";
+    const threshStr = similarityThreshold.toFixed(2);
+    if (detection.whitelisted === true) {
+      reviewNotes.push(`kept face near whitelist threshold (similarity ${simStr}, threshold ${threshStr})`);
+    } else {
+      reviewNotes.push(`redacted face near whitelist threshold (similarity ${simStr}, threshold ${threshStr})`);
+    }
+  }
+  if (detection.needsReview === true) {
+    reviewNotes.push("engine flagged for review");
+  }
+
   return {
     label: detection.label ?? null,
     confidence: typeof detection.confidence === "number" ? detection.confidence : null,
@@ -313,5 +560,6 @@ function toReportDetection(
     needsReview: typeof detection.needsReview === "boolean" ? detection.needsReview : null,
     similarityNearThreshold: nearThreshold,
     reviewReasons,
+    reviewNotes,
   };
 }

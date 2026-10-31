@@ -24,6 +24,7 @@ export type Detection = {
   needsReview: boolean | null;
   similarityNearThreshold: boolean | null;
   reviewReasons: ReviewReason[];
+  reviewNotes?: string[];
 };
 
 export type ReviewReason =
@@ -39,12 +40,36 @@ export type ReportImage = {
   detections: Detection[];
   needsReview: boolean;
   reviewReasons: ReviewReason[];
+  reviewNotes?: string[];
   lowestRedactedConfidence: number | null;
   reviewDetections: Detection[];
   model: string | null;
   processingTimeMs: number | null;
   similarityThreshold: number | null;
   error: { code?: string; message?: string } | null;
+  attempts?: number;
+};
+
+export type ReportFailedImage = {
+  jobId: string;
+  originalFilename: string;
+  code: string;
+  message: string;
+  attempts: number;
+};
+
+export type ReportWhitelistPerson = {
+  whitelistRef: number;
+  whitelistKey: string;
+  images: Array<{ jobId: string; originalFilename: string }>;
+  imageCount: number;
+  detectionCount: number;
+};
+
+export type ReportProcessingTime = {
+  total: number;
+  mean: number;
+  max: number;
 };
 
 export type BatchReport = {
@@ -62,9 +87,18 @@ export type BatchReport = {
     lowConfidence: number;
   };
   images: ReportImage[];
+  failedImages?: ReportFailedImage[];
+  whitelistPeople?: ReportWhitelistPerson[];
   lowConfidenceDetections: Array<Detection & { jobId: string; originalFilename: string }>;
-  reviewImages: Array<{ jobId: string; originalFilename: string; reviewReasons: ReviewReason[] }>;
+  reviewImages: Array<{
+    jobId: string;
+    originalFilename: string;
+    reviewReasons: ReviewReason[];
+    reviewNotes?: string[];
+  }>;
   reviewDetections: Array<Detection & { jobId: string; originalFilename: string }>;
+  models?: string[];
+  processingTimeMs?: ReportProcessingTime | null;
 };
 
 export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL";

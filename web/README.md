@@ -274,9 +274,29 @@ Every batch response (`BatchResponseDTO`) includes `name: string`. The batch rep
 
 `BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 100). Draft batches older than 24h are deleted by the periodic cleanup task. Whitelist reference images for draft batches are never removed prior to batch completion.
 
-The Create Batch page also supports selecting a folder (including nested folders) in browsers that expose `webkitdirectory`. Files are validated locally before submission: only JPG/JPEG, PNG, and WEBP are accepted, each file is limited to 50 MB, and a batch is limited to 100 files. Invalid or excess files are reported and are never added to `FormData`; choosing a folder does not upload until **Create secure batch** is pressed. Folder selection is a UI convenience only—the API contract remains the same single multipart request.
+The Create Batch page also supports selecting a folder (including nested folders) in browsers that expose `webkitdirectory`. Files are validated locally before submission: only JPG/JPEG, PNG, and WEBP are accepted, each file is limited to 50 MB, and a batch is limited to 100 files. Invalid or excess files are reported and are never added to `FormData`; choosing a folder does not upload until **Create secure batch** is pressed. Folder selection is a UI convenience only—uploads are now sent as one file per request (`POST /api/batches/:id/files`).
 
 The report keeps Engine-provided review signals authoritative. An image is marked `needsReview` only when a detection has `lowConfidence: true`, `needsReview: true`, or a provided `similarity` value is within `0.05` of the configured `similarityThreshold`. Missing similarity, confidence, boxes, or flags remain `null`/empty and are not fabricated. Each image also exposes `reviewReasons`, `reviewDetections`, and `lowestRedactedConfidence`; the latter is calculated only from redacted detections that contain confidence.
+
+### Advanced batch report (`GET /api/batches/:id/report`)
+
+- **Latest attempt per image (deduplication)**: Jobs are grouped by `inputKey` to avoid double-counting retried jobs (`POST /api/jobs/:id/retry`). The report keeps only the newest attempt per image (by `createdAt`, tie-breaking on `id`), and exposes `ReportImageDTO.attempts` as the total number of attempts for that input. Totals, image counts, and all derived lists reflect these latest attempts only.
+- **Failures**: `ReportImageDTO.error` is typed as `JobError | null` (from `jobErrorSchema`). Failed images are also gathered in `failedImages: [{ jobId, originalFilename, code, message, attempts }]`.
+- **Per-person whitelist summary**: `whitelistPeople: [{ whitelistRef, whitelistKey, images: [{ jobId, originalFilename }], imageCount, detectionCount }]` provides one entry per whitelist image in `batch.whitelistKeys` (indexed 0 to N-1, including people appearing in 0 images). Detections with `whitelisted: true` and that `whitelistRef` are counted. Out-of-range `whitelistRef` indices are ignored and logged with `console.warn`.
+- **Review notes with values**: Each detection and image exposes `reviewNotes: string[]` alongside `reviewReasons`:
+  - `"low confidence 0.41"` (formatted to two decimals);
+  - `"kept face near whitelist threshold (similarity 0.62, threshold 0.60)"` when `whitelisted: true`;
+  - `"redacted face near whitelist threshold (similarity 0.58, threshold 0.60)"` otherwise;
+  - `"engine flagged for review"`.
+  Image-level `reviewNotes` deduplicates detection notes, placing kept-face notes first due to privacy risk. Existing `reviewReasons` strings remain unchanged.
+- **Image ordering**: Images are sorted across five groups:
+  1. Images with `needsReview: true` and a numeric `lowestRedactedConfidence` (sorted ascending by lowest redacted confidence);
+  2. Images with `needsReview: true` and `lowestRedactedConfidence: null` (e.g. kept face near whitelist threshold);
+  3. Completed images with `needsReview: false` and numeric `lowestRedactedConfidence` (sorted ascending);
+  4. Completed images with `lowestRedactedConfidence: null` (no detections);
+  5. `FAILED` images.
+  Within each group, `originalFilename` (then `jobId`) serves as the tie-break. `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
+- **Batch-level extras**: Exposes `models: string[]` (unique non-null models across latest completed attempts) and `processingTimeMs: { total, mean, max } | null` over the latest completed attempts.
 
 ## Error response format
 

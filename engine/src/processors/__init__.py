@@ -11,7 +11,7 @@ def get_processor_registry() -> dict[str, BaseProcessor]:
     Any unsupported job type will return None and trigger UNSUPPORTED_JOB_TYPE error.
     """
     registry: dict[str, BaseProcessor] = {
-        "image-redact": ImageRedactProcessor(model_name=settings.yolo_model_name),
+        "image-redact": ImageRedactProcessor(model_name=settings.yolo_model_name, imgsz=settings.yolo_imgsz),
     }
     return registry
 

@@ -27,6 +27,8 @@ class Settings(BaseModel):
     # Model weights directory & default model
     models_dir: str = os.getenv("MODELS_DIR", "./models")
     yolo_model_name: str = os.getenv("YOLO_MODEL_NAME", "yolov8n-oiv7.pt")
+    # YOLO input size in px (multiple of 32). Larger finds smaller faces/plates but is slower.
+    yolo_imgsz: int = int(os.getenv("YOLO_IMGSZ", "640"))
 
 
 settings = Settings()

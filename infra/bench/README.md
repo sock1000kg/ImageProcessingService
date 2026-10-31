@@ -64,6 +64,20 @@ The small set is the default and stays as it is, so lab results remain comparabl
   ```
   `run.sh --dataset large` runs `fetch.sh --set large` itself if the folder is missing.
 
+### Max Dataset (3726 images, `--set max`)
+
+For exhaustive full-dataset evaluation, the `max` set includes **all 3,226 WIDER FACE validation images** and **all 500 Vietnamese license plate images** (`Dataset/Test` 400 + `Dataset/Valid` 100, the complete contents of the upstream repository):
+- **3226 images** from WIDER FACE validation set.
+- **500 images** from Vietnamese license plate dataset (400 from `Dataset/Test/` and 100 from `Dataset/Valid/`).
+- Manifest: [`dataset/images-max.txt`](dataset/images-max.txt) (path + SHA-256 per image, committed). Images go to `dataset/images-max/` (gitignored). To avoid collisions between duplicate filenames in Test and Valid (e.g. `1.jpg`..`100.jpg`), images from `Dataset/Valid/` are stored and referenced with a `valid_` prefix (e.g. `valid_1.jpg`).
+- Default runner timeout scales proportionally to 27,000s (~7.5 hours).
+- Results folder: `results/<machine>-<date>-max/`.
+- Fetch:
+  ```bash
+  bash infra/bench/dataset/fetch.sh --set max
+  ```
+  `run.sh --dataset max` and `deface.sh --dataset max` automatically run `fetch.sh --set max` if the directory is missing.
+
 ---
 
 ## 2. Running the Benchmark
@@ -335,4 +349,85 @@ Each run folder contains:
 - We evaluated OpenScrub (`openscrub==1.0.81` on PyPI).
 - **Finding**: OpenScrub is built exclusively for video file processing (`.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`). Its batch CLI mode (`--batch FOLDER`) raises `RuntimeError: no videos found in <folder>` when provided with image folders and cannot process still images non-interactively.
 - **Conclusion**: OpenScrub is excluded from this still-image benchmark comparison.
+
+---
+
+## 8. Accuracy & Detection Quality Benchmark (`infra/bench/accuracy`)
+
+This benchmark evaluates detection quality (precision, recall, F1, AP@0.5) and privacy protection recall between our image redaction pipeline and deface on the exact same dataset images.
+
+### Producing Normalised Ground Truth Labels
+Run `fetch.sh` with `--labels` to generate reproducible annotations:
+```bash
+# Small set (100 images: 70 WIDER + 30 VN plates)
+bash infra/bench/dataset/fetch.sh --labels
+
+# Large set (1000 images: 700 WIDER + 300 VN plates)
+bash infra/bench/dataset/fetch.sh --set large --labels
+
+# Max set (3726 images: 3226 WIDER + 500 VN plates)
+bash infra/bench/dataset/fetch.sh --set max --labels
+```
+- Ground truth annotations are saved as JSONL to `infra/bench/dataset/labels-<set>.jsonl` (gitignored).
+- **WIDER FACE subset (`wider`)**: Faces extracted from `wider_face_split/wider_face_val_bbx_gt.txt`. Annotations marked `invalid=1` are flagged `ignore: true`.
+- **Vietnamese license plates subset (`vn`)**: License plates extracted from YOLO annotations (`Dataset/Test/*.txt` and `Dataset/Valid/*.txt`, class ID `0` represents vehicle plates). Normalized YOLO coordinates are converted to pixel bounding boxes `[x1, y1, x2, y2]`.
+
+### Executing Accuracy Benchmark Runs
+To build full precision–recall curves and compute AP@0.5, runs are performed with confidence down to `0.05` while exporting raw detections:
+
+1. **Our Engine**:
+   ```bash
+   bash infra/bench/run.sh --machine laptop-rtx3050 --dataset large --preload --parallel 4 --workers 3 \
+     --confidence 0.05 --save-detections
+   ```
+   Exports `job_id`, `original_filename`, `detections`, and `imageSize` directly from PostgreSQL into `detections.jsonl`.
+
+2. **Deface (CenterFace ONNX)**:
+   ```bash
+   # Native full resolution
+   bash infra/bench/compare/deface.sh --machine laptop-rtx3050 --dataset large \
+     --threshold 0.05 --save-detections
+
+   # 640-class reduced resolution (CenterFace in_shape 640x480)
+   bash infra/bench/compare/deface.sh --machine laptop-rtx3050 --dataset large \
+     --threshold 0.05 --scale 640x480 --save-detections
+   ```
+   Detections and bounding boxes are saved directly from the single CenterFace inference pass.
+
+### Evaluation Rules & Metrics (`infra/bench/accuracy/evaluate.py`)
+Run the Python evaluator on individual runs or combined directories:
+```bash
+# Evaluate a single run:
+python3 infra/bench/accuracy/evaluate.py infra/bench/results/laptop-rtx3050-20261030-1000/<run_dir> \
+  --labels infra/bench/dataset/labels-large.jsonl
+
+# Generate combined comparison table:
+python3 infra/bench/accuracy/evaluate.py \
+  infra/bench/results/laptop-rtx3050-20261030-1000/20261030-*-fixed-* \
+  infra/bench/results/laptop-rtx3050-20261030-1000/20261030-*-deface-* \
+  --combine --labels infra/bench/dataset/labels-large.jsonl \
+  --out infra/bench/results/laptop-rtx3050-20261030-1000/accuracy.md
+```
+
+#### Evaluation Rules:
+- **No cross-subset scoring**: Faces are evaluated only on the `wider` subset; vehicle license plates are evaluated only on the `vn` subset.
+- **Greedy Matching**: Predictions are sorted by confidence descending and matched greedily against ground truth with IoU ≥ 0.5. Each non-ignore GT box can match at most once.
+- **Ignore Boxes**: WIDER annotations with `invalid=1` are flagged ignore. Predictions matching an ignore box are neither TP nor FP.
+- **AP@0.5**: Computed across all confidence thresholds using all-points monotonic interpolation.
+- **Operating Thresholds**: Precision, recall, and F1 are reported at the default operating threshold (0.35 for engine, 0.20 for deface) as well as the optimal best-F1 threshold.
+- **Privacy Recall**: A ground truth target is counted as privacy-protected if its bounding box area is covered ≥ 70% by the redacted area:
+  - For our engine: predicted box expanded by `padding` (0.1 default).
+  - For deface: predicted box expanded by `mask_scale` 1.3 (ellipse approximated by its bounding box).
+- **Face Size Breakdown**: Non-ignore faces are broken down by GT box width into four size buckets:
+  - `tiny`: width < 16 px
+  - `small`: 16 px ≤ width < 32 px
+  - `medium`: 32 px ≤ width ≤ 96 px
+  - `large`: width > 96 px
+- **Deface License Plates**: Deface does not support license plate detection; its plate rows report "not supported" and recall 0 by design.
+
+### Caveats & Methodological Notes
+1. **Model Architectures & Resolutions**: YOLOv8n-oiv7 operates on 640px letterboxed input; deface uses CenterFace which defaults to full image resolution. Running deface with `--scale 640x480` provides a normalized architectural comparison at similar input dimensions.
+2. **WIDER FACE Dataset Characteristics**: WIDER val includes crowds with hundreds of tiny, heavily occluded, and heavily blurred faces (<16px) that general-purpose face detectors intentionally suppress at operational confidence thresholds.
+3. **The 70% Coverage Rule**: The 70% area coverage threshold is our deliberate engineering metric for privacy protection: it reflects that an object is sufficiently obscured from human identification even if the detector's raw bounding box had slight boundary shift (IoU < 0.5).
+
 

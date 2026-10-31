@@ -3,16 +3,20 @@
 # Measures per-image face detection & blurring performance over the dataset images (100 small / 1000 large).
 #
 # Usage:
-#   deface.sh [--cpu] [--dataset small|large] [--machine NAME] [--images DIR] [--out DIR]
+#   deface.sh [--cpu] [--dataset small|large|max] [--threshold X] [--scale WxH] [--save-detections]
+#             [--machine NAME] [--images DIR] [--out DIR]
 #
 # Options:
 #   --cpu           Force CPU execution (CPUExecutionProvider)
-#   --dataset small|large  Image set: small = 100 images (default), large = 1000 images (dataset/images-1000/,
-#                   fetched and hash-verified with dataset/fetch.sh --set large)
+#   --dataset small|large|max  Image set: small = 100 images (default), large = 1000 images (dataset/images-1000/),
+#                   max = 3726 images (dataset/images-max/, fetched and hash-verified with dataset/fetch.sh --set max)
+#   --threshold X   Confidence threshold for CenterFace (0.0 to 1.0, default: 0.2)
+#   --scale WxH     Input scale for CenterFace, e.g. 640x480 (default: full resolution)
+#   --save-detections  Write detections.jsonl with image sizes, boxes, and scores
 #   --machine NAME  Machine or node name (default: detected hostname or worker node)
-#   --images DIR    Images directory (default: infra/bench/dataset/images, or images-1000 for large)
+#   --images DIR    Images directory (default: infra/bench/dataset/images, images-1000 for large, images-max for max)
 #   --out DIR       Output directory for results
-#                   (default: results/<machine>-<date>[-1000 for large]/<UTC>-deface-<gpu|cpu>/)
+#                   (default: results/<machine>-<date>[-1000|-max]/<UTC>-deface-<gpu|cpu>/)
 #   -h, --help      Show this help message and exit
 set -euo pipefail
 
@@ -24,18 +28,22 @@ VENV_DIR="$CACHE_DIR/deface-venv"
 
 usage() {
   cat <<'EOF'
-Usage: deface.sh [--cpu] [--dataset small|large] [--machine NAME] [--images DIR] [--out DIR]
+Usage: deface.sh [--cpu] [--dataset small|large|max] [--threshold X] [--scale WxH] [--save-detections]
+                 [--machine NAME] [--images DIR] [--out DIR]
 
-Runs the Deface comparison benchmark on the dataset images (small = 100, large = 1000).
+Runs the Deface comparison benchmark on the dataset images (small = 100, large = 1000, max = 3726).
 
 Options:
   --cpu           Force CPU execution (CPUExecutionProvider)
-  --dataset small|large  Image set: small = 100 images (default), large = 1000 images (fetched and hash-verified
-                  with dataset/fetch.sh --set large)
+  --dataset small|large|max  Image set: small = 100 images (default), large = 1000 images, max = 3726 images
+                  (fetched and hash-verified with dataset/fetch.sh --set max)
+  --threshold X   Confidence threshold for CenterFace (0.0 to 1.0, default: 0.2)
+  --scale WxH     Input scale for CenterFace, e.g. 640x480 (default: full resolution)
+  --save-detections  Write detections.jsonl with image sizes, boxes, and scores
   --machine NAME  Machine or node name (default: detected hostname or worker node)
-  --images DIR    Images directory (default: infra/bench/dataset/images, or images-1000 for large)
+  --images DIR    Images directory (default: infra/bench/dataset/images, images-1000 for large, images-max for max)
   --out DIR       Output directory for results
-                  (default: results/<machine>-<date>[-1000 for large]/<UTC>-deface-<gpu|cpu>/)
+                  (default: results/<machine>-<date>[-1000|-max]/<UTC>-deface-<gpu|cpu>/)
   -h, --help      Show this help message and exit
 EOF
 }
@@ -45,6 +53,9 @@ MACHINE=""
 IMAGES_DIR=""
 OUT_DIR=""
 DATASET="small"
+THRESHOLD="0.2"
+SCALE=""
+SAVE_DETECTIONS=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -60,11 +71,33 @@ while [ "$#" -gt 0 ]; do
     --dataset)
       [ "$#" -ge 2 ] || { echo "ERROR: missing value for --dataset" >&2; exit 1; }
       DATASET="$2"
-      if [ "$DATASET" != "small" ] && [ "$DATASET" != "large" ]; then
-        echo "ERROR: --dataset must be 'small' or 'large' (got '$DATASET')" >&2
+      if [ "$DATASET" != "small" ] && [ "$DATASET" != "large" ] && [ "$DATASET" != "max" ]; then
+        echo "ERROR: --dataset must be 'small', 'large', or 'max' (got '$DATASET')" >&2
         exit 1
       fi
       shift 2
+      ;;
+    --threshold)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --threshold" >&2; exit 1; }
+      THRESHOLD="$2"
+      if ! python3 -c "import sys; v = float(sys.argv[1]); sys.exit(0 if 0.0 <= v <= 1.0 else 1)" "$THRESHOLD" 2>/dev/null; then
+        echo "ERROR: --threshold must be a number between 0 and 1 (got '$THRESHOLD')" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --scale)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --scale" >&2; exit 1; }
+      SCALE="$2"
+      if [[ ! "$SCALE" =~ ^[0-9]+x[0-9]+$ ]]; then
+        echo "ERROR: --scale must be in WxH format, e.g. 640x480 (got '$SCALE')" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --save-detections)
+      SAVE_DETECTIONS=1
+      shift 1
       ;;
     --images)
       [ "$#" -ge 2 ] || { echo "ERROR: missing value for --images" >&2; exit 1; }
@@ -95,6 +128,12 @@ if [ "$DATASET" = "large" ]; then
     # Downloads what is missing and verifies all 1000 hashes against images-1000.txt (no network when already verified)
     bash "$BENCH_DIR/dataset/fetch.sh" --set large
     IMAGES_DIR="$BENCH_DIR/dataset/images-1000"
+  fi
+elif [ "$DATASET" = "max" ]; then
+  RESULTS_SUFFIX="-max"
+  if [ -z "$IMAGES_DIR" ]; then
+    bash "$BENCH_DIR/dataset/fetch.sh" --set max
+    IMAGES_DIR="$BENCH_DIR/dataset/images-max"
   fi
 fi
 IMAGES_DIR="${IMAGES_DIR:-$DEFAULT_IMAGES_DIR}"
@@ -166,6 +205,7 @@ echo "==> Starting deface benchmark (target: $TARGET_DEVICE, images: $image_coun
 
 CPU_MODE="$CPU_MODE" TARGET_DEVICE="$TARGET_DEVICE" MACHINE="$MACHINE" \
 NODE_CPU_COUNT="$NODE_CPU_COUNT" IMAGES_DIR="$IMAGES_DIR" OUT_DIR="$OUT_DIR" DATASET="$DATASET" \
+THRESHOLD="$THRESHOLD" SCALE="$SCALE" SAVE_DETECTIONS="$SAVE_DETECTIONS" \
 "$VENV_DIR/bin/python" - <<'EOF'
 import csv
 import json
@@ -176,8 +216,9 @@ import tempfile
 import time
 from datetime import datetime, timezone
 
+import imageio.v3 as iio
 from deface.centerface import CenterFace
-from deface.deface import image_detect
+from deface.deface import anonymize_frame
 
 cpu_mode = os.environ.get("CPU_MODE") == "1"
 target_device = os.environ["TARGET_DEVICE"]
@@ -186,13 +227,21 @@ node_cpu_count = int(os.environ.get("NODE_CPU_COUNT", 0) or 0)
 images_dir = os.environ["IMAGES_DIR"]
 out_dir = os.environ["OUT_DIR"]
 dataset = os.environ["DATASET"]
+threshold = float(os.environ.get("THRESHOLD", 0.2))
+scale_str = os.environ.get("SCALE", "").strip()
+save_detections = os.environ.get("SAVE_DETECTIONS") == "1"
+
+in_shape = None
+if scale_str:
+    parts = scale_str.lower().split("x")
+    in_shape = (int(parts[0]), int(parts[1]))
 
 start_time_iso = datetime.now(timezone.utc).isoformat()
 
 # 1. Model load timing
 provider_arg = "CPUExecutionProvider" if cpu_mode else "CUDAExecutionProvider"
 t_load_0 = time.perf_counter()
-centerface = CenterFace(override_execution_provider=provider_arg)
+centerface = CenterFace(in_shape=in_shape, override_execution_provider=provider_arg)
 model_load_time = time.perf_counter() - t_load_0
 
 actual_provider = centerface.sess.get_providers()[0]
@@ -208,6 +257,7 @@ image_files = sorted([f for f in os.listdir(images_dir) if f.lower().endswith(ex
 
 temp_out_dir = tempfile.mkdtemp(prefix="deface_out_")
 timings = []
+detections_records = []
 
 try:
     t_bench_0 = time.perf_counter()
@@ -216,24 +266,43 @@ try:
         out_path = os.path.join(temp_out_dir, fname)
 
         t_img_0 = time.perf_counter()
-        image_detect(
-            ipath=in_path,
-            opath=out_path,
-            centerface=centerface,
-            threshold=0.2,
-            replacewith="blur",
-            mask_scale=1.3,
-            ellipse=True,
-            draw_scores=False,
-            enable_preview=False,
-            keep_metadata=False,
+        frame = iio.imread(in_path)
+        orig_h, orig_w = frame.shape[:2]
+        dets, _ = centerface(frame, threshold=threshold)
+        anonymize_frame(
+            dets, frame, mask_scale=1.3,
+            replacewith="blur", ellipse=True, draw_scores=False,
+            replaceimg=None, mosaicsize=20
         )
+        iio.imwrite(out_path, frame)
         duration_ms = (time.perf_counter() - t_img_0) * 1000.0
         timings.append((fname, duration_ms))
+
+        if save_detections:
+            img_dets = []
+            for d in dets:
+                img_dets.append({
+                    "label": "face",
+                    "confidence": round(float(d[4]), 4),
+                    "box": [round(float(d[0]), 2), round(float(d[1]), 2), round(float(d[2]), 2), round(float(d[3]), 2)],
+                })
+            detections_records.append({
+                "job_id": None,
+                "original_filename": fname,
+                "filename": fname,
+                "image_size": [int(orig_w), int(orig_h)],
+                "detections": img_dets,
+            })
 
     total_duration = time.perf_counter() - t_bench_0
 finally:
     shutil.rmtree(temp_out_dir, ignore_errors=True)
+
+if save_detections:
+    det_path = os.path.join(out_dir, "detections.jsonl")
+    with open(det_path, "w", encoding="utf-8") as f:
+        for rec in detections_records:
+            f.write(json.dumps(rec) + "\n")
 
 end_time_iso = datetime.now(timezone.utc).isoformat()
 
@@ -277,6 +346,9 @@ meta = {
     "total_duration_seconds": round(total_duration, 4),
     "images_count": len(proc_times),
     "dataset": dataset,
+    "threshold": threshold,
+    "scale": scale_str if scale_str else "full",
+    "save_detections": save_detections,
     "start_time": start_time_iso,
     "end_time": end_time_iso,
 }
@@ -295,6 +367,8 @@ summary_md = f"""# Deface Benchmark Summary
 | **ONNX Execution Provider** | `{actual_provider}` |
 | **Machine / Node** | {machine} ({node_cpu_count} CPU threads) |
 | **Dataset** | {dataset} |
+| **Threshold** | {threshold} |
+| **Scale** | {scale_str if scale_str else "full (native resolution)"} |
 | **Images Count** | {len(proc_times)} |
 | **Start Time** | {start_time_iso} |
 | **End Time** | {end_time_iso} |

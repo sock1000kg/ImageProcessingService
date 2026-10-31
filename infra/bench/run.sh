@@ -2,8 +2,8 @@
 # Baseline benchmark runner for the imgproc image pipeline.
 #
 # Usage:
-#   run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large] [--parallel P] [--preload]
-#          [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
+#   run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large|max] [--parallel P] [--preload]
+#          [--confidence X] [--save-detections] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 #
 # Options:
 #   --workers N         Fixed replica mode (N: 1 to 6). Annotates ScaledObject,
@@ -11,16 +11,18 @@
 #   --autoscale         Autoscale mode with optional min/max replicas (1 to 6).
 #   --min M             Minimum replicas for autoscale mode (0 to 6, default: current ScaledObject value, e.g. 0).
 #   --max N             Maximum replicas for autoscale mode (1 to 6, default: current ScaledObject value, e.g. 3).
-#   --dataset small|large  Image set: small = 100 images / 5 batches (default), large = 1000 images / 50 batches
-#                       (dataset/images-1000.txt; fetch with dataset/fetch.sh --set large).
+#   --dataset small|large|max  Image set: small = 100 images / 5 batches (default), large = 1000 images / 50 batches,
+#                       max = 3726 images (dataset/images-max.txt; fetch with dataset/fetch.sh --set max).
 #   --parallel P        Upload up to P batches at the same time (default: 1 = one after another).
 #   --preload           Fixed mode only: pause workers at 0, upload every batch so the jobs wait in the queue,
 #                       then release N workers. Measures how fast the workers drain a full queue.
+#   --confidence X      Detection confidence threshold (0.0 to 1.0; passes confidenceThreshold in batch config).
+#   --save-detections   Export bounding boxes and scores into detections.jsonl via PostgreSQL.
 #   --machine NAME      Machine/node name for results directory (default: worker pod node name).
 #   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
 #   --out DIR           Output directory for benchmark results
-#                       (default: infra/bench/results/<machine>-<YYYYMMDD>[-1000]/<UTC>-<mode>/).
-#   --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800, large dataset: 7200).
+#                       (default: infra/bench/results/<machine>-<YYYYMMDD>[-1000|-max]/<UTC>-<mode>/).
+#   --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800, large dataset: 7200, max dataset: 27000).
 #   -h, --help          Show this help message and exit.
 set -euo pipefail
 
@@ -33,10 +35,10 @@ BATCH_SIZE=20
 
 usage() {
   cat <<'EOF'
-Usage: run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large] [--parallel P] [--preload]
-              [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
+Usage: run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large|max] [--parallel P] [--preload]
+              [--confidence X] [--save-detections] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 
-Runs the baseline image pipeline benchmark (batches of 20 images: small = 100 images / 5 batches, large = 1000 images / 50 batches).
+Runs the baseline image pipeline benchmark (batches of 20 images: small = 100 images / 5 batches, large = 1000 images / 50 batches, max = 3726 images).
 
 Options:
   --workers N         Fixed replica mode (N: 1 to 6). Annotates ScaledObject,
@@ -44,15 +46,17 @@ Options:
   --autoscale         Autoscale mode with optional min/max replicas (1 to 6).
   --min M             Minimum replicas for autoscale mode (0 to 6, default: current ScaledObject value, e.g. 0).
   --max N             Maximum replicas for autoscale mode (1 to 6, default: current ScaledObject value, e.g. 3).
-  --dataset small|large  Image set: small = 100 images (default), large = 1000 images (fetch with dataset/fetch.sh --set large).
+  --dataset small|large|max  Image set: small = 100 images (default), large = 1000 images, max = 3726 images (fetch with dataset/fetch.sh --set max).
   --parallel P        Upload up to P batches at the same time (default: 1 = one after another).
   --preload           Fixed mode only: pause workers at 0, upload every batch so the jobs wait in the queue,
                       then release N workers. Measures how fast the workers drain a full queue.
+  --confidence X      Detection confidence threshold (0.0 to 1.0; passes confidenceThreshold in batch config).
+  --save-detections   Export bounding boxes and scores into detections.jsonl via PostgreSQL.
   --machine NAME      Machine/node name for results directory (default: worker pod node name).
   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
   --out DIR           Output directory for benchmark results
-                      (default: infra/bench/results/<machine>-<YYYYMMDD>[-1000 for large]/<UTC>-<mode>/).
-  --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800, large dataset: 7200).
+                      (default: infra/bench/results/<machine>-<YYYYMMDD>[-1000|-max]/<UTC>-<mode>/).
+  --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800, large dataset: 7200, max dataset: 27000).
   -h, --help          Show this help message and exit.
 EOF
 }
@@ -71,6 +75,8 @@ TIMEOUT=""
 DATASET="small"
 PARALLEL=1
 PRELOAD=0
+CONFIDENCE=""
+SAVE_DETECTIONS=0
 
 print_node_cpu_warning() {
   local count="$1"
@@ -157,8 +163,8 @@ while [ "$#" -gt 0 ]; do
     --dataset)
       [ "$#" -ge 2 ] || { echo "ERROR: missing value for --dataset" >&2; exit 1; }
       DATASET="$2"
-      if [ "$DATASET" != "small" ] && [ "$DATASET" != "large" ]; then
-        echo "ERROR: --dataset must be 'small' or 'large' (got '$DATASET')" >&2
+      if [ "$DATASET" != "small" ] && [ "$DATASET" != "large" ] && [ "$DATASET" != "max" ]; then
+        echo "ERROR: --dataset must be 'small', 'large', or 'max' (got '$DATASET')" >&2
         exit 1
       fi
       shift 2
@@ -174,6 +180,19 @@ while [ "$#" -gt 0 ]; do
       ;;
     --preload)
       PRELOAD=1
+      shift 1
+      ;;
+    --confidence)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --confidence" >&2; exit 1; }
+      CONFIDENCE="$2"
+      if ! python3 -c "import sys; v = float(sys.argv[1]); sys.exit(0 if 0.0 <= v <= 1.0 else 1)" "$CONFIDENCE" 2>/dev/null; then
+        echo "ERROR: --confidence must be a number between 0 and 1 (got '$CONFIDENCE')" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --save-detections)
+      SAVE_DETECTIONS=1
       shift 1
       ;;
     -h|--help)
@@ -204,12 +223,21 @@ if [ "$DATASET" = "large" ]; then
   IMAGES_TXT="$DATASET_DIR/images-1000.txt"
   EXPECTED_IMAGES=1000
   TIMEOUT="${TIMEOUT:-7200}"
+  RESULTS_SUFFIX="-1000"
+elif [ "$DATASET" = "max" ]; then
+  IMAGES_DIR="$DATASET_DIR/images-max"
+  IMAGES_TXT="$DATASET_DIR/images-max.txt"
+  EXPECTED_IMAGES=3726
+  TIMEOUT="${TIMEOUT:-27000}"
+  RESULTS_SUFFIX="-max"
 fi
 TIMEOUT="${TIMEOUT:-1800}"
-NUM_BATCHES=$((EXPECTED_IMAGES / BATCH_SIZE))
-RESULTS_SUFFIX=""
-if [ "$DATASET" = "large" ]; then
-  RESULTS_SUFFIX="-1000"
+NUM_BATCHES=$(((EXPECTED_IMAGES + BATCH_SIZE - 1) / BATCH_SIZE))
+
+if [ -n "$CONFIDENCE" ]; then
+  BATCH_CONFIG_JSON="{\"targets\":[\"face\",\"plate\"],\"style\":\"blur\",\"confidenceThreshold\":$CONFIDENCE}"
+else
+  BATCH_CONFIG_JSON="{\"targets\":[\"face\",\"plate\"],\"style\":\"blur\"}"
 fi
 
 if [ "$MODE" = "fixed" ] && { [ -n "$AUTOSCALE_MIN" ] || [ -n "$AUTOSCALE_MAX" ]; }; then
@@ -372,18 +400,10 @@ if [ ! -d "$IMAGES_DIR" ] || [ ! -f "$IMAGES_TXT" ]; then
 fi
 
 IMAGE_FILES=()
-while IFS= read -r line || [ -n "$line" ]; do
-  line="$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-  [ -z "$line" ] && continue
-  [[ "$line" =~ ^# ]] && continue
-  read -r col1 col2 _ <<< "$line"
-  if [[ "$col1" =~ ^[0-9a-fA-F]{64}$ ]]; then
-    fname="$(basename "$col2")"
-  else
-    fname="$(basename "$col1")"
-  fi
-  IMAGE_FILES+=("$fname")
-done < "$IMAGES_TXT"
+while IFS= read -r f || [ -n "$f" ]; do
+  [ -z "$f" ] && continue
+  IMAGE_FILES+=("$f")
+done < <(python3 "$SCRIPT_DIR/accuracy/evaluate.py" --list-images "$IMAGES_TXT")
 
 if [ "${#IMAGE_FILES[@]}" -ne "$EXPECTED_IMAGES" ]; then
   echo "ERROR: Expected $EXPECTED_IMAGES files from $IMAGES_TXT, found ${#IMAGE_FILES[@]}." >&2
@@ -516,7 +536,7 @@ elif [ "$MODE" = "fixed" ]; then
   # Warm-up batch: 2 * WORKERS images
   WARMUP_COUNT=$((2 * WORKERS))
   echo "Sending warm-up batch of $WARMUP_COUNT images..."
-  CURL_ARGS=(-fsS -X POST "$API_URL/api/batches" -F "config={\"targets\":[\"face\",\"plate\"],\"style\":\"blur\"}")
+  CURL_ARGS=(-fsS -X POST "$API_URL/api/batches" -F "config=$BATCH_CONFIG_JSON")
   for ((i = 0; i < WARMUP_COUNT; i++)); do
     CURL_ARGS+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[i]}")
   done
@@ -586,7 +606,7 @@ else
   if [ "$AUTOSCALE_MIN" -gt 0 ]; then
     WARMUP_COUNT=$((2 * AUTOSCALE_MIN))
     echo "Sending warm-up batch of $WARMUP_COUNT images for $AUTOSCALE_MIN always-on worker(s)..."
-    CURL_ARGS=(-fsS -X POST "$API_URL/api/batches" -F "config={\"targets\":[\"face\",\"plate\"],\"style\":\"blur\"}")
+    CURL_ARGS=(-fsS -X POST "$API_URL/api/batches" -F "config=$BATCH_CONFIG_JSON")
     for ((i = 0; i < WARMUP_COUNT; i++)); do
       CURL_ARGS+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[i]}")
     done
@@ -672,8 +692,12 @@ fi
 # Uploads batch $1 (0-based) and writes its id to $UPLOAD_TMP/$1.
 submit_batch() {
   local b="$1" start_idx=$(($1 * BATCH_SIZE)) idx resp
-  local curl_args=(-fsS -X POST "$API_URL/api/batches" -F "config={\"targets\":[\"face\",\"plate\"],\"style\":\"blur\"}")
-  for ((idx = start_idx; idx < start_idx + BATCH_SIZE; idx++)); do
+  local end_idx=$((start_idx + BATCH_SIZE))
+  if [ "$end_idx" -gt "$EXPECTED_IMAGES" ]; then
+    end_idx="$EXPECTED_IMAGES"
+  fi
+  local curl_args=(-fsS -X POST "$API_URL/api/batches" -F "config=$BATCH_CONFIG_JSON")
+  for ((idx = start_idx; idx < end_idx; idx++)); do
     curl_args+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[idx]}")
   done
   resp="$(curl "${curl_args[@]}")"
@@ -853,6 +877,24 @@ SQL_IDS="$(printf "'%s'," "${BENCH_BATCH_IDS[@]}" | sed 's/,$//')"
   \"
 " > "$OUT_DIR/jobs.csv"
 
+if [ "$SAVE_DETECTIONS" -eq 1 ]; then
+  echo "Exporting detections to $OUT_DIR/detections.jsonl..."
+  "${KUBECTL[@]}" exec postgresql-0 -c postgresql -- bash -c "
+    PGPASSWORD=\"\$(cat /opt/bitnami/postgresql/secrets/password 2>/dev/null || cat /opt/bitnami/postgresql/secrets/postgres-password 2>/dev/null || echo \"\$POSTGRES_PASSWORD\")\" \
+    psql -U imgproc -d imgproc -t -A -c \"
+      SELECT json_build_object(
+        'job_id', id,
+        'original_filename', original_filename,
+        'detections', COALESCE(result_summary->'detections', '[]'::jsonb),
+        'image_size', result_summary->'imageSize'
+      )::text
+      FROM jobs
+      WHERE batch_id IN ($SQL_IDS)
+      ORDER BY created_at ASC;
+    \"
+  " > "$OUT_DIR/detections.jsonl"
+fi
+
 # -----------------------------------------------------------------------------
 # 11. Record metadata in meta.json
 # -----------------------------------------------------------------------------
@@ -891,6 +933,7 @@ ORIGINAL_MIN="${ORIGINAL_MIN:-}" ORIGINAL_MAX="${ORIGINAL_MAX:-}" CONTAINER_IMAG
 CPU_LIMIT="$CPU_LIMIT" MEM_LIMIT="$MEM_LIMIT" NODE_NAME="$NODE_NAME" NODE_CPU_COUNT="$NODE_CPU_COUNT" \
 GPU="$GPU" IMAGES_TXT_HASH="$IMAGES_TXT_HASH" START_TIME="$START_TIME" END_TIME="$END_TIME" \
 DATASET="$DATASET" PARALLEL="$PARALLEL" PRELOAD="$PRELOAD" RELEASE_TIME="$RELEASE_TIME" \
+CONFIDENCE="$CONFIDENCE" SAVE_DETECTIONS="$SAVE_DETECTIONS" \
 OUT_DIR="$OUT_DIR" python3 - <<'EOF'
 import json
 import os
@@ -901,6 +944,10 @@ def num(name):
 
 mode = os.environ["MODE"]
 autoscale = mode == "autoscale"
+conf_val = os.environ.get("CONFIDENCE", "").strip()
+confidence_threshold = float(conf_val) if conf_val else 0.35
+save_det = os.environ.get("SAVE_DETECTIONS", "0") == "1"
+
 meta = {
     "mode": mode,
     "worker_count": num("WORKERS") if mode == "fixed" else None,
@@ -922,6 +969,8 @@ meta = {
     "parallel": num("PARALLEL"),
     "preload": os.environ["PRELOAD"] == "1",
     "workers_released_at": os.environ["RELEASE_TIME"] or None,
+    "confidence_threshold": confidence_threshold,
+    "save_detections": save_det,
 }
 with open(os.path.join(os.environ["OUT_DIR"], "meta.json"), "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)

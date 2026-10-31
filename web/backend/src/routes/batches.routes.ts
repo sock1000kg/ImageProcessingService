@@ -2,10 +2,12 @@ import { Router } from "express";
 import multer from "multer";
 import { config } from "../config";
 import {
+  addBatchFileHandler,
   createBatchHandler,
   deleteBatchHandler,
   getBatchHandler,
   getBatchReportHandler,
+  startBatchHandler,
 } from "../controllers/batches.controller";
 
 const upload = multer({
@@ -23,6 +25,8 @@ batchesRouter.post(
   ]),
   createBatchHandler,
 );
+batchesRouter.post("/:id/files", upload.single("file"), addBatchFileHandler);
+batchesRouter.post("/:id/start", startBatchHandler);
 batchesRouter.get("/:id", getBatchHandler);
 batchesRouter.get("/:id/report", getBatchReportHandler);
 batchesRouter.delete("/:id", deleteBatchHandler);

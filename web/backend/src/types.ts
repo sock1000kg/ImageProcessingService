@@ -1,6 +1,6 @@
 export { JobStatus } from "./generated/prisma/client";
 
-export type BatchStatus = "PROCESSING" | "COMPLETED" | "PARTIAL";
+export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL";
 
 export type {
   RedactionTarget,

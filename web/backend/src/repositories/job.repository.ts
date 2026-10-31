@@ -1,6 +1,86 @@
 import { prisma } from "../db/prisma";
+import { config } from "../config";
+import { conflict, notFound } from "../errors";
 import { BatchConfig } from "../types";
 import { JobStatus, Prisma } from "../generated/prisma/client";
+
+export async function createDraftBatch(batch: {
+  id: string;
+  config: BatchConfig;
+  whitelistKeys: string[];
+}) {
+  return prisma.batch.create({
+    data: {
+      id: batch.id,
+      config: batch.config as unknown as Prisma.InputJsonValue,
+      whitelistKeys: batch.whitelistKeys,
+      startedAt: null,
+    },
+  });
+}
+
+export async function addJobToBatchWithLock(
+  batchId: string,
+  jobData: {
+    id: string;
+    originalFilename: string;
+    inputKey: string;
+    outputKey: string;
+  },
+) {
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{ id: string; started_at: Date | null }>>`
+      SELECT id, started_at FROM batches WHERE id = ${batchId}::uuid FOR UPDATE
+    `;
+    if (!rows || rows.length === 0) {
+      throw notFound("Batch not found");
+    }
+    const batchRow = rows[0];
+    if (batchRow.started_at !== null) {
+      throw conflict("Batch has already been started", "BATCH_STARTED");
+    }
+
+    const jobCount = await tx.job.count({
+      where: { batchId },
+    });
+    if (jobCount >= config.BATCH_MAX_FILES) {
+      throw conflict(`Batch is full: maximum allowed is ${config.BATCH_MAX_FILES} files`, "BATCH_FULL");
+    }
+
+    return tx.job.create({
+      data: {
+        id: jobData.id,
+        batchId,
+        originalFilename: jobData.originalFilename,
+        inputKey: jobData.inputKey,
+        outputKey: jobData.outputKey,
+        status: JobStatus.PENDING,
+      },
+    });
+  });
+}
+
+export async function setBatchStarted(batchId: string): Promise<void> {
+  await prisma.batch.updateMany({
+    where: {
+      id: batchId,
+      startedAt: null,
+    },
+    data: {
+      startedAt: new Date(),
+    },
+  });
+}
+
+export async function getPendingJobsByBatchId(batchId: string) {
+  return prisma.job.findMany({
+    where: {
+      batchId,
+      status: JobStatus.PENDING,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
 
 export async function insertBatchAndJobs(
   batch: {

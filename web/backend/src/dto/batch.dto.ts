@@ -64,6 +64,7 @@ export interface BatchResponseDTO {
   config: BatchConfig;
   whitelistKeys: string[];
   whitelistDeletedAt: string | null;
+  startedAt: string | null;
   createdAt: string;
   jobs: JobResponseDTO[];
 }
@@ -166,11 +167,14 @@ export function toBatchResponse(batch: PrismaBatch, jobs: PrismaJob[]): BatchRes
   const configParsed = parseBatchConfig(batch.config);
   return {
     id: batch.id,
-    status: deriveBatchStatus(jobs.map((j) => j.status)),
+    status: deriveBatchStatus(jobs.map((j) => j.status), batch.startedAt),
     config: configParsed,
     whitelistKeys: batch.whitelistKeys,
     whitelistDeletedAt: batch.whitelistDeletedAt
       ? (batch.whitelistDeletedAt instanceof Date ? batch.whitelistDeletedAt.toISOString() : String(batch.whitelistDeletedAt))
+      : null,
+    startedAt: batch.startedAt
+      ? (batch.startedAt instanceof Date ? batch.startedAt.toISOString() : String(batch.startedAt))
       : null,
     createdAt: batch.createdAt instanceof Date ? batch.createdAt.toISOString() : String(batch.createdAt),
     jobs: jobs.map((j) => toJobResponse(j)!),
@@ -263,7 +267,7 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
 
   return {
     batchId: batch.id,
-    status: deriveBatchStatus(jobs.map((j) => j.status)),
+    status: deriveBatchStatus(jobs.map((j) => j.status), batch.startedAt),
     totals: {
       images,
       completed,

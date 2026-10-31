@@ -6,6 +6,7 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 
 import { config } from "./config";
@@ -125,6 +126,15 @@ export async function deletePrefix(bucket: string, prefix: string): Promise<void
   }
 }
 
+export async function deleteObject(bucket: string, key: string): Promise<void> {
+  await s3Client.send(
+    new DeleteObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    }),
+  );
+}
+
 export async function verifyBuckets(): Promise<void> {
   for (const bucket of [UPLOADS_BUCKET, RESULTS_BUCKET]) {
     if (!(await bucketExists(bucket))) {
@@ -138,6 +148,7 @@ export const storage = {
   putObject,
   getObjectStream,
   objectExists,
+  deleteObject,
   deletePrefix,
   verifyBuckets,
 };

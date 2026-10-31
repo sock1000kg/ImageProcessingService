@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { config } from "../config";
 import {
-  countNonTerminalJobs,
+  addJobToBatchWithLock,
+  createDraftBatch as createDraftBatchRepository,
   deleteJob,
   deleteBatchRow,
   getActiveRetryJob,
@@ -10,9 +11,11 @@ import {
   getExpiredBatches,
   getJob,
   getJobsByBatchId,
+  getPendingJobsByBatchId,
   insertBatchAndJobs,
   insertRetryJob,
   markBatchWhitelistDeleted,
+  setBatchStarted,
   updateJobQueued,
   updateJobState,
 } from "../repositories/job.repository";
@@ -29,82 +32,129 @@ import {
 import {
   BatchResponseDTO,
   JobResponseDTO,
+  parseBatchConfig,
   parseBatchConfigJson,
   ReportResponseDTO,
   toBatchResponse,
   toJobResponse,
   toReportResponse,
+  validateBatchCreation,
+  validateSingleUploadFile,
   validateUploadFiles,
   ValidatedJobEvent,
 } from "../dto";
-import { badRequest, gone, unavailable } from "../errors";
+import { badRequest, conflict, gone, notFound, unavailable } from "../errors";
 
-export async function createBatch(options: {
-  files: Express.Multer.File[];
+export async function createDraftBatch(options: {
   whitelist?: Express.Multer.File[];
   rawConfig?: unknown;
+  filesPresent?: boolean;
 }): Promise<BatchResponseDTO> {
-  const { files, whitelist = [], rawConfig } = options;
+  const { whitelist = [], rawConfig, filesPresent = false } = options;
 
-  validateUploadFiles({ files, whitelist });
+  validateBatchCreation({ filesPresent, whitelist });
 
   const batchConfig: BatchConfig = parseBatchConfigJson(rawConfig);
   const batchId = randomUUID();
 
-  // Upload whitelist files
   const whitelistKeys: string[] = [];
-  for (let i = 0; i < whitelist.length; i++) {
-    const file = whitelist[i]!;
-    const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
-    const key = `${batchId}/whitelist/face-${i + 1}${ext}`;
-    await storage.putObject(UPLOADS_BUCKET, key, file.buffer, file.mimetype);
-    whitelistKeys.push(key);
-  }
+  try {
+    for (let i = 0; i < whitelist.length; i++) {
+      const file = whitelist[i]!;
+      const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
+      const key = `${batchId}/whitelist/face-${i + 1}${ext}`;
+      await storage.putObject(UPLOADS_BUCKET, key, file.buffer, file.mimetype);
+      whitelistKeys.push(key);
+    }
 
-  // Upload input files and prepare jobs
-  const jobsToInsert: Array<{
-    id: string;
-    originalFilename: string;
-    inputKey: string;
-    outputKey: string;
-  }> = [];
-
-  for (const file of files) {
-    const jobId = randomUUID();
-    const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
-    const inputKey = `${batchId}/${jobId}/input${ext}`;
-    const outExt = resolveOutputExtension(batchConfig.format, file.originalname);
-    const outputKey = `${batchId}/${jobId}/result.${outExt}`;
-
-    await storage.putObject(UPLOADS_BUCKET, inputKey, file.buffer, file.mimetype);
-
-    jobsToInsert.push({
-      id: jobId,
-      originalFilename: file.originalname,
-      inputKey,
-      outputKey,
-    });
-  }
-
-  // Insert batch and jobs into database
-  await insertBatchAndJobs(
-    {
+    const createdBatch = await createDraftBatchRepository({
       id: batchId,
       config: batchConfig,
       whitelistKeys,
-    },
-    jobsToInsert,
-  );
+    });
 
-  // Publish image-redact command for each job on jobs.image
-  for (const job of jobsToInsert) {
+    return toBatchResponse(createdBatch, []);
+  } catch (error) {
+    if (whitelistKeys.length > 0) {
+      try {
+        await storage.deletePrefix(UPLOADS_BUCKET, `${batchId}/whitelist/`);
+      } catch (cleanErr) {
+        console.error("Failed to cleanup whitelist on draft batch creation error", cleanErr);
+      }
+    }
+    throw error;
+  }
+}
+
+export const createBatch = createDraftBatch;
+
+export async function addBatchFile(
+  batchId: string,
+  file?: Express.Multer.File,
+): Promise<JobResponseDTO> {
+  const validFile = validateSingleUploadFile(file);
+
+  const batch = await getBatch(batchId);
+  if (!batch) {
+    throw notFound("Batch not found");
+  }
+  if (batch.startedAt !== null) {
+    throw conflict("Batch has already been started", "BATCH_STARTED");
+  }
+
+  const batchConfig = parseBatchConfig(batch.config);
+  const jobId = randomUUID();
+  const ext = path.extname(validFile.originalname).toLowerCase() || ".jpg";
+  const inputKey = `${batchId}/${jobId}/input${ext}`;
+  const outExt = resolveOutputExtension(batchConfig.format, validFile.originalname);
+  const outputKey = `${batchId}/${jobId}/result.${outExt}`;
+
+  await storage.putObject(UPLOADS_BUCKET, inputKey, validFile.buffer, validFile.mimetype);
+
+  try {
+    const job = await addJobToBatchWithLock(batchId, {
+      id: jobId,
+      originalFilename: validFile.originalname,
+      inputKey,
+      outputKey,
+    });
+    return toJobResponse(job);
+  } catch (error) {
+    try {
+      await storage.deleteObject(UPLOADS_BUCKET, inputKey);
+    } catch (delErr) {
+      console.error(`Failed to delete uploaded object ${inputKey} on error`, delErr);
+    }
+    throw error;
+  }
+}
+
+export async function startBatch(batchId: string): Promise<BatchResponseDTO> {
+  const batch = await getBatch(batchId);
+  if (!batch) {
+    throw notFound("Batch not found");
+  }
+
+  const jobs = await getJobsByBatchId(batchId);
+  if (jobs.length === 0) {
+    throw badRequest("Batch has no jobs", "BATCH_EMPTY");
+  }
+
+  if (batch.startedAt === null) {
+    await setBatchStarted(batchId);
+  }
+
+  const pendingJobs = await getPendingJobsByBatchId(batchId);
+  const batchConfig = parseBatchConfig(batch.config);
+
+  for (const job of pendingJobs) {
     const command = buildImageRedactCommand({
       jobId: job.id,
-      batchId,
+      batchId: batch.id,
       inputKey: job.inputKey,
       outputKey: job.outputKey,
       config: batchConfig,
-      whitelistKeys,
+      whitelistKeys: batch.whitelistKeys,
     });
 
     try {
@@ -116,9 +166,9 @@ export async function createBatch(options: {
     }
   }
 
-  const createdBatch = await getBatch(batchId);
-  const createdJobs = await getJobsByBatchId(batchId);
-  return toBatchResponse(createdBatch!, createdJobs);
+  const updatedBatch = await getBatch(batchId);
+  const updatedJobs = await getJobsByBatchId(batchId);
+  return toBatchResponse(updatedBatch!, updatedJobs);
 }
 
 export async function getBatchById(id: string): Promise<BatchResponseDTO | null> {
@@ -258,13 +308,20 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
 }
 
 export async function checkAndCleanBatchWhitelist(batchId: string): Promise<void> {
-  const remainingNonTerminal = await countNonTerminalJobs(batchId);
-  if (remainingNonTerminal > 0) {
+  const batch = await getBatch(batchId);
+  if (!batch || batch.startedAt === null || batch.whitelistDeletedAt !== null) {
     return;
   }
 
-  const batch = await getBatch(batchId);
-  if (!batch || batch.whitelistDeletedAt !== null) {
+  const jobs = await getJobsByBatchId(batchId);
+  if (jobs.length === 0) {
+    return;
+  }
+
+  const remainingNonTerminal = jobs.some(
+    (job) => job.status !== JobStatus.COMPLETED && job.status !== JobStatus.FAILED,
+  );
+  if (remainingNonTerminal) {
     return;
   }
 

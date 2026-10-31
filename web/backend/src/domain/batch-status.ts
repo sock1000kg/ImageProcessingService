@@ -1,6 +1,13 @@
 import { BatchStatus, JobStatus } from "../types";
 
-export function deriveBatchStatus(jobStatuses: JobStatus[]): BatchStatus {
+export function deriveBatchStatus(
+  jobStatuses: JobStatus[],
+  startedAt?: Date | string | null,
+): BatchStatus {
+  if (startedAt === null) {
+    return "DRAFT";
+  }
+
   if (jobStatuses.length === 0) return "PROCESSING";
 
   const hasNonTerminal = jobStatuses.some(

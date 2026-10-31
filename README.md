@@ -17,7 +17,6 @@ An open-source cloud service that automatically detects and redacts **faces** an
 5. **Report:** workers publish events back to NATS. The backend updates PostgreSQL, and the UI shows before/after, lets the user re-tune the redaction, and exports a JSON report.
 
 ## Documentation
-- [`docs/report-material/de-tai.md`](docs/report-material/de-tai.md): project scope, objectives and phases
 - [`docs/integration-contracts.md`](docs/integration-contracts.md): message formats, streams, object paths, ownership
 - [`docs/milestones.md`](docs/milestones.md): Phase 1 and 2 milestones per team
 - [`docs/architecture.md`](docs/architecture.md): system design

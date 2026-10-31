@@ -252,6 +252,8 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
             "drain_throughput": None,
             "subsets": subset_stats(by_subset),
             "cpu_counters": None,
+            "scale": meta.get("scale", "full"),
+            "imgsz": None,
         }
 
     if mode == "autoscale":
@@ -462,6 +464,8 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
         "drain_throughput": drain_throughput,
         "subsets": subset_stats(by_subset_jobs),
         "cpu_counters": read_cpu_counters(res_dir),
+        "imgsz": meta.get("imgsz", 640),
+        "scale": None,
     }
 
 
@@ -493,6 +497,7 @@ def write_single_summary(data: Dict[str, Any]) -> str:
 | --- | --- |
 | **Mode** | {mode_str} |
 | **Dataset** | {data['dataset']} |
+| **YOLO Input Size** | {f"{data['imgsz']}px" if data.get('imgsz') else data.get('scale', 'N/A')} |
 | **Parallel Uploads** | {data['parallel']} |
 | **Preload** | {'yes (workers released at ' + str(data['workers_released_at']) + ')' if data['preload'] else 'no'} |
 | **Container Image** | `{data['container_image']}` |
@@ -562,8 +567,8 @@ def format_combined_table(all_data: List[Dict[str, Any]]) -> str:
     lines = [
         "## Benchmark Comparison Summary",
         "",
-        "| Run | Mode | Dataset | Preload | Range | Images | Failed | Throughput (img/min) | Drain Throughput (img/min) | Thpt/Worker (img/min) | E2E Latency p50 | E2E Latency p95 | Proc Time p50 | Proc Time p95 | Peak CPU | Avg CPU/Worker | CPU (counters) | Peak RAM | Cold Start | Time back to min |",
-        "|" + " --- |" * 20,
+        "| Run | Mode | Dataset | Imgsz | Preload | Range | Images | Failed | Throughput (img/min) | Drain Throughput (img/min) | Thpt/Worker (img/min) | E2E Latency p50 | E2E Latency p95 | Proc Time p50 | Proc Time p95 | Peak CPU | Avg CPU/Worker | CPU (counters) | Peak RAM | Cold Start | Time back to min |",
+        "|" + " --- |" * 21,
     ]
 
     has_deface = False
@@ -584,6 +589,7 @@ def format_combined_table(all_data: List[Dict[str, Any]]) -> str:
             s_down = "-"
             thpt_w = f"{d['thpt_per_worker']:.2f}"
             preload_label = "-"
+            imgsz_label = d.get("scale") or "full"
         else:
             m_label = d["mode"].capitalize()
             r_label = f"{d['worker_count']}" if d["mode"] == "fixed" else f"{d['min_replicas']}→{d['max_replicas_meta']}"
@@ -602,10 +608,11 @@ def format_combined_table(all_data: List[Dict[str, Any]]) -> str:
             s_down = f"{d['time_back_to_min']:.1f}s" if d["time_back_to_min"] is not None else "-"
             thpt_w = f"{d['thpt_per_worker']:.2f}"
             preload_label = "yes" if d["preload"] else "no"
+            imgsz_label = f"{d.get('imgsz', 640)}px"
 
         drain = f"**{d['drain_throughput']:.2f}**" if d.get("drain_throughput") is not None else "-"
         lines.append(
-            f"| `{d['dir_name']}` | {m_label} | {d['dataset']} | {preload_label} | {r_label} | {d['total_images']} | {d['failed_count']} | "
+            f"| `{d['dir_name']}` | {m_label} | {d['dataset']} | {imgsz_label} | {preload_label} | {r_label} | {d['total_images']} | {d['failed_count']} | "
             f"**{d['throughput']:.2f}** | {drain} | {thpt_w} | {e2e_50} | {e2e_95} | {proc_50} | {proc_95} | "
             f"{pk_cpu} | {avg_cpu} | {cpu_cnt} | {pk_mem} | {c_start} | {s_down} |"
         )
@@ -729,14 +736,50 @@ def resolve_run_dirs(inputs: List[str]) -> Tuple[List[str], Optional[str]]:
     return unique_dirs, target_machine_folder
 
 
+def norm_dataset(ds: Any) -> str:
+    s = str(ds).strip().lower()
+    if s in ("small", "100"):
+        return "small"
+    if s in ("large", "1000"):
+        return "large"
+    if s in ("max", "3726"):
+        return "max"
+    return s
+
+
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python3 summarize.py <results_dir_or_machine_folder> [<results_dir> ...]", file=sys.stderr)
+        print(
+            "Usage: python3 summarize.py <results_dir_or_machine_folder> [<results_dir> ...] [--deface <dir> ...] [--out <path>]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    dirs, machine_folder = resolve_run_dirs(sys.argv[1:])
+    main_inputs: List[str] = []
+    deface_inputs: List[str] = []
+    out_override: Optional[str] = None
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == "--deface":
+            i += 1
+            while i < len(sys.argv) and not sys.argv[i].startswith("--"):
+                deface_inputs.append(sys.argv[i])
+                i += 1
+            continue
+        elif arg == "--out":
+            i += 1
+            if i < len(sys.argv):
+                out_override = sys.argv[i]
+                i += 1
+            continue
+        else:
+            main_inputs.append(arg)
+            i += 1
+
+    dirs, machine_folder = resolve_run_dirs(main_inputs)
     dirs = [d for d in dirs if os.path.isdir(d)]
-    if not dirs:
+    if not dirs and not deface_inputs:
         print("ERROR: No valid results directories provided.", file=sys.stderr)
         sys.exit(1)
 
@@ -747,11 +790,38 @@ def main() -> None:
         all_data.append(data)
         print(f"Generated summary: {os.path.join(d, 'summary.md')}")
 
+    if deface_inputs:
+        deface_dirs, _ = resolve_run_dirs(deface_inputs)
+        deface_dirs = [d for d in deface_dirs if os.path.isdir(d)]
+        main_ds = "small"
+        for d in all_data:
+            if d.get("dataset"):
+                main_ds = norm_dataset(d["dataset"])
+                break
+
+        for d in deface_dirs:
+            d_data = analyze_dir(d)
+            d_ds = norm_dataset(d_data.get("dataset", "small"))
+            if d_ds != main_ds:
+                sys.exit(
+                    f"ERROR: Dataset mismatch: main runs are dataset '{main_ds}', but deface run '{d}' has dataset '{d_ds}'"
+                )
+            write_single_summary(d_data)
+            all_data.append(d_data)
+            print(f"Generated summary (deface): {os.path.join(d, 'summary.md')}")
+
     combined = format_combined_table(all_data)
     print("\n" + combined + "\n")
 
-    if machine_folder:
+    comp_file = None
+    if out_override:
+        comp_file = out_override
+    elif machine_folder:
         comp_file = os.path.join(machine_folder, "comparison.md")
+    elif dirs:
+        comp_file = os.path.join(os.path.dirname(dirs[0]), "comparison.md")
+
+    if comp_file:
         existing: Optional[str] = None
         if os.path.isfile(comp_file):
             with open(comp_file, "r", encoding="utf-8") as f:

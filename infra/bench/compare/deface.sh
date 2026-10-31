@@ -16,7 +16,7 @@
 #   --machine NAME  Machine or node name (default: detected hostname or worker node)
 #   --images DIR    Images directory (default: infra/bench/dataset/images, images-1000 for large, images-max for max)
 #   --out DIR       Output directory for results
-#                   (default: results/<machine>-<date>[-1000|-max]/<UTC>-deface-<gpu|cpu>/)
+#                   (default: results/<machine>-<set>/deface/<full|WxH>/<UTC>-deface-<gpu|cpu>/)
 #   -h, --help      Show this help message and exit
 set -euo pipefail
 
@@ -43,7 +43,7 @@ Options:
   --machine NAME  Machine or node name (default: detected hostname or worker node)
   --images DIR    Images directory (default: infra/bench/dataset/images, images-1000 for large, images-max for max)
   --out DIR       Output directory for results
-                  (default: results/<machine>-<date>[-1000|-max]/<UTC>-deface-<gpu|cpu>/)
+                  (default: results/<machine>-<set>/deface/<full|WxH>/<UTC>-deface-<gpu|cpu>/)
   -h, --help      Show this help message and exit
 EOF
 }
@@ -121,16 +121,13 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-RESULTS_SUFFIX=""
 if [ "$DATASET" = "large" ]; then
-  RESULTS_SUFFIX="-1000"
   if [ -z "$IMAGES_DIR" ]; then
     # Downloads what is missing and verifies all 1000 hashes against images-1000.txt (no network when already verified)
     bash "$BENCH_DIR/dataset/fetch.sh" --set large
     IMAGES_DIR="$BENCH_DIR/dataset/images-1000"
   fi
 elif [ "$DATASET" = "max" ]; then
-  RESULTS_SUFFIX="-max"
   if [ -z "$IMAGES_DIR" ]; then
     bash "$BENCH_DIR/dataset/fetch.sh" --set max
     IMAGES_DIR="$BENCH_DIR/dataset/images-max"
@@ -184,15 +181,23 @@ if [ -z "$MACHINE" ]; then
   MACHINE="$(uname -n 2>/dev/null || echo "laptop-local")"
 fi
 
-DATE_UTC="$(date -u +"%Y%m%d")"
-TIMESTAMP_UTC="$(date -u +"%Y%m%d-%H%M%S")"
+SET_TAG="100"
+if [ "$DATASET" = "large" ]; then
+  SET_TAG="1000"
+elif [ "$DATASET" = "max" ]; then
+  SET_TAG="max"
+fi
+
+SCALE_TAG="${SCALE:-full}"
 TARGET_DEVICE="gpu"
 if [ "$CPU_MODE" -eq 1 ]; then
   TARGET_DEVICE="cpu"
 fi
 
+TIMESTAMP_UTC="$(date -u +"%Y%m%d-%H%M%S")"
+
 if [ -z "$OUT_DIR" ]; then
-  OUT_DIR="$BENCH_DIR/results/${MACHINE}-${DATE_UTC}${RESULTS_SUFFIX}/${TIMESTAMP_UTC}-deface-${TARGET_DEVICE}"
+  OUT_DIR="$BENCH_DIR/results/${MACHINE}-${SET_TAG}/deface/${SCALE_TAG}/${TIMESTAMP_UTC}-deface-${TARGET_DEVICE}"
 fi
 mkdir -p "$OUT_DIR"
 

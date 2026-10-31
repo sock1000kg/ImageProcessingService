@@ -13,29 +13,88 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
-export function buildBatchFormData(
-  files: File[],
+export type UploadProgress = {
+  done: number;
+  total: number;
+  failed: File[];
+};
+
+export async function createDraftBatch(
   whitelist: File[],
   config: Record<string, unknown>,
-): FormData {
+): Promise<{ batch: Batch }> {
   const form = new FormData();
-  for (const file of files) {
-    form.append("files", file);
-  }
   for (const file of whitelist) {
     form.append("whitelist", file);
   }
   form.append("config", JSON.stringify(config));
-  return form;
+  return request("/api/batches", { method: "POST", body: form });
 }
 
-export function submitBatch(
+export async function uploadFileToBatch(batchId: string, file: File): Promise<{ job: Job }> {
+  const form = new FormData();
+  form.append("file", file);
+  return request(`/api/batches/${batchId}/files`, { method: "POST", body: form });
+}
+
+export async function startBatch(batchId: string): Promise<{ batch: Batch }> {
+  return request(`/api/batches/${batchId}/start`, { method: "POST" });
+}
+
+export async function uploadBatch(
   files: File[],
   whitelist: File[],
   config: Record<string, unknown>,
-): Promise<{ batch: Batch }> {
-  const form = buildBatchFormData(files, whitelist, config);
-  return request("/api/batches", { method: "POST", body: form });
+  onProgress?: (progress: UploadProgress) => void,
+  existingBatchId?: string,
+): Promise<{ batch: Batch; failed: File[] }> {
+  let batchId = existingBatchId;
+  let batch: Batch;
+
+  if (!batchId) {
+    const created = await createDraftBatch(whitelist, config);
+    batch = created.batch;
+    batchId = batch.id;
+  } else {
+    const res = await getBatch(batchId);
+    batch = res.batch;
+  }
+
+  const failed: File[] = [];
+  let done = 0;
+  const total = files.length;
+
+  let currentIndex = 0;
+  async function worker() {
+    while (currentIndex < files.length) {
+      const index = currentIndex++;
+      const file = files[index];
+
+      try {
+        await uploadFileToBatch(batchId!, file);
+      } catch (firstErr) {
+        try {
+          await uploadFileToBatch(batchId!, file);
+        } catch (retryErr) {
+          failed.push(file);
+        }
+      }
+
+      done++;
+      onProgress?.({ done, total, failed: [...failed] });
+    }
+  }
+
+  const workerCount = Math.min(2, files.length);
+  const workers = Array.from({ length: workerCount }, () => worker());
+  await Promise.all(workers);
+
+  if (failed.length > 0) {
+    return { batch, failed };
+  }
+
+  const started = await startBatch(batchId);
+  return { batch: started.batch, failed: [] };
 }
 
 export function getBatch(id: string): Promise<{ batch: Batch }> {

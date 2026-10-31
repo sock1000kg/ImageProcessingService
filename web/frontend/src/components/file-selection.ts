@@ -1,4 +1,4 @@
-export const MAX_BATCH_FILES = 20;
+export const MAX_BATCH_FILES = 100;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 

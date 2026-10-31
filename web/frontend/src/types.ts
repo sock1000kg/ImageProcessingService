@@ -66,12 +66,15 @@ export type BatchReport = {
   reviewDetections: Array<Detection & { jobId: string; originalFilename: string }>;
 };
 
+export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL";
+
 export type Batch = {
   id: string;
-  status: string;
+  status: BatchStatus | string;
   config: Record<string, unknown>;
   whitelistKeys: string[];
   whitelistDeletedAt: string | null;
+  startedAt?: string | null;
   createdAt: string;
   jobs: Job[];
 };

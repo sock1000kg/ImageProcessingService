@@ -108,8 +108,7 @@ MINIO_SECRET_KEY=CHANGE_ME_minio_local
 MINIO_USE_SSL=false
 PUBLIC_RESULTS_BASE_URL=/results
 UPLOAD_MAX_BYTES=52428800
-BATCH_MAX_FILES=20
-BATCH_MAX_BYTES=94371840
+BATCH_MAX_FILES=100
 CLEANUP_INTERVAL_MS=600000
 ```
 
@@ -213,7 +212,9 @@ The Engine must have its Python environment, model weights, and configuration re
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/api/batches` | Multipart upload: `files` (1..20), `whitelist` (0..5), `config` JSON string |
+| `POST` | `/api/batches` | Create draft batch: `whitelist` (0..5), `config` JSON string. Returns 201 `{ batch }` (`DRAFT`) |
+| `POST` | `/api/batches/:id/files` | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`) |
+| `POST` | `/api/batches/:id/start` | Start batch processing for pending jobs. Returns 202 `{ batch }` |
 | `GET` | `/api/batches/:id` | Batch details and jobs |
 | `GET` | `/api/batches/:id/report` | Batch report with totals, review images/reasons, and detections when provided by Engine |
 | `DELETE` | `/api/batches/:id` | Delete the batch and its `uploads`/`results` objects |
@@ -224,15 +225,40 @@ The Engine must have its Python environment, model weights, and configuration re
 | `GET` | `/health` | Liveness check |
 | `GET` | `/ready` | PostgreSQL, NATS, and MinIO readiness check |
 
-### Current upload contract
+### Upload flow (Per-image upload)
 
-`POST /api/batches` is currently a single multipart request:
+Batch creation and image processing use a three-step flow:
 
-- `files`: one or more JPG, PNG, or WEBP images.
-- `whitelist`: optional JPG, PNG, or WEBP face references.
-- `config`: serialized JSON configuration.
+1. **`POST /api/batches`** (Create draft batch)
+   - **Request**: Multipart form data with:
+     - `config`: serialized JSON string with redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `confidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
+     - `whitelist`: optional 0 to 5 face reference images (JPG, PNG, WEBP, up to `UPLOAD_MAX_BYTES`).
+     - Note: `files` field is **not allowed**; sending it returns `400 BAD_REQUEST` with a message pointing to `/api/batches/:id/files`.
+   - **Response**: `201 Created` with `{ batch }` in status `"DRAFT"`.
+   - **Errors**: `400 BAD_REQUEST` / `VALIDATION_ERROR`, `413 FILE_TOO_LARGE`.
 
-The backend creates one job per image and publishes one `image-redact` command per job. The three-step `DRAFT`/`files`/`start` API described in the longer Web plan is not implemented yet.
+2. **`POST /api/batches/:id/files`** (Upload individual file)
+   - **Request**: Multipart form data with exactly one `file` field (JPG, PNG, or WEBP, up to `UPLOAD_MAX_BYTES`).
+   - **Response**: `201 Created` with `{ job }` in status `"PENDING"`.
+   - **Concurrency & limits**: Enforced under a PostgreSQL row lock (`SELECT ... FOR UPDATE`) on the batch record.
+   - **Errors**:
+     - `400 BAD_REQUEST`: missing `file` field or unsupported image format.
+     - `404 NOT_FOUND`: batch does not exist.
+     - `409 BATCH_STARTED`: batch has already been started.
+     - `409 BATCH_FULL`: batch already has `BATCH_MAX_FILES` jobs (default: 100).
+     - `413 FILE_TOO_LARGE`: file size exceeds `UPLOAD_MAX_BYTES` (default: 50MB).
+
+3. **`POST /api/batches/:id/start`** (Start processing)
+   - **Request**: Empty body.
+   - **Response**: `202 Accepted` with `{ batch }` transitioning from `"DRAFT"` to `"PROCESSING"`.
+   - **Behavior**: Marks the batch `startedAt` (if null), publishes every job still `PENDING` to NATS on `jobs.image`, and marks each job `QUEUED`.
+   - **Idempotency**: Calling `/start` again only publishes jobs that are still `PENDING`. If all jobs have already been queued or finished, no duplicate commands are emitted.
+   - **Errors**:
+     - `400 BATCH_EMPTY`: batch has 0 jobs.
+     - `404 NOT_FOUND`: batch does not exist.
+     - `503 SERVICE_UNAVAILABLE`: NATS job queue unavailable; previously queued jobs remain `QUEUED`.
+
+`BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 100). Draft batches older than 24h are deleted by the periodic cleanup task. Whitelist reference images for draft batches are never removed prior to batch completion.
 
 The Create Batch page also supports selecting a folder (including nested folders) in browsers that expose `webkitdirectory`. Files are validated locally before submission: only JPG/JPEG, PNG, and WEBP are accepted, each file is limited to 50 MB, and a batch is limited to 20 files. Invalid or excess files are reported and are never added to `FormData`; choosing a folder does not upload until **Create secure batch** is pressed. Folder selection is a UI convenience only—the API contract remains the same single multipart request.
 

@@ -235,6 +235,25 @@ describe("Batch Service Integration Tests", () => {
       },
     });
 
+    // Whitelist should still be kept because job 3 is still pending
+    await checkAndCleanBatchWhitelist(batchId);
+    currentBatch = await getBatchById(batchId);
+    expect(currentBatch?.status).toBe("PROCESSING");
+    expect(currentBatch?.whitelistDeletedAt).toBeNull();
+
+    // Complete job 3
+    await applyJobEvent({
+      jobId: job3.id,
+      batchId,
+      status: "COMPLETED",
+      progress: 100,
+      stage: "DONE",
+      result: { bucket: "results", key: `${batchId}/${job3.id}/result.webp` },
+      resultSummary: {
+        counts: { face: 0, plate: 0, redacted: 0, whitelistedFace: 0, lowConfidence: 0 },
+      },
+    });
+
     // Trigger whitelist cleanup on batch completion
     await checkAndCleanBatchWhitelist(batchId);
 

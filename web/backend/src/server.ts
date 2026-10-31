@@ -1,3 +1,6 @@
+/**
+ * HTTP server bootstrap and graceful shutdown lifecycle coordinator.
+ */
 import { createApp } from "./app";
 import { config } from "./config";
 import { closeDatabase } from "./db";

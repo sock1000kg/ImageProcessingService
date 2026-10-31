@@ -108,17 +108,16 @@ MINIO_SECRET_KEY=CHANGE_ME_minio_local
 MINIO_USE_SSL=false
 PUBLIC_RESULTS_BASE_URL=/results
 UPLOAD_MAX_BYTES=52428800
-BATCH_MAX_FILES=20
-BATCH_MAX_BYTES=94371840
+BATCH_MAX_FILES=100
 CLEANUP_INTERVAL_MS=600000
 ```
 
 `infra/.env` and `web/.env` have different purposes:
 
-| File | Used by | Main settings |
-| --- | --- | --- |
-| `infra/.env` | Docker Compose | PostgreSQL password and MinIO root credentials |
-| `web/.env` | Backend and Prisma | Database URL, NATS URL, S3/MinIO connection, upload limits |
+| File         | Used by            | Main settings                                              |
+| ------------ | ------------------ | ---------------------------------------------------------- |
+| `infra/.env` | Docker Compose     | PostgreSQL password and MinIO root credentials             |
+| `web/.env`   | Backend and Prisma | Database URL, NATS URL, S3/MinIO connection, upload limits |
 
 Do not commit either file if it contains real credentials.
 
@@ -211,32 +210,93 @@ The Engine must have its Python environment, model weights, and configuration re
 
 ## API endpoints
 
-| Method | Path | Description |
-| --- | --- | --- |
-| `POST` | `/api/batches` | Multipart upload: `files` (1..20), `whitelist` (0..5), `config` JSON string |
-| `GET` | `/api/batches/:id` | Batch details and jobs |
-| `GET` | `/api/batches/:id/report` | Batch report with totals, review images/reasons, and detections when provided by Engine |
-| `DELETE` | `/api/batches/:id` | Delete the batch and its `uploads`/`results` objects |
-| `GET` | `/api/jobs/:id` | Job status and details |
-| `POST` | `/api/jobs/:id/retry` | Retry a `FAILED` job with a new job ID and output key |
-| `GET` | `/api/jobs/:id/original` | Stream the private original image |
-| `GET` | `/api/system/stats` | Job counts grouped by status |
-| `GET` | `/health` | Liveness check |
-| `GET` | `/ready` | PostgreSQL, NATS, and MinIO readiness check |
+| Method   | Path                      | Description                                                                                                      |
+| -------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/batches`            | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`) |
+| `POST`   | `/api/batches/:id/files`  | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`)                                   |
+| `POST`   | `/api/batches/:id/start`  | Start batch processing for pending jobs. Returns 202 `{ batch }`                                                 |
+| `GET`    | `/api/batches/:id`        | Batch details and jobs (includes `name`)                                                                         |
+| `PATCH`  | `/api/batches/:id`        | Rename batch with JSON `{ name }`. Returns 200 `{ batch }`                                                       |
+| `GET`    | `/api/batches/:id/report` | Batch report with totals, review images/reasons, `batchName`, and detections when provided by Engine             |
+| `DELETE` | `/api/batches/:id`        | Delete the batch and its `uploads`/`results` objects                                                             |
+| `GET`    | `/api/jobs/:id`           | Job status and details                                                                                           |
+| `POST`   | `/api/jobs/:id/retry`     | Retry a `FAILED` job with a new job ID and output key                                                            |
+| `GET`    | `/api/jobs/:id/original`  | Stream the private original image                                                                                |
+| `GET`    | `/api/system/stats`       | Job counts grouped by status                                                                                     |
+| `GET`    | `/health`                 | Liveness check                                                                                                   |
+| `GET`    | `/ready`                  | PostgreSQL, NATS, and MinIO readiness check                                                                      |
 
-### Current upload contract
+### Upload flow (Per-image upload)
 
-`POST /api/batches` is currently a single multipart request:
+Batch creation and image processing use a three-step flow:
 
-- `files`: one or more JPG, PNG, or WEBP images.
-- `whitelist`: optional JPG, PNG, or WEBP face references.
-- `config`: serialized JSON configuration.
+1. **`POST /api/batches`** (Create draft batch)
+   - **Request**: Multipart form data with:
+     - `name`: optional batch name (1–100 characters after trimming, no control characters). When omitted or empty, the server sets a default name formatted as `Batch <YYYY-MM-DD HH:mm>` in UTC. Values exceeding 100 characters or containing control characters return `400 VALIDATION_ERROR`.
+     - `config`: serialized JSON string with redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `confidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
+     - `whitelist`: optional 0 to 5 face reference images (JPG, PNG, WEBP, up to `UPLOAD_MAX_BYTES`).
+     - Note: `files` field is **not allowed**; sending it returns `400 BAD_REQUEST` with a message pointing to `/api/batches/:id/files`.
+   - **Response**: `201 Created` with `{ batch }` in status `"DRAFT"` (includes `name`).
+   - **Errors**: `400 BAD_REQUEST` / `VALIDATION_ERROR`, `413 FILE_TOO_LARGE`.
 
-The backend creates one job per image and publishes one `image-redact` command per job. The three-step `DRAFT`/`files`/`start` API described in the longer Web plan is not implemented yet.
+2. **`POST /api/batches/:id/files`** (Upload individual file)
+   - **Request**: Multipart form data with exactly one `file` field (JPG, PNG, or WEBP, up to `UPLOAD_MAX_BYTES`).
+   - **Response**: `201 Created` with `{ job }` in status `"PENDING"`.
+   - **Concurrency & limits**: Enforced under a PostgreSQL row lock (`SELECT ... FOR UPDATE`) on the batch record.
+   - **Errors**:
+     - `400 BAD_REQUEST`: missing `file` field or unsupported image format.
+     - `404 NOT_FOUND`: batch does not exist.
+     - `409 BATCH_STARTED`: batch has already been started.
+     - `409 BATCH_FULL`: batch already has `BATCH_MAX_FILES` jobs (default: 100).
+     - `413 FILE_TOO_LARGE`: file size exceeds `UPLOAD_MAX_BYTES` (default: 50MB).
 
-The Create Batch page also supports selecting a folder (including nested folders) in browsers that expose `webkitdirectory`. Files are validated locally before submission: only JPG/JPEG, PNG, and WEBP are accepted, each file is limited to 50 MB, and a batch is limited to 20 files. Invalid or excess files are reported and are never added to `FormData`; choosing a folder does not upload until **Create secure batch** is pressed. Folder selection is a UI convenience only—the API contract remains the same single multipart request.
+3. **`POST /api/batches/:id/start`** (Start processing)
+   - **Request**: Empty body.
+   - **Response**: `202 Accepted` with `{ batch }` transitioning from `"DRAFT"` to `"PROCESSING"`.
+   - **Behavior**: Marks the batch `startedAt` (if null), publishes every job still `PENDING` to NATS on `jobs.image`, and marks each job `QUEUED`.
+   - **Idempotency**: Calling `/start` again only publishes jobs that are still `PENDING`. If all jobs have already been queued or finished, no duplicate commands are emitted.
+   - **Errors**:
+     - `400 BATCH_EMPTY`: batch has 0 jobs.
+     - `404 NOT_FOUND`: batch does not exist.
+     - `503 SERVICE_UNAVAILABLE`: NATS job queue unavailable; previously queued jobs remain `QUEUED`.
+
+4. **`PATCH /api/batches/:id`** (Rename batch)
+   - **Request**: JSON body with `{ name }` (required):
+     - `name`: 1–100 characters after trimming, no control characters. An empty or whitespace-only string resets the name to server default `Batch <YYYY-MM-DD HH:mm>` (UTC).
+     - Strict schema: unknown properties in the JSON body return `400 VALIDATION_ERROR`.
+   - **Behavior**: Renames the batch in PostgreSQL and returns the updated batch representation. Works across all batch states (`DRAFT`, `PROCESSING`, `COMPLETED`, `PARTIAL`).
+   - **Response**: `200 OK` with `{ batch }` containing the updated `name`.
+   - **Errors**:
+     - `400 VALIDATION_ERROR`: missing `name`, name exceeding 100 characters, control characters present, or unknown keys in request body.
+     - `404 NOT_FOUND`: batch does not exist.
+
+Every batch response (`BatchResponseDTO`) includes `name: string`. The batch report (`ReportResponseDTO` from `GET /api/batches/:id/report`) includes `batchName: string`.
+
+`BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 100). Draft batches older than 24h are deleted by the periodic cleanup task. Whitelist reference images for draft batches are never removed prior to batch completion.
+
+The Create Batch page also supports selecting a folder (including nested folders) in browsers that expose `webkitdirectory`. Files are validated locally before submission: only JPG/JPEG, PNG, and WEBP are accepted, each file is limited to 50 MB, and a batch is limited to 100 files. Invalid or excess files are reported and are never added to `FormData`; choosing a folder does not upload until **Create secure batch** is pressed. Folder selection is a UI convenience only—uploads are now sent as one file per request (`POST /api/batches/:id/files`).
 
 The report keeps Engine-provided review signals authoritative. An image is marked `needsReview` only when a detection has `lowConfidence: true`, `needsReview: true`, or a provided `similarity` value is within `0.05` of the configured `similarityThreshold`. Missing similarity, confidence, boxes, or flags remain `null`/empty and are not fabricated. Each image also exposes `reviewReasons`, `reviewDetections`, and `lowestRedactedConfidence`; the latter is calculated only from redacted detections that contain confidence.
+
+### Advanced batch report (`GET /api/batches/:id/report`)
+
+- **Latest attempt per image (deduplication)**: Jobs are grouped by `inputKey` to avoid double-counting retried jobs (`POST /api/jobs/:id/retry`). The report keeps only the newest attempt per image (by `createdAt`, tie-breaking on `id`), and exposes `ReportImageDTO.attempts` as the total number of attempts for that input. Totals, image counts, and all derived lists reflect these latest attempts only.
+- **Failures**: `ReportImageDTO.error` is typed as `JobError | null` (from `jobErrorSchema`). Failed images are also gathered in `failedImages: [{ jobId, originalFilename, code, message, attempts }]`.
+- **Per-person whitelist summary**: `whitelistPeople: [{ whitelistRef, whitelistKey, images: [{ jobId, originalFilename }], imageCount, detectionCount }]` provides one entry per whitelist image in `batch.whitelistKeys` (indexed 0 to N-1, including people appearing in 0 images). Detections with `whitelisted: true` and that `whitelistRef` are counted. Out-of-range `whitelistRef` indices are ignored and logged with `console.warn`.
+- **Review notes with values**: Each detection and image exposes `reviewNotes: string[]` alongside `reviewReasons`:
+  - `"low confidence 0.41"` (formatted to two decimals);
+  - `"kept face near whitelist threshold (similarity 0.62, threshold 0.60)"` when `whitelisted: true`;
+  - `"redacted face near whitelist threshold (similarity 0.58, threshold 0.60)"` otherwise;
+  - `"engine flagged for review"`.
+    Image-level `reviewNotes` deduplicates detection notes, placing kept-face notes first due to privacy risk. Existing `reviewReasons` strings remain unchanged.
+- **Image ordering**: Images are sorted across five groups:
+  1. Images with `needsReview: true` and a numeric `lowestRedactedConfidence` (sorted ascending by lowest redacted confidence);
+  2. Images with `needsReview: true` and `lowestRedactedConfidence: null` (e.g. kept face near whitelist threshold);
+  3. Completed images with `needsReview: false` and numeric `lowestRedactedConfidence` (sorted ascending);
+  4. Completed images with `lowestRedactedConfidence: null` (no detections);
+  5. `FAILED` images.
+     Within each group, `originalFilename` (then `jobId`) serves as the tie-break. `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
+- **Batch-level extras**: Exposes `models: string[]` (unique non-null models across latest completed attempts) and `processingTimeMs: { total, mean, max } | null` over the latest completed attempts.
 
 ## Error response format
 
@@ -254,14 +314,14 @@ API errors use `ErrorDTO`:
 
 Common statuses:
 
-| HTTP status | Code | Meaning |
-| --- | --- | --- |
-| `400` | `VALIDATION_ERROR`, `INVALID_JSON`, `BAD_REQUEST`, `UPLOAD_ERROR` | Invalid request or file |
-| `404` | `NOT_FOUND` | Resource or route not found |
-| `410` | `GONE` | Batch, input, or whitelist expired |
-| `413` | `FILE_TOO_LARGE` | File or request exceeds configured limit |
-| `503` | `SERVICE_UNAVAILABLE` | NATS or another external dependency unavailable |
-| `500` | `INTERNAL_ERROR` | Unexpected server error |
+| HTTP status | Code                                                              | Meaning                                         |
+| ----------- | ----------------------------------------------------------------- | ----------------------------------------------- |
+| `400`       | `VALIDATION_ERROR`, `INVALID_JSON`, `BAD_REQUEST`, `UPLOAD_ERROR` | Invalid request or file                         |
+| `404`       | `NOT_FOUND`                                                       | Resource or route not found                     |
+| `410`       | `GONE`                                                            | Batch, input, or whitelist expired              |
+| `413`       | `FILE_TOO_LARGE`                                                  | File or request exceeds configured limit        |
+| `503`       | `SERVICE_UNAVAILABLE`                                             | NATS or another external dependency unavailable |
+| `500`       | `INTERNAL_ERROR`                                                  | Unexpected server error                         |
 
 ## Prisma workflow
 

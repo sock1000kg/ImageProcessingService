@@ -1,41 +1,62 @@
+/**
+ * HTTP request controllers for batch lifecycle management and file intake.
+ */
 import { NextFunction, Request, Response } from "express";
 import {
-  createBatch,
+  addBatchFile,
+  createDraftBatch,
   deleteBatchById,
   getBatchById,
   getBatchReportById,
+  renameBatch,
+  startBatch,
 } from "../services/batch.service";
 import { notFound } from "../errors";
+import { patchBatchBodySchema, validateIdParam } from "../dto";
 
-export async function createBatchHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function createBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const filesMap = request.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     const files = filesMap?.files ?? [];
     const whitelist = filesMap?.whitelist ?? [];
+    const filesPresent = files.length > 0 || request.body?.files !== undefined;
 
-    const batch = await createBatch({
-      files,
+    const batch = await createDraftBatch({
       whitelist,
       rawConfig: request.body.config,
+      filesPresent,
+      name: request.body.name,
     });
 
+    response.status(201).json({ batch });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function addBatchFileHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = validateIdParam(request.params);
+    const job = await addBatchFile(id, request.file);
+    response.status(201).json({ job });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function startBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = validateIdParam(request.params);
+    const batch = await startBatch(id);
     response.status(202).json({ batch });
   } catch (error) {
     next(error);
   }
 }
 
-export async function getBatchHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function getBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const id = validateIdParam(request.params);
     const batch = await getBatchById(id);
     if (!batch) {
       throw notFound("Batch not found");
@@ -46,13 +67,20 @@ export async function getBatchHandler(
   }
 }
 
-export async function getBatchReportHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function updateBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const id = validateIdParam(request.params);
+    const body = patchBatchBodySchema.parse(request.body);
+    const batch = await renameBatch(id, body.name);
+    response.status(200).json({ batch });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getBatchReportHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = validateIdParam(request.params);
     const report = await getBatchReportById(id);
     if (!report) {
       throw notFound("Batch not found");
@@ -63,13 +91,9 @@ export async function getBatchReportHandler(
   }
 }
 
-export async function deleteBatchHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function deleteBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const id = validateIdParam(request.params);
     const deleted = await deleteBatchById(id);
     if (!deleted) {
       throw notFound("Batch not found");

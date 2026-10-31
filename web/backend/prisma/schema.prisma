@@ -19,9 +19,11 @@ enum JobStatus {
 
 model Batch {
   id                 String    @id @default(uuid()) @db.Uuid
+  name               String    @db.VarChar(100)
   config             Json
   whitelistKeys      String[]  @default([]) @map("whitelist_keys")
   whitelistDeletedAt DateTime? @map("whitelist_deleted_at") @db.Timestamptz
+  startedAt          DateTime? @map("started_at") @db.Timestamptz
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   jobs               Job[]

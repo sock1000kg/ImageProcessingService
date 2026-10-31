@@ -21,6 +21,12 @@ describe("Batch Status Derivation", () => {
     expect(deriveBatchStatus(["COMPLETED", "COMPLETED", "FAILED"])).toBe("PARTIAL");
   });
 
+  it("derives DRAFT when startedAt is null", () => {
+    expect(deriveBatchStatus([], null)).toBe("DRAFT");
+    expect(deriveBatchStatus(["PENDING"], null)).toBe("DRAFT");
+    expect(deriveBatchStatus(["COMPLETED"], null)).toBe("DRAFT");
+  });
+
   it("handles empty jobs array gracefully as PROCESSING", () => {
     expect(deriveBatchStatus([])).toBe("PROCESSING");
   });

@@ -1,32 +1,13 @@
-export type JobStatus = "PENDING" | "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
+/**
+ * Central backend domain and DTO type exports.
+ */
+export { JobStatus } from "./generated/prisma/client";
 
-export type BatchStatus = "PROCESSING" | "COMPLETED" | "PARTIAL";
+/**
+ * Composite lifecycle status of a batch computed across all child jobs.
+ */
+export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL";
 
-export type RedactionTarget = "face" | "plate";
-export type RedactionStyle = "blur" | "pixelate" | "blackout";
-export type OutputQuality = "standard" | "high" | "max";
-export type OutputFormat = "original" | "jpg" | "jpeg" | "png" | "webp";
+export type { RedactionTarget, RedactionStyle, OutputQuality, OutputFormat, BatchConfig } from "./dto/batch-config.dto";
 
-export interface BatchConfig {
-  targets: RedactionTarget[];
-  style: RedactionStyle;
-  strength?: number;
-  padding: number;
-  quality: OutputQuality;
-  format: OutputFormat;
-  confidenceThreshold: number;
-  reviewThreshold: number;
-  similarityThreshold: number;
-}
-
-export interface JobEvent {
-  jobId: string;
-  batchId?: string;
-  status: "PROCESSING" | "COMPLETED" | "FAILED";
-  progress?: number;
-  stage?: string;
-  result?: { bucket: string; key: string };
-  resultSummary?: Record<string, unknown>;
-  error?: { code: string; message: string };
-  timestamp?: string;
-}
+export type { ValidatedJobEvent as JobEvent } from "./dto/job-event.dto";

@@ -1,3 +1,6 @@
+/**
+ * Standard HTTP error models, factory constructors, and global error middleware.
+ */
 import { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import { ZodError } from "zod";
@@ -100,10 +103,11 @@ export function toErrorResponse(error: unknown): { status: number; body: ErrorDT
   }
 
   // Malformed JSON body (from express.json / body-parser SyntaxError)
+  const syntaxErr = error as SyntaxError & { status?: unknown; type?: unknown };
   if (
     error instanceof SyntaxError &&
-    (("status" in error && (error as any).status === 400) ||
-      (error as any).type === "entity.parse.failed" ||
+    (syntaxErr.status === 400 ||
+      syntaxErr.type === "entity.parse.failed" ||
       error.message.toLowerCase().includes("json"))
   ) {
     return {
@@ -129,12 +133,7 @@ export function toErrorResponse(error: unknown): { status: number; body: ErrorDT
   };
 }
 
-export function errorMiddleware(
-  error: unknown,
-  _req: Request,
-  res: Response,
-  _next: NextFunction,
-): void {
+export function errorMiddleware(error: unknown, _req: Request, res: Response, _next: NextFunction): void {
   const { status, body } = toErrorResponse(error);
   if (status >= 500) {
     console.error("Internal server error:", error);

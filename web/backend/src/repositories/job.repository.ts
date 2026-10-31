@@ -1,10 +1,108 @@
+/**
+ * Database repository managing batches and image jobs with PostgreSQL row-level locks.
+ */
 import { prisma } from "../db/prisma";
+import { config } from "../config";
+import { conflict, notFound } from "../errors";
 import { BatchConfig } from "../types";
 import { JobStatus, Prisma } from "../generated/prisma/client";
+import { formatDefaultBatchName } from "../dto";
+
+/**
+ * Persists a new draft batch record.
+ */
+export async function createDraftBatch(batch: {
+  id: string;
+  name: string;
+  config: BatchConfig;
+  whitelistKeys: string[];
+}) {
+  return prisma.batch.create({
+    data: {
+      id: batch.id,
+      name: batch.name,
+      config: batch.config as unknown as Prisma.InputJsonValue,
+      whitelistKeys: batch.whitelistKeys,
+      startedAt: null,
+    },
+  });
+}
+
+/**
+ * Appends a new image job to a draft batch under a PostgreSQL row lock.
+ *
+ * Why row lock (`FOR UPDATE`): Concurrent uploads running in parallel workers could otherwise race
+ * to read the job count simultaneously and exceed `BATCH_MAX_FILES`, or race against `startBatch` and
+ * insert pending jobs after dispatch has completed. The row lock serialises checks and inserts.
+ */
+export async function addJobToBatchWithLock(
+  batchId: string,
+  jobData: {
+    id: string;
+    originalFilename: string;
+    inputKey: string;
+    outputKey: string;
+  },
+) {
+  return prisma.$transaction(async (tx) => {
+    // Acquire exclusive row lock on the batch record to prevent race conditions during file addition
+    const rows = await tx.$queryRaw<Array<{ id: string; started_at: Date | null }>>`
+      SELECT id, started_at FROM batches WHERE id = ${batchId}::uuid FOR UPDATE
+    `;
+    if (!rows || rows.length === 0) {
+      throw notFound("Batch not found");
+    }
+    const batchRow = rows[0];
+    if (batchRow.started_at !== null) {
+      throw conflict("Batch has already been started", "BATCH_STARTED");
+    }
+
+    const jobCount = await tx.job.count({
+      where: { batchId },
+    });
+    if (jobCount >= config.BATCH_MAX_FILES) {
+      throw conflict(`Batch is full: maximum allowed is ${config.BATCH_MAX_FILES} files`, "BATCH_FULL");
+    }
+
+    return tx.job.create({
+      data: {
+        id: jobData.id,
+        batchId,
+        originalFilename: jobData.originalFilename,
+        inputKey: jobData.inputKey,
+        outputKey: jobData.outputKey,
+        status: JobStatus.PENDING,
+      },
+    });
+  });
+}
+
+export async function setBatchStarted(batchId: string): Promise<void> {
+  await prisma.batch.updateMany({
+    where: {
+      id: batchId,
+      startedAt: null,
+    },
+    data: {
+      startedAt: new Date(),
+    },
+  });
+}
+
+export async function getPendingJobsByBatchId(batchId: string) {
+  return prisma.job.findMany({
+    where: {
+      batchId,
+      status: JobStatus.PENDING,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
 
 export async function insertBatchAndJobs(
   batch: {
     id: string;
+    name?: string;
     config: BatchConfig;
     whitelistKeys: string[];
   },
@@ -19,6 +117,8 @@ export async function insertBatchAndJobs(
     await tx.batch.create({
       data: {
         id: batch.id,
+        name: batch.name ?? formatDefaultBatchName(),
+        // Prisma InputJsonValue requires casting for structured JSON fields
         config: batch.config as unknown as Prisma.InputJsonValue,
         whitelistKeys: batch.whitelistKeys,
       },
@@ -57,11 +157,7 @@ export async function getJob(id: string) {
   });
 }
 
-export async function getActiveRetryJob(job: {
-  id: string;
-  batchId: string;
-  inputKey: string;
-}) {
+export async function getActiveRetryJob(job: { id: string; batchId: string; inputKey: string }) {
   return prisma.job.findFirst({
     where: {
       batchId: job.batchId,
@@ -116,6 +212,13 @@ export async function deleteBatchRow(id: string): Promise<boolean> {
   return result.count > 0;
 }
 
+export async function updateBatchName(id: string, name: string) {
+  return prisma.batch.update({
+    where: { id },
+    data: { name },
+  });
+}
+
 export async function updateJobState(
   jobId: string,
   state: {
@@ -137,10 +240,9 @@ export async function updateJobState(
       progress: state.progress,
       stage: state.stage,
       resultUrl: state.resultUrl,
-      resultSummary: state.resultSummary
-        ? (state.resultSummary as Prisma.InputJsonValue)
-        : Prisma.JsonNull,
-      error: state.error ? (state.error as Prisma.InputJsonValue) : Prisma.JsonNull,
+      // Prisma InputJsonValue requires casting for structured JSON fields
+      resultSummary: state.resultSummary ? (state.resultSummary as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+      error: state.error ? (state.error as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
     },
   });
 }

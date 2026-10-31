@@ -1,3 +1,6 @@
+/**
+ * S3-compatible object storage client (MinIO/AWS S3) wrapper and bucket utilities.
+ */
 import {
   S3Client,
   HeadBucketCommand,
@@ -6,6 +9,7 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 
 import { config } from "./config";
@@ -67,6 +71,7 @@ export async function getObjectStream(
     );
     if (!response.Body) return null;
     return {
+      // AWS SDK v3 response.Body is a Readable/IncomingMessage; cast to NodeJS.ReadableStream
       stream: response.Body as unknown as NodeJS.ReadableStream,
       contentType: response.ContentType,
       contentLength: response.ContentLength,
@@ -105,9 +110,9 @@ export async function deletePrefix(bucket: string, prefix: string): Promise<void
     const listResponse = await s3Client.send(listCommand);
 
     if (listResponse.Contents && listResponse.Contents.length > 0) {
-      const objects = listResponse.Contents
-        .filter((item: { Key?: string }) => Boolean(item.Key))
-        .map((item: { Key?: string }) => ({ Key: item.Key! }));
+      const objects = listResponse.Contents.filter((item: { Key?: string }) => Boolean(item.Key)).map(
+        (item: { Key?: string }) => ({ Key: item.Key! }),
+      );
 
       if (objects.length > 0) {
         await s3Client.send(
@@ -124,6 +129,15 @@ export async function deletePrefix(bucket: string, prefix: string): Promise<void
   }
 }
 
+export async function deleteObject(bucket: string, key: string): Promise<void> {
+  await s3Client.send(
+    new DeleteObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    }),
+  );
+}
+
 export async function verifyBuckets(): Promise<void> {
   for (const bucket of [UPLOADS_BUCKET, RESULTS_BUCKET]) {
     if (!(await bucketExists(bucket))) {
@@ -137,6 +151,7 @@ export const storage = {
   putObject,
   getObjectStream,
   objectExists,
+  deleteObject,
   deletePrefix,
   verifyBuckets,
 };

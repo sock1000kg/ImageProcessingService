@@ -1,17 +1,14 @@
-import {
-  connect,
-  JetStreamClient,
-  JetStreamManager,
-  JsMsg,
-  NatsConnection,
-  StringCodec,
-} from "nats";
+/**
+ * NATS JetStream messaging client managing job publishing and worker event consumption.
+ */
+import { connect, JetStreamClient, JetStreamManager, JsMsg, NatsConnection, StringCodec } from "nats";
 import { z } from "zod";
 
 import { config } from "./config";
 import { getJob } from "./db";
 import { applyJobEvent, checkAndCleanBatchWhitelist } from "./services/batch.service";
 import { jobEventSchema } from "./dto";
+import { ImageRedactCommand } from "./domain";
 
 const codec = StringCodec();
 let connection: NatsConnection | null = null;
@@ -19,6 +16,9 @@ let jetStream: JetStreamClient | null = null;
 let activeMessages: { close: () => Promise<void | Error> } | null = null;
 let consuming = false;
 
+/**
+ * Checks whether active NATS JetStream connection is healthy and initialized.
+ */
 export function isMessagingReady(): boolean {
   return connection !== null && jetStream !== null;
 }
@@ -30,6 +30,9 @@ async function verifyProvisionedResources(manager: JetStreamManager): Promise<vo
   await manager.consumers.info("JOB_EVENTS", "backend-job-events");
 }
 
+/**
+ * Establishes NATS JetStream connection, verifies streams/consumers, and starts event consumer loop.
+ */
 export async function connectMessaging(): Promise<void> {
   connection = await connect({ servers: config.NATS_URL });
   jetStream = connection.jetstream();
@@ -40,7 +43,9 @@ export async function connectMessaging(): Promise<void> {
     await connection.close();
     connection = null;
     jetStream = null;
-    throw new Error(`NATS provisioned resource check failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `NATS provisioned resource check failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   const consumer = await jetStream.consumers.get("JOB_EVENTS", "backend-job-events");
@@ -64,6 +69,9 @@ async function consumeEvents(messages: AsyncIterable<JsMsg>): Promise<void> {
 }
 
 async function handleEventMessage(message: JsMsg): Promise<void> {
+  // Why NATS term policy: If a message is malformed JSON, fails Zod validation, or references an unknown job ID,
+  // it is a deterministic poison-pill. Redelivery will never succeed. Calling message.term() permanently
+  // discards the invalid message without causing poison loops or exhaustively consuming consumer max_deliveries.
   let parsed: unknown;
   try {
     parsed = JSON.parse(codec.decode(message.data));
@@ -75,7 +83,14 @@ async function handleEventMessage(message: JsMsg): Promise<void> {
 
   const validation = jobEventSchema.safeParse(parsed);
   if (!validation.success) {
-    console.error("Invalid worker event schema; terminating message", z.flattenError(validation.error));
+    const rawJobId =
+      typeof parsed === "object" && parsed !== null && "jobId" in parsed
+        ? (parsed as { jobId?: unknown }).jobId
+        : undefined;
+    console.error("Invalid worker event schema; terminating message", {
+      jobId: typeof rawJobId === "string" ? rawJobId : undefined,
+      issues: validation.error.issues,
+    });
     message.term();
     return;
   }
@@ -89,8 +104,11 @@ async function handleEventMessage(message: JsMsg): Promise<void> {
 
   try {
     await applyJobEvent(validation.data);
+    // Positively acknowledge message once the event state update is committed to Postgres
     message.ack();
   } catch (error) {
+    // Why NATS nak policy: Database connection or persistence errors are transient. Negatively acknowledging
+    // with a 5000ms delay instructs NATS JetStream to back off and redeliver after the transient condition clears.
     console.error("Failed to apply worker event; negatively acknowledging message", error);
     message.nak(5000);
     return;
@@ -105,11 +123,20 @@ async function handleEventMessage(message: JsMsg): Promise<void> {
   }
 }
 
-export async function publishJob(subject: string, payload: Record<string, unknown>): Promise<void> {
+/**
+ * Publishes a redaction command payload to the specified NATS subject.
+ */
+export async function publishJob(
+  subject: string,
+  payload: ImageRedactCommand | Record<string, unknown>,
+): Promise<void> {
   if (!jetStream) throw new Error("NATS connection is not ready");
   await jetStream.publish(subject, codec.encode(JSON.stringify(payload)));
 }
 
+/**
+ * Gracefully shuts down active consumer loops and drains the NATS connection.
+ */
 export async function closeMessaging(): Promise<void> {
   consuming = false;
   if (activeMessages) {

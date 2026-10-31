@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildImageRedactCommand,
-  resolveOutputExtension,
-} from "../../src/domain";
+import { buildImageRedactCommand, resolveOutputExtension } from "../../src/domain";
 import { parseBatchConfig } from "../../src/dto";
 
 describe("Command Builder and Extension Mapping (§2A & §5)", () => {

@@ -14,9 +14,7 @@ import {
 
 describe("toErrorResponse Unit Tests", () => {
   it("maps AppError with its status, code, message and details", () => {
-    const error = new AppError(422, "CUSTOM_CODE", "Something unprocessable", [
-      { field: "test" },
-    ]);
+    const error = new AppError(422, "CUSTOM_CODE", "Something unprocessable", [{ field: "test" }]);
     const response = toErrorResponse(error);
 
     expect(response.status).toBe(422);

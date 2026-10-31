@@ -165,17 +165,28 @@ describe("Event Sequences and State Transitions (§8)", () => {
     expect(parsed.success).toBe(false);
   });
 
-  it("tolerates missing optional fields or catches schema variations", () => {
+  it("tolerates missing optional fields", () => {
     const raw = {
       jobId: "123e4567-e89b-12d3-a456-426614174000",
       status: "PROCESSING",
-      progress: "invalid_progress_type",
     };
 
     const parsed = jobEventSchema.safeParse(raw);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.progress).toBeUndefined();
+      expect(parsed.data.stage).toBeUndefined();
     }
+  });
+
+  it("rejects event with progress: 'abc' rather than applying without progress", () => {
+    const raw = {
+      jobId: "123e4567-e89b-12d3-a456-426614174000",
+      status: "PROCESSING",
+      progress: "abc",
+    };
+
+    const parsed = jobEventSchema.safeParse(raw);
+    expect(parsed.success).toBe(false);
   });
 });

@@ -36,7 +36,7 @@ BATCH_SIZE=20
 usage() {
   cat <<'EOF'
 Usage: run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large|max] [--parallel P] [--preload]
-              [--confidence X] [--save-detections] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
+              [--confidence X] [--imgsz N] [--save-detections] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 
 Runs the baseline image pipeline benchmark (batches of 20 images: small = 100 images / 5 batches, large = 1000 images / 50 batches, max = 3726 images).
 
@@ -51,11 +51,12 @@ Options:
   --preload           Fixed mode only: pause workers at 0, upload every batch so the jobs wait in the queue,
                       then release N workers. Measures how fast the workers drain a full queue.
   --confidence X      Detection confidence threshold (0.0 to 1.0; passes confidenceThreshold in batch config).
+  --imgsz N           YOLO input size (multiple of 32, e.g. 640, 960, 1280; default: leave deployment as-is = 640).
   --save-detections   Export bounding boxes and scores into detections.jsonl via PostgreSQL.
   --machine NAME      Machine/node name for results directory (default: worker pod node name).
   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
   --out DIR           Output directory for benchmark results
-                      (default: infra/bench/results/<machine>-<YYYYMMDD>[-1000|-max]/<UTC>-<mode>/).
+                      (default: infra/bench/results/<machine>-<set>/<imgsz>px/<UTC>-<mode>/).
   --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800, large dataset: 7200, max dataset: 27000).
   -h, --help          Show this help message and exit.
 EOF
@@ -77,6 +78,9 @@ PARALLEL=1
 PRELOAD=0
 CONFIDENCE=""
 SAVE_DETECTIONS=0
+IMGSZ=""
+PREV_YOLO_IMGSZ=""
+PATCHED_IMGSZ=0
 
 print_node_cpu_warning() {
   local count="$1"
@@ -191,6 +195,16 @@ while [ "$#" -gt 0 ]; do
       fi
       shift 2
       ;;
+    --imgsz)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --imgsz" >&2; exit 1; }
+      val="$2"
+      if [[ ! "$val" =~ ^[0-9]+$ ]] || [ "$val" -le 0 ] || [ $((val % 32)) -ne 0 ]; then
+        echo "ERROR: --imgsz must be a positive integer multiple of 32 (got '$val')" >&2
+        exit 1
+      fi
+      IMGSZ="$val"
+      shift 2
+      ;;
     --save-detections)
       SAVE_DETECTIONS=1
       shift 1
@@ -223,13 +237,11 @@ if [ "$DATASET" = "large" ]; then
   IMAGES_TXT="$DATASET_DIR/images-1000.txt"
   EXPECTED_IMAGES=1000
   TIMEOUT="${TIMEOUT:-7200}"
-  RESULTS_SUFFIX="-1000"
 elif [ "$DATASET" = "max" ]; then
   IMAGES_DIR="$DATASET_DIR/images-max"
   IMAGES_TXT="$DATASET_DIR/images-max.txt"
   EXPECTED_IMAGES=3726
   TIMEOUT="${TIMEOUT:-27000}"
-  RESULTS_SUFFIX="-max"
 fi
 TIMEOUT="${TIMEOUT:-1800}"
 NUM_BATCHES=$(((EXPECTED_IMAGES + BATCH_SIZE - 1) / BATCH_SIZE))
@@ -296,7 +308,6 @@ if [ "$MODE" = "autoscale" ]; then
 fi
 
 TIMESTAMP_UTC="$(date -u +"%Y%m%d-%H%M%S")"
-DATE_UTC="$(date -u +"%Y%m%d")"
 
 if [ -z "$MACHINE" ]; then
   # Detect worker pod node name, or cluster node name, or default
@@ -310,11 +321,19 @@ if [ -z "$MACHINE" ]; then
   MACHINE="${detected_node:-home-server}"
 fi
 
+EFFECTIVE_IMGSZ="${IMGSZ:-640}"
+SET_TAG="100"
+if [ "$DATASET" = "large" ]; then
+  SET_TAG="1000"
+elif [ "$DATASET" = "max" ]; then
+  SET_TAG="max"
+fi
+
 if [ -z "$OUT_DIR" ]; then
   if [ "$MODE" = "fixed" ]; then
-    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${DATE_UTC}${RESULTS_SUFFIX}/${TIMESTAMP_UTC}-fixed-${WORKERS}w"
+    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${SET_TAG}/${EFFECTIVE_IMGSZ}px/${TIMESTAMP_UTC}-fixed-${WORKERS}w"
   else
-    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${DATE_UTC}${RESULTS_SUFFIX}/${TIMESTAMP_UTC}-autoscale-${AUTOSCALE_MIN}-${AUTOSCALE_MAX}"
+    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${SET_TAG}/${EFFECTIVE_IMGSZ}px/${TIMESTAMP_UTC}-autoscale-${AUTOSCALE_MIN}-${AUTOSCALE_MAX}"
   fi
 fi
 
@@ -365,6 +384,17 @@ cleanup() {
       echo "ERROR: Failed to restore ScaledObject/image-worker min/max replica counts!" >&2
       echo "Please run the following command manually:" >&2
       echo "kubectl --context $KUBE_CONTEXT -n imgproc patch scaledobject image-worker --type=merge -p '{\"spec\":{\"minReplicaCount\":$ORIGINAL_MIN,\"maxReplicaCount\":$ORIGINAL_MAX}}'" >&2
+    fi
+  fi
+
+  # 3b. Restore or unset YOLO_IMGSZ on deployment/image-worker if patched
+  if [ "$PATCHED_IMGSZ" -eq 1 ]; then
+    if [ -n "$PREV_YOLO_IMGSZ" ]; then
+      echo "Restoring deployment/image-worker YOLO_IMGSZ to $PREV_YOLO_IMGSZ..."
+      "${KUBECTL[@]}" set env deployment/image-worker "YOLO_IMGSZ=$PREV_YOLO_IMGSZ" 2>/dev/null || true
+    else
+      echo "Unsetting YOLO_IMGSZ on deployment/image-worker..."
+      "${KUBECTL[@]}" set env deployment/image-worker YOLO_IMGSZ- 2>/dev/null || true
     fi
   fi
 
@@ -494,6 +524,55 @@ read_cpu_counters() {
 # -----------------------------------------------------------------------------
 START_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
+if [ -n "$IMGSZ" ]; then
+  echo "Configuring YOLO_IMGSZ=$IMGSZ on deployment/image-worker..."
+  PREV_YOLO_IMGSZ="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].env[?(@.name=="YOLO_IMGSZ")].value}' 2>/dev/null || true)"
+  PATCHED_IMGSZ=1
+  "${KUBECTL[@]}" set env deployment/image-worker "YOLO_IMGSZ=$IMGSZ"
+fi
+
+verify_worker_imgsz() {
+  if [ -z "$IMGSZ" ]; then
+    return 0
+  fi
+  local wait_seconds="${1:-0}"
+  if [ "$wait_seconds" -gt 0 ]; then
+    echo "Waiting up to ${wait_seconds}s for image-worker pod to become Ready..."
+    local ready_seen=0 s
+    for ((s = 0; s < wait_seconds; s += 2)); do
+      local r_rep
+      r_rep="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+      r_rep="${r_rep:-0}"
+      if [ "$r_rep" -ge 1 ]; then
+        ready_seen=1
+        break
+      fi
+      sleep 2
+    done
+    if [ "$ready_seen" -ne 1 ]; then
+      echo "ERROR: image-worker did not reach at least 1 ready replica within ${wait_seconds}s." >&2
+      exit 1
+    fi
+  fi
+  # The engine logs "input size <N>px" when it finishes loading YOLO, a few seconds after the pod is Ready, so keep looking for a while.
+  echo "Verifying worker input size in image-worker logs (up to 120s)..."
+  local found_log=0 t
+  for ((t = 0; t < 120 && found_log == 0; t += 3)); do
+    for p in $("${KUBECTL[@]}" get pod -l app.kubernetes.io/name=image-worker -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+      if "${KUBECTL[@]}" logs "$p" -c image-worker --tail=200 2>/dev/null | grep -q "input size ${IMGSZ}px"; then
+        found_log=1
+        break
+      fi
+    done
+    [ "$found_log" -eq 1 ] || sleep 3
+  done
+  if [ "$found_log" -ne 1 ]; then
+    echo "ERROR: image-worker does not log 'input size ${IMGSZ}px'. The engine image may be outdated and not support YOLO_IMGSZ." >&2
+    exit 1
+  fi
+  echo "Verified image-worker input size ${IMGSZ}px in logs."
+}
+
 if [ "$PRELOAD" -eq 1 ]; then
   # Preload: hold the workers at 0 so every job waits in the queue. No warm-up batch (it would sit behind the queue);
   # the lazy model load happens on each worker's first job after the release. Cleanup removes the pause annotation.
@@ -532,6 +611,7 @@ elif [ "$MODE" = "fixed" ]; then
     exit 1
   fi
   echo "Workers ready: exactly $WORKERS (0 terminating)."
+  verify_worker_imgsz
 
   # Warm-up batch: 2 * WORKERS images
   WARMUP_COUNT=$((2 * WORKERS))
@@ -601,6 +681,9 @@ else
     exit 1
   fi
   echo "Workers ready: exactly $AUTOSCALE_MIN (0 terminating)."
+  if [ "$AUTOSCALE_MIN" -gt 0 ]; then
+    verify_worker_imgsz
+  fi
 
   # If M > 0, send warm-up batch of 2xM (excluded), like fixed mode, so always-on workers are warm
   if [ "$AUTOSCALE_MIN" -gt 0 ]; then
@@ -754,7 +837,12 @@ if [ "$PRELOAD" -eq 1 ]; then
     exit 1
   fi
   echo "Workers ready: exactly $WORKERS (0 terminating)."
+  verify_worker_imgsz
   read_cpu_counters start
+fi
+
+if [ "$MODE" = "autoscale" ] && [ "$AUTOSCALE_MIN" -eq 0 ] && [ -n "$IMGSZ" ]; then
+  verify_worker_imgsz 300
 fi
 
 # -----------------------------------------------------------------------------
@@ -933,7 +1021,7 @@ ORIGINAL_MIN="${ORIGINAL_MIN:-}" ORIGINAL_MAX="${ORIGINAL_MAX:-}" CONTAINER_IMAG
 CPU_LIMIT="$CPU_LIMIT" MEM_LIMIT="$MEM_LIMIT" NODE_NAME="$NODE_NAME" NODE_CPU_COUNT="$NODE_CPU_COUNT" \
 GPU="$GPU" IMAGES_TXT_HASH="$IMAGES_TXT_HASH" START_TIME="$START_TIME" END_TIME="$END_TIME" \
 DATASET="$DATASET" PARALLEL="$PARALLEL" PRELOAD="$PRELOAD" RELEASE_TIME="$RELEASE_TIME" \
-CONFIDENCE="$CONFIDENCE" SAVE_DETECTIONS="$SAVE_DETECTIONS" \
+CONFIDENCE="$CONFIDENCE" SAVE_DETECTIONS="$SAVE_DETECTIONS" EFFECTIVE_IMGSZ="$EFFECTIVE_IMGSZ" \
 OUT_DIR="$OUT_DIR" python3 - <<'EOF'
 import json
 import os
@@ -971,6 +1059,7 @@ meta = {
     "workers_released_at": os.environ["RELEASE_TIME"] or None,
     "confidence_threshold": confidence_threshold,
     "save_detections": save_det,
+    "imgsz": num("EFFECTIVE_IMGSZ") or 640,
 }
 with open(os.path.join(os.environ["OUT_DIR"], "meta.json"), "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)

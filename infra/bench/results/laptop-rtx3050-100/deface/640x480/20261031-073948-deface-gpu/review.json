@@ -1,0 +1,600 @@
+{
+  "run_dir": "results/laptop-rtx3050-100/deface/640x480/20261031-073948-deface-gpu",
+  "meta": {
+    "tool": "deface",
+    "mode": "deface",
+    "version": "1.5.0",
+    "target_device": "gpu",
+    "execution_provider": "CUDAExecutionProvider",
+    "machine": "laptop-rtx3050",
+    "node_cpu_count": 16,
+    "model_load_time_seconds": 0.5968,
+    "total_duration_seconds": 13.5249,
+    "images_count": 100,
+    "dataset": "small",
+    "threshold": 0.05,
+    "scale": "640x480",
+    "save_detections": true,
+    "start_time": "2026-10-31T07:39:48.722950+00:00",
+    "end_time": "2026-10-31T07:40:02.870192+00:00"
+  },
+  "tool": "deface",
+  "operating_threshold": 0.35,
+  "default_review_threshold": 0.5,
+  "padding": 0.1,
+  "labels_file": "dataset/labels-small.jsonl",
+  "metrics": {
+    "face": {
+      "class": "face",
+      "subset": "wider",
+      "total_images": 70,
+      "total_gt": 786,
+      "total_gt_no_tiny": 487,
+      "leaky_images": 25,
+      "leaky_images_no_tiny": 19,
+      "silent_misses": {
+        "count": 1,
+        "share": 0.04,
+        "count_no_tiny": 0,
+        "share_no_tiny": 0.0
+      },
+      "what_if": {
+        "description": "What-If (conf 0.20\u20130.50 flags)",
+        "flagged_count": 34,
+        "flag_rate": 0.4857,
+        "caught_all_count": 25,
+        "catch_rate_all": 1.0,
+        "precision_all": 0.7353,
+        "caught_no_tiny_count": 19,
+        "catch_rate_no_tiny": 1.0,
+        "precision_no_tiny": 0.5588
+      },
+      "sweep": [
+        {
+          "threshold": 0.35,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.4,
+          "is_default": false,
+          "flagged_count": 16,
+          "flag_rate": 0.2286,
+          "caught_all_count": 13,
+          "catch_rate_all": 0.52,
+          "precision_all": 0.8125,
+          "caught_no_tiny_count": 12,
+          "catch_rate_no_tiny": 0.6316,
+          "precision_no_tiny": 0.75
+        },
+        {
+          "threshold": 0.45,
+          "is_default": false,
+          "flagged_count": 20,
+          "flag_rate": 0.2857,
+          "caught_all_count": 15,
+          "catch_rate_all": 0.6,
+          "precision_all": 0.75,
+          "caught_no_tiny_count": 14,
+          "catch_rate_no_tiny": 0.7368,
+          "precision_no_tiny": 0.7
+        },
+        {
+          "threshold": 0.5,
+          "is_default": true,
+          "flagged_count": 23,
+          "flag_rate": 0.3286,
+          "caught_all_count": 17,
+          "catch_rate_all": 0.68,
+          "precision_all": 0.7391,
+          "caught_no_tiny_count": 16,
+          "catch_rate_no_tiny": 0.8421,
+          "precision_no_tiny": 0.6957
+        },
+        {
+          "threshold": 0.55,
+          "is_default": false,
+          "flagged_count": 27,
+          "flag_rate": 0.3857,
+          "caught_all_count": 19,
+          "catch_rate_all": 0.76,
+          "precision_all": 0.7037,
+          "caught_no_tiny_count": 17,
+          "catch_rate_no_tiny": 0.8947,
+          "precision_no_tiny": 0.6296
+        },
+        {
+          "threshold": 0.6,
+          "is_default": false,
+          "flagged_count": 30,
+          "flag_rate": 0.4286,
+          "caught_all_count": 21,
+          "catch_rate_all": 0.84,
+          "precision_all": 0.7,
+          "caught_no_tiny_count": 19,
+          "catch_rate_no_tiny": 1.0,
+          "precision_no_tiny": 0.6333
+        },
+        {
+          "threshold": 0.65,
+          "is_default": false,
+          "flagged_count": 33,
+          "flag_rate": 0.4714,
+          "caught_all_count": 21,
+          "catch_rate_all": 0.84,
+          "precision_all": 0.6364,
+          "caught_no_tiny_count": 19,
+          "catch_rate_no_tiny": 1.0,
+          "precision_no_tiny": 0.5758
+        },
+        {
+          "threshold": 0.7,
+          "is_default": false,
+          "flagged_count": 35,
+          "flag_rate": 0.5,
+          "caught_all_count": 22,
+          "catch_rate_all": 0.88,
+          "precision_all": 0.6286,
+          "caught_no_tiny_count": 19,
+          "catch_rate_no_tiny": 1.0,
+          "precision_no_tiny": 0.5429
+        },
+        {
+          "threshold": 0.75,
+          "is_default": false,
+          "flagged_count": 42,
+          "flag_rate": 0.6,
+          "caught_all_count": 23,
+          "catch_rate_all": 0.92,
+          "precision_all": 0.5476,
+          "caught_no_tiny_count": 19,
+          "catch_rate_no_tiny": 1.0,
+          "precision_no_tiny": 0.4524
+        },
+        {
+          "threshold": 0.8,
+          "is_default": false,
+          "flagged_count": 49,
+          "flag_rate": 0.7,
+          "caught_all_count": 23,
+          "catch_rate_all": 0.92,
+          "precision_all": 0.4694,
+          "caught_no_tiny_count": 19,
+          "catch_rate_no_tiny": 1.0,
+          "precision_no_tiny": 0.3878
+        },
+        {
+          "threshold": 0.85,
+          "is_default": false,
+          "flagged_count": 56,
+          "flag_rate": 0.8,
+          "caught_all_count": 23,
+          "catch_rate_all": 0.92,
+          "precision_all": 0.4107,
+          "caught_no_tiny_count": 19,
+          "catch_rate_no_tiny": 1.0,
+          "precision_no_tiny": 0.3393
+        },
+        {
+          "threshold": 0.9,
+          "is_default": false,
+          "flagged_count": 67,
+          "flag_rate": 0.9571,
+          "caught_all_count": 23,
+          "catch_rate_all": 0.92,
+          "precision_all": 0.3433,
+          "caught_no_tiny_count": 19,
+          "catch_rate_no_tiny": 1.0,
+          "precision_no_tiny": 0.2836
+        },
+        {
+          "threshold": 0.95,
+          "is_default": false,
+          "flagged_count": 68,
+          "flag_rate": 0.9714,
+          "caught_all_count": 23,
+          "catch_rate_all": 0.92,
+          "precision_all": 0.3382,
+          "caught_no_tiny_count": 19,
+          "catch_rate_no_tiny": 1.0,
+          "precision_no_tiny": 0.2794
+        }
+      ],
+      "calibration": [
+        {
+          "bin": "0.05\u20130.10",
+          "min_conf": 0.05,
+          "max_conf": 0.1,
+          "count": 3997,
+          "tp_count": 19,
+          "tp_share": 0.0048,
+          "protect_count": 250,
+          "protect_share": 0.0625
+        },
+        {
+          "bin": "0.10\u20130.20",
+          "min_conf": 0.1,
+          "max_conf": 0.2,
+          "count": 1653,
+          "tp_count": 36,
+          "tp_share": 0.0218,
+          "protect_count": 245,
+          "protect_share": 0.1482
+        },
+        {
+          "bin": "0.20\u20130.30",
+          "min_conf": 0.2,
+          "max_conf": 0.3,
+          "count": 338,
+          "tp_count": 47,
+          "tp_share": 0.1391,
+          "protect_count": 112,
+          "protect_share": 0.3314
+        },
+        {
+          "bin": "0.30\u20130.40",
+          "min_conf": 0.3,
+          "max_conf": 0.4,
+          "count": 119,
+          "tp_count": 45,
+          "tp_share": 0.3782,
+          "protect_count": 70,
+          "protect_share": 0.5882
+        },
+        {
+          "bin": "0.40\u20130.50",
+          "min_conf": 0.4,
+          "max_conf": 0.5,
+          "count": 96,
+          "tp_count": 71,
+          "tp_share": 0.7396,
+          "protect_count": 85,
+          "protect_share": 0.8854
+        },
+        {
+          "bin": "0.50\u20130.60",
+          "min_conf": 0.5,
+          "max_conf": 0.6,
+          "count": 71,
+          "tp_count": 61,
+          "tp_share": 0.8592,
+          "protect_count": 66,
+          "protect_share": 0.9296
+        },
+        {
+          "bin": "0.60\u20130.70",
+          "min_conf": 0.6,
+          "max_conf": 0.7,
+          "count": 64,
+          "tp_count": 59,
+          "tp_share": 0.9219,
+          "protect_count": 63,
+          "protect_share": 0.9844
+        },
+        {
+          "bin": "0.70\u20130.80",
+          "min_conf": 0.7,
+          "max_conf": 0.8,
+          "count": 83,
+          "tp_count": 82,
+          "tp_share": 0.988,
+          "protect_count": 83,
+          "protect_share": 1.0
+        },
+        {
+          "bin": "0.80\u20130.90",
+          "min_conf": 0.8,
+          "max_conf": 0.9,
+          "count": 80,
+          "tp_count": 80,
+          "tp_share": 1.0,
+          "protect_count": 80,
+          "protect_share": 1.0
+        },
+        {
+          "bin": "0.90\u20131.00",
+          "min_conf": 0.9,
+          "max_conf": 1.001,
+          "count": 9,
+          "tp_count": 9,
+          "tp_share": 1.0,
+          "protect_count": 9,
+          "protect_share": 1.0
+        }
+      ]
+    },
+    "plate": {
+      "class": "plate",
+      "subset": "vn",
+      "total_images": 30,
+      "total_gt": 30,
+      "total_gt_no_tiny": 30,
+      "leaky_images": 30,
+      "leaky_images_no_tiny": 30,
+      "silent_misses": {
+        "count": 30,
+        "share": 1.0,
+        "count_no_tiny": 30,
+        "share_no_tiny": 1.0
+      },
+      "what_if": {
+        "description": "What-If (conf 0.20\u20130.50 flags)",
+        "flagged_count": 0,
+        "flag_rate": 0.0,
+        "caught_all_count": 0,
+        "catch_rate_all": 0.0,
+        "precision_all": 0.0,
+        "caught_no_tiny_count": 0,
+        "catch_rate_no_tiny": 0.0,
+        "precision_no_tiny": 0.0
+      },
+      "sweep": [
+        {
+          "threshold": 0.35,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.4,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.45,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.5,
+          "is_default": true,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.55,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.6,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.65,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.7,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.75,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.8,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.85,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.9,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        },
+        {
+          "threshold": 0.95,
+          "is_default": false,
+          "flagged_count": 0,
+          "flag_rate": 0.0,
+          "caught_all_count": 0,
+          "catch_rate_all": 0.0,
+          "precision_all": 0.0,
+          "caught_no_tiny_count": 0,
+          "catch_rate_no_tiny": 0.0,
+          "precision_no_tiny": 0.0
+        }
+      ],
+      "calibration": [
+        {
+          "bin": "0.05\u20130.10",
+          "min_conf": 0.05,
+          "max_conf": 0.1,
+          "count": 0,
+          "tp_count": 0,
+          "tp_share": 0.0,
+          "protect_count": 0,
+          "protect_share": 0.0
+        },
+        {
+          "bin": "0.10\u20130.20",
+          "min_conf": 0.1,
+          "max_conf": 0.2,
+          "count": 0,
+          "tp_count": 0,
+          "tp_share": 0.0,
+          "protect_count": 0,
+          "protect_share": 0.0
+        },
+        {
+          "bin": "0.20\u20130.30",
+          "min_conf": 0.2,
+          "max_conf": 0.3,
+          "count": 0,
+          "tp_count": 0,
+          "tp_share": 0.0,
+          "protect_count": 0,
+          "protect_share": 0.0
+        },
+        {
+          "bin": "0.30\u20130.40",
+          "min_conf": 0.3,
+          "max_conf": 0.4,
+          "count": 0,
+          "tp_count": 0,
+          "tp_share": 0.0,
+          "protect_count": 0,
+          "protect_share": 0.0
+        },
+        {
+          "bin": "0.40\u20130.50",
+          "min_conf": 0.4,
+          "max_conf": 0.5,
+          "count": 0,
+          "tp_count": 0,
+          "tp_share": 0.0,
+          "protect_count": 0,
+          "protect_share": 0.0
+        },
+        {
+          "bin": "0.50\u20130.60",
+          "min_conf": 0.5,
+          "max_conf": 0.6,
+          "count": 0,
+          "tp_count": 0,
+          "tp_share": 0.0,
+          "protect_count": 0,
+          "protect_share": 0.0
+        },
+        {
+          "bin": "0.60\u20130.70",
+          "min_conf": 0.6,
+          "max_conf": 0.7,
+          "count": 0,
+          "tp_count": 0,
+          "tp_share": 0.0,
+          "protect_count": 0,
+          "protect_share": 0.0
+        },
+        {
+          "bin": "0.70\u20130.80",
+          "min_conf": 0.7,
+          "max_conf": 0.8,
+          "count": 0,
+          "tp_count": 0,
+          "tp_share": 0.0,
+          "protect_count": 0,
+          "protect_share": 0.0
+        },
+        {
+          "bin": "0.80\u20130.90",
+          "min_conf": 0.8,
+          "max_conf": 0.9,
+          "count": 0,
+          "tp_count": 0,
+          "tp_share": 0.0,
+          "protect_count": 0,
+          "protect_share": 0.0
+        },
+        {
+          "bin": "0.90\u20131.00",
+          "min_conf": 0.9,
+          "max_conf": 1.001,
+          "count": 0,
+          "tp_count": 0,
+          "tp_share": 0.0,
+          "protect_count": 0,
+          "protect_share": 0.0
+        }
+      ]
+    }
+  }
+}

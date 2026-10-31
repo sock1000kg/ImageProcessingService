@@ -1,0 +1,13 @@
+phase,timestamp,node,pod,cpu_seconds
+start,1793428990.655,laptop-9uqcccr9,image-worker-575fdd9dd7-2j5xh,6.336417
+start,1793428990.486,laptop-9uqcccr9,image-worker-575fdd9dd7-gf7sv,6.292233
+start,1793428992.734,laptop-9uqcccr9,image-worker-575fdd9dd7-hxwl7,7.524197
+start,1793428994.278,laptop-9uqcccr9,image-worker-575fdd9dd7-prz9g,8.381584
+start,1793428993.334,laptop-9uqcccr9,image-worker-575fdd9dd7-rf5l4,7.620498
+start,1793429001.284,laptop-9uqcccr9,image-worker-575fdd9dd7-xfrjh,11.011415
+end,1793429006.909,laptop-9uqcccr9,image-worker-575fdd9dd7-2j5xh,11.922861
+end,1793429007.164,laptop-9uqcccr9,image-worker-575fdd9dd7-gf7sv,12.059748
+end,1793429011.582,laptop-9uqcccr9,image-worker-575fdd9dd7-hxwl7,12.273943
+end,1793429009.531,laptop-9uqcccr9,image-worker-575fdd9dd7-prz9g,12.181913
+end,1793429005.363,laptop-9uqcccr9,image-worker-575fdd9dd7-rf5l4,12.090631
+end,1793429011.894,laptop-9uqcccr9,image-worker-575fdd9dd7-xfrjh,12.492576

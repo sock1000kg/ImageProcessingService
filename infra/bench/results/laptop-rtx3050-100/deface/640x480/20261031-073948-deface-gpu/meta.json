@@ -1,0 +1,18 @@
+{
+  "tool": "deface",
+  "mode": "deface",
+  "version": "1.5.0",
+  "target_device": "gpu",
+  "execution_provider": "CUDAExecutionProvider",
+  "machine": "laptop-rtx3050",
+  "node_cpu_count": 16,
+  "model_load_time_seconds": 0.5968,
+  "total_duration_seconds": 13.5249,
+  "images_count": 100,
+  "dataset": "small",
+  "threshold": 0.05,
+  "scale": "640x480",
+  "save_detections": true,
+  "start_time": "2026-10-31T07:39:48.722950+00:00",
+  "end_time": "2026-10-31T07:40:02.870192+00:00"
+}

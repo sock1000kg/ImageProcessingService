@@ -1,0 +1,9 @@
+phase,timestamp,node,pod,cpu_seconds
+start,1793438007.762,laptop-9uqcccr9,image-worker-bd6dbfc6b-lwc49,3.512004
+start,1793438007.760,laptop-9uqcccr9,image-worker-bd6dbfc6b-mt8w9,3.524214
+start,1793438007.746,laptop-9uqcccr9,image-worker-bd6dbfc6b-p7r7k,3.485674
+start,1793438007.742,laptop-9uqcccr9,image-worker-bd6dbfc6b-trcbl,3.476424
+end,1793438067.888,laptop-9uqcccr9,image-worker-bd6dbfc6b-lwc49,59.965494
+end,1793438060.350,laptop-9uqcccr9,image-worker-bd6dbfc6b-mt8w9,53.443751
+end,1793438063.503,laptop-9uqcccr9,image-worker-bd6dbfc6b-p7r7k,55.300005
+end,1793438065.197,laptop-9uqcccr9,image-worker-bd6dbfc6b-trcbl,55.852594

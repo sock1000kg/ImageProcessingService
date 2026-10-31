@@ -1,0 +1,7 @@
+timestamp,pod,cpu,memory
+2026-10-31T08:00:11Z,image-worker-575fdd9dd7-5mzf8,775m,1189Mi
+2026-10-31T08:00:11Z,image-worker-575fdd9dd7-5vkj7,757m,1194Mi
+2026-10-31T08:00:11Z,image-worker-575fdd9dd7-xq4ql,735m,1201Mi
+2026-10-31T08:00:17Z,image-worker-575fdd9dd7-5mzf8,775m,1189Mi
+2026-10-31T08:00:17Z,image-worker-575fdd9dd7-5vkj7,757m,1194Mi
+2026-10-31T08:00:17Z,image-worker-575fdd9dd7-xq4ql,735m,1201Mi

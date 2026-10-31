@@ -1,0 +1,368 @@
+{
+  "run_dir": "results/laptop-rtx3050-100/deface/full/20261031-073922-deface-gpu",
+  "tool": "deface",
+  "is_deface": true,
+  "meta": {
+    "tool": "deface",
+    "mode": "deface",
+    "version": "1.5.0",
+    "target_device": "gpu",
+    "execution_provider": "CUDAExecutionProvider",
+    "machine": "laptop-rtx3050",
+    "node_cpu_count": 16,
+    "model_load_time_seconds": 1.36,
+    "total_duration_seconds": 23.5177,
+    "images_count": 100,
+    "dataset": "small",
+    "threshold": 0.05,
+    "scale": "full",
+    "save_detections": true,
+    "start_time": "2026-10-31T07:39:22.664514+00:00",
+    "end_time": "2026-10-31T07:39:47.560029+00:00"
+  },
+  "operating_threshold": 0.2,
+  "metrics": {
+    "face": {
+      "supported": true,
+      "gt_count": 786,
+      "ap50": 0.7122,
+      "operating": {
+        "threshold": 0.2,
+        "tp": 564,
+        "fp": 358,
+        "fn": 222,
+        "precision": 0.6117,
+        "recall": 0.7176,
+        "f1": 0.6604
+      },
+      "best_f1": {
+        "threshold": 0.348,
+        "precision": 0.8662,
+        "recall": 0.6425,
+        "f1": 0.7378
+      },
+      "privacy_recall": 0.8232,
+      "face_sizes": {
+        "tiny": {
+          "count": 299,
+          "recall": 0.4114,
+          "privacy_recall": 0.6355
+        },
+        "small": {
+          "count": 288,
+          "recall": 0.8889,
+          "privacy_recall": 0.941
+        },
+        "medium": {
+          "count": 159,
+          "recall": 0.9119,
+          "privacy_recall": 0.9245
+        },
+        "large": {
+          "count": 40,
+          "recall": 1.0,
+          "privacy_recall": 0.975
+        }
+      },
+      "face_attributes": {
+        "blur: clear": {
+          "attribute": "blur",
+          "value": 0,
+          "name": "clear",
+          "count": 87,
+          "recall": 0.954,
+          "privacy_recall": 0.954
+        },
+        "blur: normal blur": {
+          "attribute": "blur",
+          "value": 1,
+          "name": "normal blur",
+          "count": 217,
+          "recall": 0.9078,
+          "privacy_recall": 0.9217
+        },
+        "blur: heavy blur": {
+          "attribute": "blur",
+          "value": 2,
+          "name": "heavy blur",
+          "count": 482,
+          "recall": 0.5892,
+          "privacy_recall": 0.7552
+        },
+        "expression: typical expression": {
+          "attribute": "expression",
+          "value": 0,
+          "name": "typical expression",
+          "count": 777,
+          "recall": 0.7156,
+          "privacy_recall": 0.8224
+        },
+        "expression: exaggerate expression": {
+          "attribute": "expression",
+          "value": 1,
+          "name": "exaggerate expression",
+          "count": 9,
+          "recall": 0.8889,
+          "privacy_recall": 0.8889
+        },
+        "illumination: normal illumination": {
+          "attribute": "illumination",
+          "value": 0,
+          "name": "normal illumination",
+          "count": 739,
+          "recall": 0.7131,
+          "privacy_recall": 0.8227
+        },
+        "illumination: extreme illumination": {
+          "attribute": "illumination",
+          "value": 1,
+          "name": "extreme illumination",
+          "count": 47,
+          "recall": 0.7872,
+          "privacy_recall": 0.8298
+        },
+        "occlusion: no occlusion": {
+          "attribute": "occlusion",
+          "value": 0,
+          "name": "no occlusion",
+          "count": 493,
+          "recall": 0.8702,
+          "privacy_recall": 0.9229
+        },
+        "occlusion: partial occlusion": {
+          "attribute": "occlusion",
+          "value": 1,
+          "name": "partial occlusion",
+          "count": 108,
+          "recall": 0.5833,
+          "privacy_recall": 0.7407
+        },
+        "occlusion: heavy occlusion": {
+          "attribute": "occlusion",
+          "value": 2,
+          "name": "heavy occlusion",
+          "count": 185,
+          "recall": 0.3892,
+          "privacy_recall": 0.6054
+        },
+        "pose: typical pose": {
+          "attribute": "pose",
+          "value": 0,
+          "name": "typical pose",
+          "count": 753,
+          "recall": 0.7238,
+          "privacy_recall": 0.8274
+        },
+        "pose: atypical pose": {
+          "attribute": "pose",
+          "value": 1,
+          "name": "atypical pose",
+          "count": 33,
+          "recall": 0.5758,
+          "privacy_recall": 0.7273
+        }
+      },
+      "face_sharpness": {
+        "very_blurry": {
+          "label": "Very blurry",
+          "range": "< 25",
+          "count": 473,
+          "recall": 0.5772,
+          "privacy_recall": 0.7421
+        },
+        "blurry": {
+          "label": "Blurry",
+          "range": "25\u2013100",
+          "count": 169,
+          "recall": 0.9053,
+          "privacy_recall": 0.929
+        },
+        "soft": {
+          "label": "Soft",
+          "range": "100\u2013400",
+          "count": 83,
+          "recall": 0.9398,
+          "privacy_recall": 0.9518
+        },
+        "sharp": {
+          "label": "Sharp",
+          "range": "\u2265 400",
+          "count": 61,
+          "recall": 0.9836,
+          "privacy_recall": 0.9836
+        }
+      }
+    },
+    "plate": {
+      "supported": false,
+      "gt_count": 30,
+      "ap50": 0.0,
+      "operating": {
+        "threshold": 0.2,
+        "tp": 0,
+        "fp": 0,
+        "fn": 30,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      "best_f1": {
+        "threshold": 0.2,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      "privacy_recall": 0.0
+    }
+  },
+  "face_sizes": {
+    "tiny": {
+      "count": 299,
+      "recall": 0.4114,
+      "privacy_recall": 0.6355
+    },
+    "small": {
+      "count": 288,
+      "recall": 0.8889,
+      "privacy_recall": 0.941
+    },
+    "medium": {
+      "count": 159,
+      "recall": 0.9119,
+      "privacy_recall": 0.9245
+    },
+    "large": {
+      "count": 40,
+      "recall": 1.0,
+      "privacy_recall": 0.975
+    }
+  },
+  "face_attributes": {
+    "blur: clear": {
+      "attribute": "blur",
+      "value": 0,
+      "name": "clear",
+      "count": 87,
+      "recall": 0.954,
+      "privacy_recall": 0.954
+    },
+    "blur: normal blur": {
+      "attribute": "blur",
+      "value": 1,
+      "name": "normal blur",
+      "count": 217,
+      "recall": 0.9078,
+      "privacy_recall": 0.9217
+    },
+    "blur: heavy blur": {
+      "attribute": "blur",
+      "value": 2,
+      "name": "heavy blur",
+      "count": 482,
+      "recall": 0.5892,
+      "privacy_recall": 0.7552
+    },
+    "expression: typical expression": {
+      "attribute": "expression",
+      "value": 0,
+      "name": "typical expression",
+      "count": 777,
+      "recall": 0.7156,
+      "privacy_recall": 0.8224
+    },
+    "expression: exaggerate expression": {
+      "attribute": "expression",
+      "value": 1,
+      "name": "exaggerate expression",
+      "count": 9,
+      "recall": 0.8889,
+      "privacy_recall": 0.8889
+    },
+    "illumination: normal illumination": {
+      "attribute": "illumination",
+      "value": 0,
+      "name": "normal illumination",
+      "count": 739,
+      "recall": 0.7131,
+      "privacy_recall": 0.8227
+    },
+    "illumination: extreme illumination": {
+      "attribute": "illumination",
+      "value": 1,
+      "name": "extreme illumination",
+      "count": 47,
+      "recall": 0.7872,
+      "privacy_recall": 0.8298
+    },
+    "occlusion: no occlusion": {
+      "attribute": "occlusion",
+      "value": 0,
+      "name": "no occlusion",
+      "count": 493,
+      "recall": 0.8702,
+      "privacy_recall": 0.9229
+    },
+    "occlusion: partial occlusion": {
+      "attribute": "occlusion",
+      "value": 1,
+      "name": "partial occlusion",
+      "count": 108,
+      "recall": 0.5833,
+      "privacy_recall": 0.7407
+    },
+    "occlusion: heavy occlusion": {
+      "attribute": "occlusion",
+      "value": 2,
+      "name": "heavy occlusion",
+      "count": 185,
+      "recall": 0.3892,
+      "privacy_recall": 0.6054
+    },
+    "pose: typical pose": {
+      "attribute": "pose",
+      "value": 0,
+      "name": "typical pose",
+      "count": 753,
+      "recall": 0.7238,
+      "privacy_recall": 0.8274
+    },
+    "pose: atypical pose": {
+      "attribute": "pose",
+      "value": 1,
+      "name": "atypical pose",
+      "count": 33,
+      "recall": 0.5758,
+      "privacy_recall": 0.7273
+    }
+  },
+  "face_sharpness": {
+    "very_blurry": {
+      "label": "Very blurry",
+      "range": "< 25",
+      "count": 473,
+      "recall": 0.5772,
+      "privacy_recall": 0.7421
+    },
+    "blurry": {
+      "label": "Blurry",
+      "range": "25\u2013100",
+      "count": 169,
+      "recall": 0.9053,
+      "privacy_recall": 0.929
+    },
+    "soft": {
+      "label": "Soft",
+      "range": "100\u2013400",
+      "count": 83,
+      "recall": 0.9398,
+      "privacy_recall": 0.9518
+    },
+    "sharp": {
+      "label": "Sharp",
+      "range": "\u2265 400",
+      "count": 61,
+      "recall": 0.9836,
+      "privacy_recall": 0.9836
+    }
+  }
+}

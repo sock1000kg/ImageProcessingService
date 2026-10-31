@@ -1,0 +1,3 @@
+phase,timestamp,node,pod,cpu_seconds
+start,1793436340.222,laptop-9uqcccr9,image-worker-74b6f97dd8-nmj86,6.695052
+end,1793436382.088,laptop-9uqcccr9,image-worker-74b6f97dd8-nmj86,41.633817

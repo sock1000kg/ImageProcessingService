@@ -1,0 +1,17 @@
+timestamp,pod,cpu,memory
+2026-10-31T08:52:43Z,image-worker-74b6f97dd8-49zct,772m,1148Mi
+2026-10-31T08:52:43Z,image-worker-74b6f97dd8-5xmhd,777m,1160Mi
+2026-10-31T08:52:43Z,image-worker-74b6f97dd8-9dp5s,763m,1164Mi
+2026-10-31T08:52:43Z,image-worker-74b6f97dd8-mwdtf,758m,1198Mi
+2026-10-31T08:52:49Z,image-worker-74b6f97dd8-49zct,772m,1148Mi
+2026-10-31T08:52:49Z,image-worker-74b6f97dd8-5xmhd,777m,1160Mi
+2026-10-31T08:52:49Z,image-worker-74b6f97dd8-9dp5s,763m,1164Mi
+2026-10-31T08:52:49Z,image-worker-74b6f97dd8-mwdtf,758m,1198Mi
+2026-10-31T08:52:55Z,image-worker-74b6f97dd8-49zct,749m,1236Mi
+2026-10-31T08:52:55Z,image-worker-74b6f97dd8-5xmhd,706m,1189Mi
+2026-10-31T08:52:55Z,image-worker-74b6f97dd8-9dp5s,755m,1210Mi
+2026-10-31T08:52:55Z,image-worker-74b6f97dd8-mwdtf,686m,1200Mi
+2026-10-31T08:53:01Z,image-worker-74b6f97dd8-49zct,749m,1236Mi
+2026-10-31T08:53:01Z,image-worker-74b6f97dd8-5xmhd,706m,1189Mi
+2026-10-31T08:53:01Z,image-worker-74b6f97dd8-9dp5s,755m,1210Mi
+2026-10-31T08:53:01Z,image-worker-74b6f97dd8-mwdtf,686m,1200Mi

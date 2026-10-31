@@ -1,6 +1,6 @@
 30/10/2026: 
 - 100 images 
-- CPU only node, Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz, 2 cores - 4 threads. 
+- CPU only node: Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz, 2 cores - 4 threads. 
 - Worker limits: 1 CPU, 1536MiBs.
 - Container_image: "socknot1000kg/imgproc-engine:05760356e1420a07e32e9ff0c0296eefb5598187"
 - dataset: 70 WIDER FACE + 30 VN plate images, about 1024px;

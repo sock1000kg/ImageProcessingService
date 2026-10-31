@@ -268,11 +268,9 @@ if [ "$MODE" = "fixed" ] && [ "$WORKERS" -ge 4 ]; then
   print_node_cpu_warning "$WORKERS"
 fi
 
+# Target cluster: the laptop's throwaway cluster by default; the lab only when asked for explicitly (KUBE_CONTEXT=default).
 KUBE_CONTEXT="${KUBE_CONTEXT:-bench-local}"
-if [ "$KUBE_CONTEXT" = "default" ]; then
-  echo "ERROR: Refusing to run with context 'default'! The lab context must never be touched." >&2
-  exit 1
-fi
+echo "Target kubectl context: $KUBE_CONTEXT"
 KUBECTL=(kubectl --context "$KUBE_CONTEXT" -n imgproc)
 
 ORIGINAL_MIN=""

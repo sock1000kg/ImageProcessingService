@@ -557,7 +557,7 @@ verify_worker_imgsz() {
   local found_log=0 t
   for ((t = 0; t < 120 && found_log == 0; t += 3)); do
     for p in $("${KUBECTL[@]}" get pod -l app.kubernetes.io/name=image-worker -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-      if "${KUBECTL[@]}" logs "$p" -c image-worker --tail=200 2>/dev/null | grep -q "input size ${IMGSZ}px"; then
+      if "${KUBECTL[@]}" logs "$p" -c image-worker 2>/dev/null | grep "input size ${IMGSZ}px" >/dev/null; then
         found_log=1
         break
       fi

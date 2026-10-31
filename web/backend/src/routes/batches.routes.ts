@@ -8,6 +8,7 @@ import {
   getBatchHandler,
   getBatchReportHandler,
   startBatchHandler,
+  updateBatchHandler,
 } from "../controllers/batches.controller";
 
 const upload = multer({
@@ -28,5 +29,6 @@ batchesRouter.post(
 batchesRouter.post("/:id/files", upload.single("file"), addBatchFileHandler);
 batchesRouter.post("/:id/start", startBatchHandler);
 batchesRouter.get("/:id", getBatchHandler);
+batchesRouter.patch("/:id", updateBatchHandler);
 batchesRouter.get("/:id/report", getBatchReportHandler);
 batchesRouter.delete("/:id", deleteBatchHandler);

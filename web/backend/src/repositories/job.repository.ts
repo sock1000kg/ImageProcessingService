@@ -3,15 +3,18 @@ import { config } from "../config";
 import { conflict, notFound } from "../errors";
 import { BatchConfig } from "../types";
 import { JobStatus, Prisma } from "../generated/prisma/client";
+import { formatDefaultBatchName } from "../dto";
 
 export async function createDraftBatch(batch: {
   id: string;
+  name: string;
   config: BatchConfig;
   whitelistKeys: string[];
 }) {
   return prisma.batch.create({
     data: {
       id: batch.id,
+      name: batch.name,
       config: batch.config as unknown as Prisma.InputJsonValue,
       whitelistKeys: batch.whitelistKeys,
       startedAt: null,
@@ -85,6 +88,7 @@ export async function getPendingJobsByBatchId(batchId: string) {
 export async function insertBatchAndJobs(
   batch: {
     id: string;
+    name?: string;
     config: BatchConfig;
     whitelistKeys: string[];
   },
@@ -99,6 +103,7 @@ export async function insertBatchAndJobs(
     await tx.batch.create({
       data: {
         id: batch.id,
+        name: batch.name ?? formatDefaultBatchName(),
         // Prisma InputJsonValue requires casting for structured JSON fields
         config: batch.config as unknown as Prisma.InputJsonValue,
         whitelistKeys: batch.whitelistKeys,
@@ -195,6 +200,13 @@ export async function deleteBatchRow(id: string): Promise<boolean> {
     where: { id },
   });
   return result.count > 0;
+}
+
+export async function updateBatchName(id: string, name: string) {
+  return prisma.batch.update({
+    where: { id },
+    data: { name },
+  });
 }
 
 export async function updateJobState(

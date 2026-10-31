@@ -16,6 +16,7 @@ import {
   insertRetryJob,
   markBatchWhitelistDeleted,
   setBatchStarted,
+  updateBatchName,
   updateJobQueued,
   updateJobState,
 } from "../repositories/job.repository";
@@ -30,10 +31,12 @@ import {
   resolveOutputExtension,
 } from "../domain";
 import {
+  batchNameSchema,
   BatchResponseDTO,
   JobResponseDTO,
   parseBatchConfig,
   parseBatchConfigJson,
+  parseBatchName,
   ReportResponseDTO,
   toBatchResponse,
   toJobResponse,
@@ -49,12 +52,14 @@ export async function createDraftBatch(options: {
   whitelist?: Express.Multer.File[];
   rawConfig?: unknown;
   filesPresent?: boolean;
+  name?: unknown;
 }): Promise<BatchResponseDTO> {
-  const { whitelist = [], rawConfig, filesPresent = false } = options;
+  const { whitelist = [], rawConfig, filesPresent = false, name } = options;
 
   validateBatchCreation({ filesPresent, whitelist });
 
   const batchConfig: BatchConfig = parseBatchConfigJson(rawConfig);
+  const validatedName = parseBatchName(name);
   const batchId = randomUUID();
 
   const whitelistKeys: string[] = [];
@@ -69,6 +74,7 @@ export async function createDraftBatch(options: {
 
     const createdBatch = await createDraftBatchRepository({
       id: batchId,
+      name: validatedName,
       config: batchConfig,
       whitelistKeys,
     });
@@ -176,6 +182,17 @@ export async function getBatchById(id: string): Promise<BatchResponseDTO | null>
   if (!batch) return null;
   const jobs = await getJobsByBatchId(id);
   return toBatchResponse(batch, jobs);
+}
+
+export async function renameBatch(id: string, rawName: string): Promise<BatchResponseDTO> {
+  const batch = await getBatch(id);
+  if (!batch) {
+    throw notFound("Batch not found");
+  }
+  const name = batchNameSchema.parse(rawName);
+  const updated = await updateBatchName(id, name);
+  const jobs = await getJobsByBatchId(id);
+  return toBatchResponse(updated, jobs);
 }
 
 export async function getBatchReportById(id: string): Promise<ReportResponseDTO | null> {

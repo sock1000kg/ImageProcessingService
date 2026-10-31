@@ -5,10 +5,11 @@ import {
   deleteBatchById,
   getBatchById,
   getBatchReportById,
+  renameBatch,
   startBatch,
 } from "../services/batch.service";
 import { notFound } from "../errors";
-import { validateIdParam } from "../dto";
+import { patchBatchBodySchema, validateIdParam } from "../dto";
 
 export async function createBatchHandler(
   request: Request,
@@ -25,6 +26,7 @@ export async function createBatchHandler(
       whitelist,
       rawConfig: request.body.config,
       filesPresent,
+      name: request.body.name,
     });
 
     response.status(201).json({ batch });
@@ -73,6 +75,21 @@ export async function getBatchHandler(
       throw notFound("Batch not found");
     }
     response.json({ batch });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateBatchHandler(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const id = validateIdParam(request.params);
+    const body = patchBatchBodySchema.parse(request.body);
+    const batch = await renameBatch(id, body.name);
+    response.status(200).json({ batch });
   } catch (error) {
     next(error);
   }

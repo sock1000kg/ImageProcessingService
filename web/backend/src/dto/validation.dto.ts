@@ -10,6 +10,52 @@ export function validateIdParam(params: unknown): string {
   return idParamSchema.parse(params).id;
 }
 
+export const CONTROL_CHAR_REGEX = /[\u0000-\u001F\u007F-\u009F]/;
+
+export function formatDefaultBatchName(date: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const year = date.getUTCFullYear();
+  const month = pad(date.getUTCMonth() + 1);
+  const day = pad(date.getUTCDate());
+  const hours = pad(date.getUTCHours());
+  const minutes = pad(date.getUTCMinutes());
+  return `Batch ${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+export const batchNameSchema = z
+  .string()
+  .superRefine((val, ctx) => {
+    if (CONTROL_CHAR_REGEX.test(val)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Batch name must not contain control characters",
+      });
+    }
+  })
+  .transform((val) => {
+    const trimmed = val.trim();
+    if (trimmed.length === 0) {
+      return formatDefaultBatchName();
+    }
+    return trimmed;
+  })
+  .refine((val) => val.length <= 100, {
+    message: "Batch name must be at most 100 characters",
+  });
+
+export function parseBatchName(input?: unknown): string {
+  if (input === undefined || input === null) {
+    return formatDefaultBatchName();
+  }
+  return batchNameSchema.parse(input);
+}
+
+export const patchBatchBodySchema = z
+  .object({
+    name: batchNameSchema,
+  })
+  .strict();
+
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 export function validateBatchCreation(options: {

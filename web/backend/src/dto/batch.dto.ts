@@ -60,6 +60,7 @@ export type ReviewReason =
 
 export interface BatchResponseDTO {
   id: string;
+  name: string;
   status: string;
   config: BatchConfig;
   whitelistKeys: string[];
@@ -117,6 +118,7 @@ export interface ReportLowConfidenceDetectionDTO extends ReportDetectionDTO {
 
 export interface ReportResponseDTO {
   batchId: string;
+  batchName: string;
   status: string;
   totals: ReportTotalsDTO;
   images: ReportImageDTO[];
@@ -167,6 +169,7 @@ export function toBatchResponse(batch: PrismaBatch, jobs: PrismaJob[]): BatchRes
   const configParsed = parseBatchConfig(batch.config);
   return {
     id: batch.id,
+    name: batch.name,
     status: deriveBatchStatus(jobs.map((j) => j.status), batch.startedAt),
     config: configParsed,
     whitelistKeys: batch.whitelistKeys,
@@ -267,6 +270,7 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
 
   return {
     batchId: batch.id,
+    batchName: batch.name,
     status: deriveBatchStatus(jobs.map((j) => j.status), batch.startedAt),
     totals: {
       images,

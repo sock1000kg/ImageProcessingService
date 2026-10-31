@@ -1071,4 +1071,25 @@ echo "Run finished. Results saved to $OUT_DIR."
 if [ -f "$SCRIPT_DIR/summarize.py" ]; then
   echo "Generating summary..."
   python3 "$SCRIPT_DIR/summarize.py" "$OUT_DIR"
+  # Rebuild the folder's comparison.md from every finished run in it (not just this one), plus the set's shared deface runs
+  # when this is an <imgsz>px folder. Other runs' summary.md files are left as they are.
+  run_parent="$(dirname "$OUT_DIR")"
+  sibling_runs=()
+  for d in "$run_parent"/*/; do
+    [ -f "$d/meta.json" ] && [ -f "$d/summary.md" ] && sibling_runs+=("${d%/}")
+  done
+  deface_runs=()
+  if [[ "$(basename "$run_parent")" == *px ]]; then
+    for d in "$(dirname "$run_parent")"/deface/*/*/; do
+      [ -f "$d/meta.json" ] && deface_runs+=("${d%/}")
+    done
+  fi
+  if [ "${#sibling_runs[@]}" -gt 1 ] || [ "${#deface_runs[@]}" -gt 0 ]; then
+    if [ "${#deface_runs[@]}" -gt 0 ]; then
+      python3 "$SCRIPT_DIR/summarize.py" "${sibling_runs[@]}" --deface "${deface_runs[@]}" --table-only >/dev/null
+    else
+      python3 "$SCRIPT_DIR/summarize.py" "${sibling_runs[@]}" --table-only >/dev/null
+    fi
+    echo "Updated $run_parent/comparison.md (${#sibling_runs[@]} runs, ${#deface_runs[@]} deface)."
+  fi
 fi

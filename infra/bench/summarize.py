@@ -750,7 +750,7 @@ def norm_dataset(ds: Any) -> str:
 def main() -> None:
     if len(sys.argv) < 2:
         print(
-            "Usage: python3 summarize.py <results_dir_or_machine_folder> [<results_dir> ...] [--deface <dir> ...] [--out <path>]",
+            "Usage: python3 summarize.py <results_dir_or_machine_folder> [<results_dir> ...] [--deface <dir> ...] [--out <path>] [--table-only]",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -758,6 +758,8 @@ def main() -> None:
     main_inputs: List[str] = []
     deface_inputs: List[str] = []
     out_override: Optional[str] = None
+    # --table-only: rebuild only the combined comparison.md, never rewrite the runs' own summary.md
+    table_only = False
     i = 1
     while i < len(sys.argv):
         arg = sys.argv[i]
@@ -766,6 +768,10 @@ def main() -> None:
             while i < len(sys.argv) and not sys.argv[i].startswith("--"):
                 deface_inputs.append(sys.argv[i])
                 i += 1
+            continue
+        elif arg == "--table-only":
+            table_only = True
+            i += 1
             continue
         elif arg == "--out":
             i += 1
@@ -786,9 +792,10 @@ def main() -> None:
     all_data = []
     for d in dirs:
         data = analyze_dir(d)
-        write_single_summary(data)
+        if not table_only:
+            write_single_summary(data)
+            print(f"Generated summary: {os.path.join(d, 'summary.md')}")
         all_data.append(data)
-        print(f"Generated summary: {os.path.join(d, 'summary.md')}")
 
     if deface_inputs:
         deface_dirs, _ = resolve_run_dirs(deface_inputs)
@@ -806,9 +813,10 @@ def main() -> None:
                 sys.exit(
                     f"ERROR: Dataset mismatch: main runs are dataset '{main_ds}', but deface run '{d}' has dataset '{d_ds}'"
                 )
-            write_single_summary(d_data)
+            if not table_only:
+                write_single_summary(d_data)
+                print(f"Generated summary (deface): {os.path.join(d, 'summary.md')}")
             all_data.append(d_data)
-            print(f"Generated summary (deface): {os.path.join(d, 'summary.md')}")
 
     combined = format_combined_table(all_data)
     print("\n" + combined + "\n")

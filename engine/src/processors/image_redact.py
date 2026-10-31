@@ -8,7 +8,6 @@ import numpy as np
 import cv2
 from PIL import Image
 
-from ..config import settings
 from .base import BaseProcessor
 
 logger = logging.getLogger(__name__)

@@ -10,6 +10,16 @@ import {
   MAX_BATCH_FILES,
   MAX_FILE_BYTES,
   validateImageFiles,
+  getFileRejectionReason,
+  formatFileRejection,
+  formatValidationTitle,
+  classifyDrop,
+  walkDirectory,
+  walkEntries,
+  isFolderFile,
+  WebkitDirectoryEntry,
+  WebkitFileEntry,
+  WebkitEntry,
 } from "../src/components/file-selection";
 
 function makeFile(name: string, relativePath: string, type = "", size = 1000): File {
@@ -195,7 +205,7 @@ describe("Folder Summary formatting (formatFolderSummary)", () => {
     const summary = formatFolderSummary(result);
 
     expect(summary).toBe(
-      "Folder photos: 1 images selected, 0 skipped (0 unsupported, 0 hidden), 2 too large: big1.png, big2.jpg",
+      "Folder photos: 1 images selected, 0 skipped (0 unsupported, 0 hidden), 2 over the 50 MB limit: big1.png, big2.jpg",
     );
   });
 
@@ -210,7 +220,7 @@ describe("Folder Summary formatting (formatFolderSummary)", () => {
     const summary = formatFolderSummary(result);
 
     expect(summary).toBe(
-      "Folder data: 1 images selected, 0 skipped (0 unsupported, 0 hidden), 7 too large: large_1.png, large_2.png, large_3.png, large_4.png, large_5.png, +2 more",
+      "Folder data: 1 images selected, 0 skipped (0 unsupported, 0 hidden), 7 over the 50 MB limit: large_1.png, large_2.png, large_3.png, large_4.png, large_5.png, +2 more",
     );
   });
 });
@@ -261,5 +271,271 @@ describe("Limit Rules (Acceptance criteria: 100 accepted, 101 rejected whole)", 
     );
     const issues = validateImageFiles(files);
     expect(issues).toHaveLength(0);
+  });
+});
+
+describe("Step 2 & 4: Rejection reason builder", () => {
+  it("formats non-image file (.txt) with accepted formats", () => {
+    const file = makeFile("notes.txt", "notes.txt", "text/plain");
+    const reason = getFileRejectionReason(file);
+    expect(reason).toBe("not an image (.txt); only JPG, PNG and WEBP are accepted");
+    expect(formatFileRejection(file)).toBe("notes.txt — not an image (.txt); only JPG, PNG and WEBP are accepted");
+  });
+
+  it("formats relative path correctly in formatFileRejection", () => {
+    const file = makeFile("notes.txt", "holiday/sub/notes.txt", "text/plain");
+    expect(formatFileRejection(file)).toBe("holiday/sub/notes.txt — not an image (.txt); only JPG, PNG and WEBP are accepted");
+  });
+
+  it("formats unsupported image type (image/tiff)", () => {
+    const fileWithMime = makeFile("scan.tiff", "scan.tiff", "image/tiff");
+    expect(getFileRejectionReason(fileWithMime)).toBe("unsupported image type (image/tiff)");
+    expect(formatFileRejection(fileWithMime)).toBe("scan.tiff — unsupported image type (image/tiff)");
+
+    const fileWithoutMime = makeFile("scan.tiff", "scan.tiff", "");
+    expect(getFileRejectionReason(fileWithoutMime)).toBe("unsupported image type (image/tiff)");
+  });
+
+  it("formats file exceeding limit (e.g. 63 MB over 50 MB limit)", () => {
+    const size63Mb = 63 * 1024 * 1024;
+    const file = makeFile("big.jpg", "big.jpg", "image/jpeg", size63Mb);
+    expect(getFileRejectionReason(file)).toBe("63 MB, over the 50 MB limit");
+    expect(formatFileRejection(file)).toBe("big.jpg — 63 MB, over the 50 MB limit");
+
+    // Honest formatting for fractional sizes, e.g. 50.4 MB
+    const size50_4Mb = Math.round(50.4 * 1024 * 1024);
+    const file50_4 = makeFile("edge.jpg", "edge.jpg", "image/jpeg", size50_4Mb);
+    expect(getFileRejectionReason(file50_4)).toBe("50.4 MB, over the 50 MB limit");
+  });
+
+  it("formats dropped folder as 'is a folder: use Choose folder'", () => {
+    const folderFile = makeFile("images", "images", "", 4096);
+    expect(getFileRejectionReason(folderFile, true)).toBe("is a folder: use Choose folder");
+    expect(formatFileRejection(folderFile, true)).toBe("images — is a folder: use Choose folder");
+
+    // Also with isFolder property on file
+    Object.defineProperty(folderFile, "isFolder", { value: true, configurable: true });
+    expect(getFileRejectionReason(folderFile)).toBe("is a folder: use Choose folder");
+    expect(formatFileRejection(folderFile)).toBe("images — is a folder: use Choose folder");
+  });
+
+  it("formats file with no extension and no type", () => {
+    const noExt = makeFile("unknown_file", "unknown_file", "");
+    expect(getFileRejectionReason(noExt)).toBe("not an image (no file extension); only JPG, PNG and WEBP are accepted");
+    expect(formatFileRejection(noExt)).toBe("unknown_file — not an image (no file extension); only JPG, PNG and WEBP are accepted");
+  });
+
+  it("formats validation summary title with correct singular/plural", () => {
+    expect(formatValidationTitle(1)).toBe("1 file was not added");
+    expect(formatValidationTitle(2)).toBe("2 files were not added");
+    expect(formatValidationTitle(10)).toBe("10 files were not added");
+  });
+});
+
+describe("Step 1 & 4: Classification of a drop", () => {
+  it("classifies exactly one folder as single-folder", () => {
+    const dirEntry: WebkitDirectoryEntry = {
+      name: "vacation",
+      isDirectory: true,
+      isFile: false,
+      createReader: () => ({ readEntries: () => {} }),
+    };
+    const result = classifyDrop([dirEntry]);
+    expect(result.kind).toBe("single-folder");
+    expect(result.folderEntry).toBe(dirEntry);
+  });
+
+  it("classifies files only as files-only", () => {
+    const file1: WebkitFileEntry = {
+      name: "a.jpg",
+      isDirectory: false,
+      isFile: true,
+      file: () => {},
+    };
+    const file2: WebkitFileEntry = {
+      name: "b.png",
+      isDirectory: false,
+      isFile: true,
+      file: () => {},
+    };
+    const result = classifyDrop([file1, file2]);
+    expect(result.kind).toBe("files-only");
+    expect(result.fileEntries).toEqual([file1, file2]);
+  });
+
+  it("classifies mix of loose images and a folder as mixed", () => {
+    const file: WebkitFileEntry = {
+      name: "a.jpg",
+      isDirectory: false,
+      isFile: true,
+      file: () => {},
+    };
+    const dir: WebkitDirectoryEntry = {
+      name: "photos",
+      isDirectory: true,
+      isFile: false,
+      createReader: () => ({ readEntries: () => {} }),
+    };
+    const result = classifyDrop([file, dir]);
+    expect(result.kind).toBe("mixed");
+  });
+
+  it("classifies multiple folders as mixed", () => {
+    const dir1: WebkitDirectoryEntry = {
+      name: "folder1",
+      isDirectory: true,
+      isFile: false,
+      createReader: () => ({ readEntries: () => {} }),
+    };
+    const dir2: WebkitDirectoryEntry = {
+      name: "folder2",
+      isDirectory: true,
+      isFile: false,
+      createReader: () => ({ readEntries: () => {} }),
+    };
+    const result = classifyDrop([dir1, dir2]);
+    expect(result.kind).toBe("mixed");
+  });
+});
+
+describe("Step 1 & 4: Directory walker with mocked FileSystemDirectoryEntry/readEntries", () => {
+  it("walks directories recursively with nested folders, readEntries in two chunks, and relative paths", async () => {
+    // Structure:
+    // root/
+    //   chunk1_file.jpg
+    //   chunk2_file.png
+    //   sub/
+    //     nested.webp
+
+    function createMockFileEntry(name: string, size = 100): WebkitFileEntry {
+      return {
+        name,
+        isFile: true,
+        isDirectory: false,
+        file: (success) => {
+          const file = new File([new Uint8Array(size)], name, { type: "image/jpeg" });
+          success(file);
+        },
+      };
+    }
+
+    const nestedFileEntry = createMockFileEntry("nested.webp");
+    const subDirEntry: WebkitDirectoryEntry = {
+      name: "sub",
+      isFile: false,
+      isDirectory: true,
+      createReader: () => {
+        let readCount = 0;
+        return {
+          readEntries: (success) => {
+            readCount++;
+            if (readCount === 1) {
+              success([nestedFileEntry]);
+            } else {
+              success([]);
+            }
+          },
+        };
+      },
+    };
+
+    const chunk1Entry = createMockFileEntry("chunk1_file.jpg");
+    const chunk2Entry = createMockFileEntry("chunk2_file.png");
+
+    const rootDirEntry: WebkitDirectoryEntry = {
+      name: "root",
+      isFile: false,
+      isDirectory: true,
+      createReader: () => {
+        let chunk = 0;
+        return {
+          readEntries: (success) => {
+            chunk++;
+            if (chunk === 1) {
+              // First chunk: chunk1Entry, subDirEntry
+              success([chunk1Entry, subDirEntry]);
+            } else if (chunk === 2) {
+              // Second chunk: chunk2Entry
+              success([chunk2Entry]);
+            } else {
+              // Finished
+              success([]);
+            }
+          },
+        };
+      },
+    };
+
+    const files = await walkDirectory(rootDirEntry, "root");
+
+    expect(files).toHaveLength(3);
+    expect(files.map((f) => f.name)).toEqual(["chunk1_file.jpg", "nested.webp", "chunk2_file.png"]);
+    expect(files.map((f) => (f as any).webkitRelativePath)).toEqual([
+      "root/chunk1_file.jpg",
+      "root/sub/nested.webp",
+      "root/chunk2_file.png",
+    ]);
+  });
+
+  it("handles unreadable/vanished files gracefully during directory walking", async () => {
+    const brokenEntry: WebkitFileEntry = {
+      name: "vanished.jpg",
+      isFile: true,
+      isDirectory: false,
+      file: (_success, error) => {
+        if (error) error(new Error("File vanished or permission denied"));
+      },
+    };
+
+    let called = false;
+    const dirEntry: WebkitDirectoryEntry = {
+      name: "faulty",
+      isFile: false,
+      isDirectory: true,
+      createReader: () => ({
+        readEntries: (success) => {
+          if (!called) {
+            called = true;
+            success([brokenEntry]);
+          } else {
+            success([]);
+          }
+        },
+      }),
+    };
+
+    const files = await walkDirectory(dirEntry, "faulty");
+    expect(files).toHaveLength(1);
+    expect(files[0].name).toBe("vanished.jpg");
+    expect((files[0] as any).errorReason).toContain("Could not read file");
+
+    const issues = validateImageFiles(files);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].reason).toContain("Could not read file");
+  });
+});
+
+describe("Step 1: Fallback folder detection via isFolderFile", () => {
+  it("detects a folder entry when type is empty and slice().arrayBuffer() rejects", async () => {
+    const folderFile = new File([new Uint8Array(0)], "images", { type: "" });
+    // Mock slice().arrayBuffer() to reject
+    folderFile.slice = () => ({
+      arrayBuffer: () => Promise.reject(new Error("Cannot read folder")),
+    } as any);
+
+    const isFolder = await isFolderFile(folderFile);
+    expect(isFolder).toBe(true);
+  });
+
+  it("does not detect a regular file with empty type as a folder if arrayBuffer succeeds", async () => {
+    const regularFile = new File([new Uint8Array(10)], "file_no_type", { type: "" });
+    const isFolder = await isFolderFile(regularFile);
+    expect(isFolder).toBe(false);
+  });
+
+  it("does not detect a file with non-empty type as a folder", async () => {
+    const regularFile = new File([new Uint8Array(10)], "photo.jpg", { type: "image/jpeg" });
+    const isFolder = await isFolderFile(regularFile);
+    expect(isFolder).toBe(false);
   });
 });

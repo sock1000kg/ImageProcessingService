@@ -3,6 +3,7 @@ import { FileDropzone } from "./FileDropzone";
 import { FilePreviewList } from "./FilePreviewList";
 import { PreviewCanvas } from "./PreviewCanvas";
 import { RedactionConfigForm, FormConfig } from "./RedactionConfigForm";
+import { RejectedFilesNotice } from "./RejectedFilesNotice";
 import { WhitelistUploader } from "./WhitelistUploader";
 import {
   FileSelectionIssue,
@@ -196,14 +197,7 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
         </div>
         <FileDropzone files={files} errors={fileErrors} onFiles={addFiles} onFolderFiles={handleFolderFiles} />
         {folderSummary && <p className="folder-selection">{folderSummary}</p>}
-        {rejectedFiles.length > 0 && (
-          <div className="validation-summary" role="status">
-            <strong>{rejectedFiles.length} file(s) were not added</strong>
-            {rejectedFiles.map((issue, index) => (
-              <span key={`${getFileIdentity(issue.file)}-${index}`}>{issue.file.name}: {issue.reason}</span>
-            ))}
-          </div>
-        )}
+        <RejectedFilesNotice issues={rejectedFiles} onDismiss={() => setRejectedFiles([])} />
         <FilePreviewList files={files} errors={fileErrors} onRemove={handleRemoveFile} />
         <WhitelistUploader files={whitelist} onChange={setWhitelist} />
       </div>

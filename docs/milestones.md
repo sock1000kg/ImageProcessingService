@@ -1,5 +1,5 @@
 # Milestones
-File này chia các lượt công việc và theo dõi tiến độ. Đề tài: `docs/report-material/de-tai.md`. Contract: `docs/integration-contracts.md`.
+File này chia các lượt công việc và theo dõi tiến độ. Contract: `docs/integration-contracts.md`.
 Kế hoạch chi tiết từng team: `web/docs/plan.md`, `engine/docs/plan.md`, `infra/AGENTS.md`.
 
 ## Phase 1: Ẩn danh hoá bộ ảnh (24/10 → 15/11)

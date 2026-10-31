@@ -18,7 +18,7 @@
   * **Phạm Tất Đạt (Infra):** Phụ trách `infra/` (Kubernetes, KEDA autoscaling, NATS JetStream, MinIO S3, PostgreSQL, CI/CD).
 * **Nguồn sự thật chung (Single Source of Truth):**
   * Hợp đồng tích hợp toàn hệ thống: `docs/integration-contracts.md`
-  * Bản mô tả đề tài & bối cảnh chi tiết: `docs/report-material/de-tai.md` và `engine/Cloud-Native Privacy Service.pdf`
+  * Bản mô tả đề tài & bối cảnh chi tiết: `engine/Cloud-Native Privacy Service.pdf`
   * Tiến độ và kế hoạch của Engine: `engine/docs/plan.md`
 
 ---
@@ -125,4 +125,3 @@ Hệ thống tập trung vào 2 tác vụ chính, bám sát `docs/integration-co
 * **Đặc tả chi tiết Job commands & Kết quả:** [`engine/docs/jobs-spec.md`](jobs-spec.md)
 * **Quy ước bắt tay Backend — Engine:** [`engine/docs/backend-handshake.md`](backend-handshake.md)
 * **Hướng dẫn chạy & test trên máy local:** [`engine/docs/local-dev.md`](local-dev.md)
-* **Bản mô tả đề tài tổng quan:** [`docs/report-material/de-tai.md`](../../docs/report-material/de-tai.md)

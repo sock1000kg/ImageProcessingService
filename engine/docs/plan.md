@@ -1,6 +1,6 @@
 # Kế hoạch Engine (Workers): Cloud-Native Privacy Service
 
-Đề tài: `docs/report-material/de-tai.md`. Contract (nguồn sự thật): `docs/integration-contracts.md`. Tiến độ chung: `docs/milestones.md`.
+Contract (nguồn sự thật): `docs/integration-contracts.md`. Tiến độ chung: `docs/milestones.md`.
 Ký hiệu trong task:
 - **[Cần Web]**: phải thống nhất với anh Đức Huy.
 - **[Cần Infra]**: nhờ Đạt.

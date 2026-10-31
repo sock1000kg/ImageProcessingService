@@ -1,6 +1,6 @@
 # Integration Contracts
 
-Tài liệu này định nghĩa giao tiếp giữa Web, Engine và Infrastructure của **Cloud-Native Privacy Service**: dịch vụ tự động phát hiện và che khuôn mặt, biển số trong ảnh/video (đề tài: `docs/report-material/de-tai.md`).
+Tài liệu này định nghĩa giao tiếp giữa Web, Engine và Infrastructure của **Cloud-Native Privacy Service**: dịch vụ tự động phát hiện và che khuôn mặt, biển số trong ảnh/video.
 
 ```text
 NATS JetStream

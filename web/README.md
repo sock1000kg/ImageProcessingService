@@ -212,11 +212,12 @@ The Engine must have its Python environment, model weights, and configuration re
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/api/batches` | Create draft batch: `whitelist` (0..5), `config` JSON string. Returns 201 `{ batch }` (`DRAFT`) |
+| `POST` | `/api/batches` | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`) |
 | `POST` | `/api/batches/:id/files` | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`) |
 | `POST` | `/api/batches/:id/start` | Start batch processing for pending jobs. Returns 202 `{ batch }` |
-| `GET` | `/api/batches/:id` | Batch details and jobs |
-| `GET` | `/api/batches/:id/report` | Batch report with totals, review images/reasons, and detections when provided by Engine |
+| `GET` | `/api/batches/:id` | Batch details and jobs (includes `name`) |
+| `PATCH` | `/api/batches/:id` | Rename batch with JSON `{ name }`. Returns 200 `{ batch }` |
+| `GET` | `/api/batches/:id/report` | Batch report with totals, review images/reasons, `batchName`, and detections when provided by Engine |
 | `DELETE` | `/api/batches/:id` | Delete the batch and its `uploads`/`results` objects |
 | `GET` | `/api/jobs/:id` | Job status and details |
 | `POST` | `/api/jobs/:id/retry` | Retry a `FAILED` job with a new job ID and output key |
@@ -231,10 +232,11 @@ Batch creation and image processing use a three-step flow:
 
 1. **`POST /api/batches`** (Create draft batch)
    - **Request**: Multipart form data with:
+     - `name`: optional batch name (1–100 characters after trimming, no control characters). When omitted or empty, the server sets a default name formatted as `Batch <YYYY-MM-DD HH:mm>` in UTC. Values exceeding 100 characters or containing control characters return `400 VALIDATION_ERROR`.
      - `config`: serialized JSON string with redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `confidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
      - `whitelist`: optional 0 to 5 face reference images (JPG, PNG, WEBP, up to `UPLOAD_MAX_BYTES`).
      - Note: `files` field is **not allowed**; sending it returns `400 BAD_REQUEST` with a message pointing to `/api/batches/:id/files`.
-   - **Response**: `201 Created` with `{ batch }` in status `"DRAFT"`.
+   - **Response**: `201 Created` with `{ batch }` in status `"DRAFT"` (includes `name`).
    - **Errors**: `400 BAD_REQUEST` / `VALIDATION_ERROR`, `413 FILE_TOO_LARGE`.
 
 2. **`POST /api/batches/:id/files`** (Upload individual file)
@@ -257,6 +259,18 @@ Batch creation and image processing use a three-step flow:
      - `400 BATCH_EMPTY`: batch has 0 jobs.
      - `404 NOT_FOUND`: batch does not exist.
      - `503 SERVICE_UNAVAILABLE`: NATS job queue unavailable; previously queued jobs remain `QUEUED`.
+
+4. **`PATCH /api/batches/:id`** (Rename batch)
+   - **Request**: JSON body with `{ name }` (required):
+     - `name`: 1–100 characters after trimming, no control characters. An empty or whitespace-only string resets the name to server default `Batch <YYYY-MM-DD HH:mm>` (UTC).
+     - Strict schema: unknown properties in the JSON body return `400 VALIDATION_ERROR`.
+   - **Behavior**: Renames the batch in PostgreSQL and returns the updated batch representation. Works across all batch states (`DRAFT`, `PROCESSING`, `COMPLETED`, `PARTIAL`).
+   - **Response**: `200 OK` with `{ batch }` containing the updated `name`.
+   - **Errors**:
+     - `400 VALIDATION_ERROR`: missing `name`, name exceeding 100 characters, control characters present, or unknown keys in request body.
+     - `404 NOT_FOUND`: batch does not exist.
+
+Every batch response (`BatchResponseDTO`) includes `name: string`. The batch report (`ReportResponseDTO` from `GET /api/batches/:id/report`) includes `batchName: string`.
 
 `BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 100). Draft batches older than 24h are deleted by the periodic cleanup task. Whitelist reference images for draft batches are never removed prior to batch completion.
 

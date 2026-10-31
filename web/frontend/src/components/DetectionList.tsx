@@ -2,47 +2,94 @@
  * Detailed detection inspector listing individual bounding boxes, confidence scores, and review flags.
  */
 import { Detection } from "../types";
+import { StatusBadge } from "./ui/StatusBadge";
 
 export interface DetectionListProps {
   detections: Detection[];
+  hasWhitelist?: boolean;
+  hoveredIndex?: number | null;
+  onHoverDetection?: (index: number | null) => void;
 }
 
 /**
- * Renders detection rows with bounding boxes and model telemetry for the selected image.
+ * Normalises raw model label strings into readable human titles.
  */
-export function DetectionList({ detections }: DetectionListProps) {
+export function formatDetectionLabel(label: string | null): string {
+  if (!label) return "Unknown";
+  const lower = label.trim().toLowerCase();
+  if (lower === "face") return "Face";
+  if (lower === "plate") return "Licence plate";
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/**
+ * Formats detection action and biometric whitelist match status in words.
+ */
+export function formatDetectionStatus(detection: Detection): string {
+  if (detection.whitelisted) {
+    if (detection.whitelistRef !== null && detection.whitelistRef !== undefined) {
+      return `Kept (whitelist person #${detection.whitelistRef + 1})`;
+    }
+    return "Kept (whitelisted)";
+  }
+  if (detection.redacted) {
+    return "Redacted";
+  }
+  return "Kept";
+}
+
+/**
+ * Renders human-readable detection rows with status badges and model telemetry for the selected image.
+ */
+export function DetectionList({
+  detections,
+  hasWhitelist = false,
+  hoveredIndex = null,
+  onHoverDetection,
+}: DetectionListProps) {
   if (!detections.length) {
     return <div className="empty-inline">No detection details were returned for this image.</div>;
   }
 
   return (
-    <div className="detection-list">
+    <div className="detection-list scroll-list">
       {detections.map((detection, index) => {
-        const hasWarning = detection.reviewReasons.length > 0;
-        const rowClass = `detection-row ${hasWarning ? "warning-row" : ""}`.trim();
+        const isFlagged =
+          Boolean(detection.needsReview) ||
+          Boolean(detection.lowConfidence) ||
+          (detection.reviewReasons && detection.reviewReasons.length > 0);
+        const isHovered = hoveredIndex === index;
+        const rowClass = `detection-row ${isFlagged ? "warning-row" : ""} ${isHovered ? "active-row" : ""}`.trim();
         const confText = detection.confidence === null ? "—" : `${Math.round(detection.confidence * 100)}%`;
-        const redactedText = detection.redacted === null ? "—" : detection.redacted ? "yes" : "no";
-        const whitelistedText = detection.whitelisted === null ? "—" : detection.whitelisted ? "yes" : "no";
-        const similarityText = detection.similarity === null ? "—" : detection.similarity.toFixed(2);
-        const refText = detection.whitelistRef === null ? "—" : String(detection.whitelistRef);
+        const labelInWords = formatDetectionLabel(detection.label);
+        const statusText = formatDetectionStatus(detection);
+        const reviewNotesText =
+          detection.reviewNotes && detection.reviewNotes.length > 0
+            ? detection.reviewNotes.join(" · ")
+            : detection.reviewReasons && detection.reviewReasons.length > 0
+              ? detection.reviewReasons.join(" · ")
+              : null;
 
         return (
-          <div className={rowClass} key={`${detection.label}-${index}`}>
-            <div>
-              <strong>{detection.label ?? "Unknown"}</strong>
-              <small>{detection.box ? `Box: [${detection.box.join(", ")}]` : "Box unavailable"}</small>
-              <small>
-                {detection.reviewReasons.length > 0 ? detection.reviewReasons.join(" · ") : "No review flags"}
-              </small>
+          <div
+            className={rowClass}
+            key={`${detection.label}-${index}`}
+            tabIndex={0}
+            onMouseEnter={() => onHoverDetection?.(index)}
+            onMouseLeave={() => onHoverDetection?.(null)}
+            onFocus={() => onHoverDetection?.(index)}
+            onBlur={() => onHoverDetection?.(null)}
+          >
+            <div className="detection-main">
+              <span className="detection-summary">
+                #{index + 1} {labelInWords} {confText} {statusText}
+              </span>
+              {hasWhitelist && typeof detection.similarity === "number" && (
+                <span className="detection-similarity">Similarity {detection.similarity.toFixed(2)}</span>
+              )}
+              {reviewNotesText && <small className="detection-notes">{reviewNotesText}</small>}
             </div>
-            <span>Confidence {confText}</span>
-            <span>Redacted {redactedText}</span>
-            <span>Whitelisted {whitelistedText}</span>
-            <span>Similarity {similarityText}</span>
-            <span>Whitelist ref {refText}</span>
-            <span>lowConfidence {detection.lowConfidence === null ? "—" : String(detection.lowConfidence)}</span>
-            <span>needsReview {detection.needsReview === null ? "—" : String(detection.needsReview)}</span>
-            {hasWarning && <span className="warning-text">Needs review</span>}
+            {isFlagged && <StatusBadge variant="pill" label="Needs review" />}
           </div>
         );
       })}

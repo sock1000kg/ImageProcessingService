@@ -37,10 +37,14 @@ class ImageRedactProcessor(BaseProcessor):
         self,
         model_name: str = "yolov8n-oiv7.pt",
         class_mapping: Optional[Dict[str, str]] = None,
+        imgsz: int = 640,
     ):
         from ultralytics import YOLO
 
         self.class_mapping = class_mapping or self.DEFAULT_CLASS_MAPPING
+        if imgsz <= 0 or imgsz % 32 != 0:
+            raise ValueError(f"YOLO input size must be a positive multiple of 32, got {imgsz}")
+        self.imgsz = imgsz
 
         # Search for model weights locally
         candidate_paths = [
@@ -62,7 +66,7 @@ class ImageRedactProcessor(BaseProcessor):
         # Extract tag like 'yolov8n-oiv7' without .pt extension
         raw_tag = os.path.splitext(os.path.basename(chosen_model))[0]
         self.model_tag = raw_tag
-        logger.info(f"YOLO model ({self.model_tag}) loaded successfully with {len(self.model.names)} classes!")
+        logger.info(f"YOLO model ({self.model_tag}) loaded successfully with {len(self.model.names)} classes, input size {self.imgsz}px!")
 
     @staticmethod
     def _apply_redaction_style(roi: np.ndarray, style: str, strength: int) -> np.ndarray:
@@ -141,6 +145,7 @@ class ImageRedactProcessor(BaseProcessor):
             results = self.model.predict(
                 source=pil_img,
                 conf=conf_threshold,
+                imgsz=self.imgsz,
                 verbose=False,
             )
             result = results[0]

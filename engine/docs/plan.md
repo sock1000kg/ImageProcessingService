@@ -51,8 +51,16 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 
 ## Song song suốt Phase 1–2: Model fine-tune (Mục tiêu A)
 - [ ] Gom dataset: WIDER FACE + Vietnamese License Plate Dataset. Chuẩn hoá về format YOLO 2 nhãn (`face`, `plate`), chia train/val/test.
+- **Quy tắc tách dữ liệu (bắt buộc, để số liệu benchmark còn ý nghĩa):** bộ benchmark của Infra (`infra/bench/dataset/images-max.txt`: toàn bộ
+  WIDER FACE **val** 3226 ảnh + toàn bộ 500 ảnh biển số của repo `ng-d-ng-may-tinh-K62-UET-M1/yolo-dataset`, `Dataset/Test` 400 + `Dataset/Valid` 100)
+  là **tập kiểm tra giữ riêng**: không dùng để train, không dùng để chọn checkpoint/ngưỡng/siêu tham số.
+    - WIDER FACE: chỉ train trên split **train**; tập validation để chọn checkpoint thì tách ra từ chính split train, không dùng WIDER val.
+    - Biển số VN: không dùng ảnh nào có trong `images-max.txt`. Kiểm tra theo **sha256** (cột hash trong file), không chỉ theo tên file, vì cùng một
+      ảnh có thể nằm trong dataset khác hoặc mirror khác. Ưu tiên train trên một dataset biển số VN khác; nếu buộc phải dùng repo UET thì báo **[Cần
+      Infra]** để chia lại (ví dụ train trên `Test`, benchmark chỉ dùng `Valid`).
+    - Ghi rõ dataset, split và số ảnh đã dùng để train vào `engine/docs/`, để báo cáo nêu được là kết quả đo trên dữ liệu model chưa từng thấy.
 - [ ] Fine-tune YOLOv8n. Báo cáo mAP@50 tổng và **theo từng lớp**, precision/recall (đặc biệt recall: bỏ sót là lộ thông tin). Mục tiêu mAP@50 ≥ 85%.
-- [ ] So sánh với `yolov8n-oiv7` trên cùng tập test (nhất là biển số VN 2 dòng, góc nghiêng, ngược sáng).
+- [ ] So sánh với `yolov8n-oiv7` trên cùng tập test (nhất là biển số VN 2 dòng, góc nghiêng, ngược sáng): chạy benchmark của Infra (`infra/bench`, `run.sh --save-detections` + `accuracy/evaluate.py`) với `YOLO_MODEL_NAME` trỏ tới trọng số mới, để so cùng quy tắc với model gốc và deface.
 - [ ] Đạt ngưỡng → đổi model qua env `YOLO_MODEL_NAME` + bảng map lớp. Field `model` trong `resultSummary` ghi tên model mới.
 
 ---

@@ -6,6 +6,7 @@ import {
   getBatchReportById,
 } from "../services/batch.service";
 import { notFound } from "../errors";
+import { validateIdParam } from "../dto";
 
 export async function createBatchHandler(
   request: Request,
@@ -35,7 +36,7 @@ export async function getBatchHandler(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const id = validateIdParam(request.params);
     const batch = await getBatchById(id);
     if (!batch) {
       throw notFound("Batch not found");
@@ -52,7 +53,7 @@ export async function getBatchReportHandler(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const id = validateIdParam(request.params);
     const report = await getBatchReportById(id);
     if (!report) {
       throw notFound("Batch not found");
@@ -69,7 +70,7 @@ export async function deleteBatchHandler(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const id = validateIdParam(request.params);
     const deleted = await deleteBatchById(id);
     if (!deleted) {
       throw notFound("Batch not found");

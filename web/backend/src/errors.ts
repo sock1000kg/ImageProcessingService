@@ -100,10 +100,11 @@ export function toErrorResponse(error: unknown): { status: number; body: ErrorDT
   }
 
   // Malformed JSON body (from express.json / body-parser SyntaxError)
+  const syntaxErr = error as SyntaxError & { status?: unknown; type?: unknown };
   if (
     error instanceof SyntaxError &&
-    (("status" in error && (error as any).status === 400) ||
-      (error as any).type === "entity.parse.failed" ||
+    (syntaxErr.status === 400 ||
+      syntaxErr.type === "entity.parse.failed" ||
       error.message.toLowerCase().includes("json"))
   ) {
     return {

@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { getJobById, getJobOriginalStream, retryFailedJob } from "../services/batch.service";
 import { notFound } from "../errors";
+import { validateIdParam } from "../dto";
 
 export async function getJobHandler(
   request: Request,
@@ -8,7 +9,7 @@ export async function getJobHandler(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const id = validateIdParam(request.params);
     const job = await getJobById(id);
     if (!job) {
       throw notFound("Job not found");
@@ -25,7 +26,7 @@ export async function getJobOriginalHandler(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const id = validateIdParam(request.params);
     const streamInfo = await getJobOriginalStream(id);
     if (!streamInfo) {
       throw notFound("Job or original image not found");
@@ -55,7 +56,7 @@ export async function retryJobHandler(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const id = validateIdParam(request.params);
     const job = await retryFailedJob(id);
     response.status(202).json({ job });
   } catch (error) {

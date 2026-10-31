@@ -529,6 +529,30 @@ if [ -n "$IMGSZ" ]; then
   "${KUBECTL[@]}" set env deployment/image-worker "YOLO_IMGSZ=$IMGSZ"
 fi
 
+create_batch() {
+  local files=("$@")
+  local draft_resp b_id
+  draft_resp="$(curl -fsS -X POST "$API_URL/api/batches" -F "config=$BATCH_CONFIG_JSON")" || {
+    echo "ERROR: Failed to create draft batch via $API_URL/api/batches" >&2
+    exit 1
+  }
+  b_id="$(python3 -c "import sys, json; print(json.load(sys.stdin)['batch']['id'])" <<< "$draft_resp")" || {
+    echo "ERROR: Failed to parse batch id from creation response: $draft_resp" >&2
+    exit 1
+  }
+  for f in "${files[@]}"; do
+    curl -fsS -X POST "$API_URL/api/batches/$b_id/files" -F "file=@$f" >/dev/null || {
+      echo "ERROR: Failed to upload file $f to batch $b_id" >&2
+      exit 1
+    }
+  done
+  curl -fsS -X POST "$API_URL/api/batches/$b_id/start" >/dev/null || {
+    echo "ERROR: Failed to start batch $b_id" >&2
+    exit 1
+  }
+  echo "$b_id"
+}
+
 verify_worker_imgsz() {
   if [ -z "$IMGSZ" ]; then
     return 0
@@ -614,12 +638,11 @@ elif [ "$MODE" = "fixed" ]; then
   # Warm-up batch: 2 * WORKERS images
   WARMUP_COUNT=$((2 * WORKERS))
   echo "Sending warm-up batch of $WARMUP_COUNT images..."
-  CURL_ARGS=(-fsS -X POST "$API_URL/api/batches" -F "config=$BATCH_CONFIG_JSON")
+  warmup_files=()
   for ((i = 0; i < WARMUP_COUNT; i++)); do
-    CURL_ARGS+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[i]}")
+    warmup_files+=("$IMAGES_DIR/${IMAGE_FILES[i]}")
   done
-  warmup_resp="$(curl "${CURL_ARGS[@]}")"
-  WARMUP_ID="$(python3 -c "import sys, json; print(json.load(sys.stdin)['batch']['id'])" <<< "$warmup_resp")"
+  WARMUP_ID="$(create_batch "${warmup_files[@]}")"
   ALL_BATCH_IDS+=("$WARMUP_ID")
   echo "Warm-up batch created: $WARMUP_ID. Waiting for it to reach terminal state..."
 
@@ -687,12 +710,11 @@ else
   if [ "$AUTOSCALE_MIN" -gt 0 ]; then
     WARMUP_COUNT=$((2 * AUTOSCALE_MIN))
     echo "Sending warm-up batch of $WARMUP_COUNT images for $AUTOSCALE_MIN always-on worker(s)..."
-    CURL_ARGS=(-fsS -X POST "$API_URL/api/batches" -F "config=$BATCH_CONFIG_JSON")
+    warmup_files=()
     for ((i = 0; i < WARMUP_COUNT; i++)); do
-      CURL_ARGS+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[i]}")
+      warmup_files+=("$IMAGES_DIR/${IMAGE_FILES[i]}")
     done
-    warmup_resp="$(curl "${CURL_ARGS[@]}")"
-    WARMUP_ID="$(python3 -c "import sys, json; print(json.load(sys.stdin)['batch']['id'])" <<< "$warmup_resp")"
+    WARMUP_ID="$(create_batch "${warmup_files[@]}")"
     ALL_BATCH_IDS+=("$WARMUP_ID")
     echo "Warm-up batch created: $WARMUP_ID. Waiting for it to reach terminal state..."
 
@@ -772,18 +794,19 @@ fi
 
 # Uploads batch $1 (0-based) and writes its id to $UPLOAD_TMP/$1.
 submit_batch() {
-  local b="$1" start_idx=$(($1 * BATCH_SIZE)) idx resp
+  local b="$1" start_idx=$(($1 * BATCH_SIZE)) idx
   local end_idx=$((start_idx + BATCH_SIZE))
   if [ "$end_idx" -gt "$EXPECTED_IMAGES" ]; then
     end_idx="$EXPECTED_IMAGES"
   fi
-  local curl_args=(-fsS -X POST "$API_URL/api/batches" -F "config=$BATCH_CONFIG_JSON")
+  local batch_files=()
   for ((idx = start_idx; idx < end_idx; idx++)); do
-    curl_args+=(-F "files=@$IMAGES_DIR/${IMAGE_FILES[idx]}")
+    batch_files+=("$IMAGES_DIR/${IMAGE_FILES[idx]}")
   done
-  resp="$(curl "${curl_args[@]}")"
-  python3 -c "import sys, json; print(json.load(sys.stdin)['batch']['id'])" <<< "$resp" > "$UPLOAD_TMP/$b"
-  echo "Submitted batch $((b + 1))/$NUM_BATCHES: $(cat "$UPLOAD_TMP/$b")"
+  local b_id
+  b_id="$(create_batch "${batch_files[@]}")"
+  echo "$b_id" > "$UPLOAD_TMP/$b"
+  echo "Submitted batch $((b + 1))/$NUM_BATCHES: $b_id"
 }
 
 echo "Submitting $EXPECTED_IMAGES images as $NUM_BATCHES batches of $BATCH_SIZE (up to $PARALLEL at a time)..."

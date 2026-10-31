@@ -1019,6 +1019,11 @@ def main() -> None:
         help="Override operating confidence threshold (default: 0.35 for engine, 0.2 for deface)",
     )
     parser.add_argument(
+        "--review",
+        action="store_true",
+        help="Also evaluate review warning (reviewThreshold -> needsReview) on saved detections",
+    )
+    parser.add_argument(
         "--combine",
         action="store_true",
         help="Generate a combined comparison table across the provided run directories",
@@ -1143,6 +1148,37 @@ def main() -> None:
             )
             write_single_report(ddir, d_eval)
             eval_results.append(d_eval)
+
+    if args.review:
+        try:
+            from review import evaluate_run_review, write_single_review_report, generate_combined_review_report
+        except ImportError:
+            sys.path.insert(0, os.path.dirname(__file__))
+            from review import evaluate_run_review, write_single_review_report, generate_combined_review_report
+
+        review_results: List[Dict[str, Any]] = []
+        for rdir in args.run_dirs:
+            if not os.path.isdir(rdir):
+                print(f"Skipping '{rdir}' (not a directory)")
+                continue
+            dets_f = os.path.join(rdir, "detections.jsonl")
+            if not os.path.isfile(dets_f):
+                print(f"Skipping review evaluation for '{rdir}' (no detections.jsonl)")
+                continue
+            print(f"Evaluating review warning for {rdir}...")
+            rev_res = evaluate_run_review(
+                rdir, labels_file, operating_threshold_arg=args.operating_threshold
+            )
+            write_single_review_report(rdir, rev_res)
+            review_results.append(rev_res)
+
+        if args.combine and review_results:
+            rev_out = (
+                args.out
+                if (args.out and "review" in args.out)
+                else os.path.join(os.path.abspath(os.path.join(review_results[0]["run_dir"], "..")), "review.md")
+            )
+            generate_combined_review_report(review_results, rev_out)
 
     if args.combine:
         # Determine output location

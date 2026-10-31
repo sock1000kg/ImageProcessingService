@@ -906,6 +906,42 @@ class TestAccuracyEvaluation(unittest.TestCase):
         self.assertIn("960px", comp_content)
         self.assertIn("640x480", comp_content)
 
+    def test_evaluate_cli_review_mode(self):
+        """Verify evaluate.py with --review flag produces review.json and review.md."""
+        import subprocess
+
+        r_dir = os.path.join(self.test_dir, "run_review_cli")
+        os.makedirs(r_dir, exist_ok=True)
+        with open(os.path.join(r_dir, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump({"dataset": "small", "imgsz": 640}, f)
+        with open(os.path.join(r_dir, "jobs.csv"), "w", encoding="utf-8") as f:
+            f.write("batch_id,job_id,original_filename,status,duration_ms,created_at,updated_at\n")
+            f.write("b1,j1,sample.jpg,completed,100,2026-10-31T00:00:00Z,2026-10-31T00:00:01Z\n")
+        with open(os.path.join(r_dir, "detections.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "original_filename": "sample.jpg",
+                "detections": [{"label": "face", "box": [10, 10, 50, 50], "confidence": 0.40}],
+            }) + "\n")
+
+        labels_f = os.path.join(self.test_dir, "labels_cli.jsonl")
+        with open(labels_f, "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "image": "sample.jpg",
+                "subset": "wider",
+                "boxes": [{"label": "face", "box": [10, 10, 50, 50], "ignore": False}],
+            }) + "\n")
+
+        eval_script = os.path.join(os.path.dirname(__file__), "evaluate.py")
+        proc = subprocess.run(
+            ["python3", eval_script, r_dir, "--labels", labels_f, "--review"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, f"evaluate.py --review failed: {proc.stderr}")
+        self.assertTrue(os.path.isfile(os.path.join(r_dir, "review.json")))
+        self.assertTrue(os.path.isfile(os.path.join(r_dir, "review.md")))
+
+
 
 if __name__ == "__main__":
     unittest.main()

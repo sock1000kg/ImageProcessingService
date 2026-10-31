@@ -528,6 +528,47 @@ python3 infra/bench/accuracy/evaluate.py \
   - Ground truth counts (`GT`) are displayed for each breakdown row.
 - **Deface License Plates**: Deface does not support license plate detection; its plate rows report "not supported" and recall 0 by design.
 
+### Review Warning Evaluation (`infra/bench/accuracy/review.py`)
+
+This evaluation measures the effectiveness of the user-facing review warning system offline against saved detections down to confidence 0.05:
+- **Engine Warning Rule** ([`engine/src/processors/image_redact.py`](../../engine/src/processors/image_redact.py)): Detections below `confidenceThreshold` (default 0.35) are dropped. A kept detection receives `lowConfidence = confidence < reviewThreshold` (default 0.50).
+- **Web Flagging Rule** ([`web/backend/src/dto/batch.dto.ts`](../../web/backend/src/dto/batch.dto.ts)): An image is flagged as **`needsReview`** if any detection has `lowConfidence = true`. (Whitelist-similarity review triggers do not apply here, as this benchmark runs with **no whitelist**).
+- **Offline Replay**: Saved detections down to confidence 0.05 in `detections.jsonl` are evaluated against ground truth labels (`labels-<set>.jsonl`) without re-running model inference. Faces are scored on WIDER images (`wider` subset), license plates on Vietnamese vehicle images (`vn` subset).
+
+#### Usage:
+```bash
+# Evaluate review warning on a single accuracy run:
+python3 infra/bench/accuracy/review.py \
+  infra/bench/results/laptop-rtx3050-100/640px/accuracy-runs/<run_dir> \
+  --labels infra/bench/dataset/labels-small.jsonl
+
+# Generate combined comparison report across resolutions:
+python3 infra/bench/accuracy/review.py \
+  --combine \
+  infra/bench/results/laptop-rtx3050-1000/640px/accuracy-runs/* \
+  infra/bench/results/laptop-rtx3050-1000/960px/accuracy-runs/* \
+  infra/bench/results/laptop-rtx3050-1000/1280px/accuracy-runs/* \
+  --labels infra/bench/dataset/labels-large.jsonl \
+  --out infra/bench/results/laptop-rtx3050-1000/review.md
+```
+`review.py` writes `review.json` and `review.md` directly into each evaluated run directory, and writes a unified summary markdown table with a top blockquote `>` when `--combine` is used.
+
+#### Metric Definitions:
+- **Operating Threshold ($T$, default 0.35)**: Detections below $T$ are discarded by the engine.
+- **Flagged Image**: An image where at least one kept detection (confidence $\ge T$) has confidence $< R$.
+- **Leaky Image**: An image where at least one valid, non-ignored ground truth target is not privacy-protected (coverage $< 70\%$ by redacted kept boxes, expanded by default $0.1$ padding). Also reported for the variant excluding tiny targets (`width < 16 px`).
+- **Catch Rate**: $\frac{\text{flagged} \cap \text{leaky}}{\text{leaky}}$. The proportion of leaky images that the review warning successfully flags for manual inspection.
+- **Flag Rate**: $\frac{\text{flagged}}{\text{total images}}$. The proportion of all processed images that require human review.
+- **Flag Precision**: $\frac{\text{flagged} \cap \text{leaky}}{\text{flagged}}$. The proportion of flagged images that actually contain an unredacted target leak.
+- **Silent Misses**: The share of leaky images whose missed ground truth targets have **no candidate detection at all** down to 0.05 (defined as $\text{IoU} \ge 0.1$ or $\text{coverage} \ge 30\%$). Because no detection exists near the leak even at low confidence, a warning mechanism based solely on kept detections can never catch these leaks.
+- **What-If Analysis**: A clearly labelled scenario (not an engine recommendation) modeling what the catch rate and flag rate would be if borderline detections in $[0.20, T)$—which are currently dropped by the engine—also triggered the review flag.
+- **Calibration**: Binned detections ($0.05\text{–}0.10, 0.10\text{–}0.20, \ldots, 0.90\text{–}1.00$) reporting detection count, true positive share ($\text{IoU} \ge 0.5$), and GT protection share ($\text{coverage} \ge 70\%$).
+
+#### How to Read the Sweep to Pick `reviewThreshold`:
+1. **Trade-off Curve**: As $R$ increases from $0.35$ up to $0.95$, the flag rate and catch rate never decrease (monotonic). Lower $R$ minimizes human review overhead; higher $R$ catches more leaks.
+2. **Diminishing Returns**: Look for the "elbow" where increasing $R$ yields minimal additional catch rate while inflating the flag rate (e.g. flagging many images whose detections are already high-confidence true positives).
+3. **The Silent Miss Ceiling**: The maximum achievable catch rate by tuning $R$ alone is capped by $1.0 - \text{silent\_miss\_share}$. If silent misses account for 40% of leaks, tuning $R$ can never achieve a catch rate above 60% without lowering the detector's inference threshold or enhancing the model.
+
 ### Caveats & Methodological Notes
 1. **Model Architectures & Resolutions**: YOLOv8n-oiv7 operates on 640px letterboxed input; deface uses CenterFace which defaults to full image resolution. Running deface with `--scale 640x480` provides a normalized architectural comparison at similar input dimensions.
 2. **WIDER FACE Dataset Characteristics**: WIDER val includes crowds with hundreds of tiny, heavily occluded, and heavily blurred faces (<16px) that general-purpose face detectors intentionally suppress at operational confidence thresholds.

@@ -10,6 +10,7 @@ import {
   createDraftBatch,
   deleteBatchById,
   getBatchById,
+  renameBatch,
   startBatch,
 } from "../../src/services/batch.service";
 import { connectMessaging, closeMessaging } from "../../src/messaging";
@@ -247,5 +248,32 @@ describe("Batch Service Integration Tests", () => {
 
     const deletedBatch = await getBatchById(batchId);
     expect(deletedBatch).toBeNull();
+  });
+
+  it("creates a batch with a name, renames it with renameBatch (PATCH), and returns 404 for unknown id", async () => {
+    // 1. Create with a name -> response has it
+    const batch = await createDraftBatch({
+      name: "Custom Initial Name",
+      rawConfig: { style: "blur" },
+    });
+    expect(batch.name).toBe("Custom Initial Name");
+
+    // 2. PATCH (rename) -> GET shows the new name
+    const renamed = await renameBatch(batch.id, "Renamed Batch Title");
+    expect(renamed.name).toBe("Renamed Batch Title");
+
+    const fetched = await getBatchById(batch.id);
+    expect(fetched?.name).toBe("Renamed Batch Title");
+
+    // 3. PATCH on an unknown id -> 404
+    await expect(
+      renameBatch("00000000-0000-0000-0000-000000000000", "Valid Name"),
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "NOT_FOUND",
+    });
+
+    // Cleanup
+    await deleteBatchById(batch.id);
   });
 });

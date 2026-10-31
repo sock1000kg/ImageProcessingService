@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import http from "node:http";
 import {
+  batchNameSchema,
+  formatDefaultBatchName,
   imageResultSummarySchema,
+  patchBatchBodySchema,
+  toBatchResponse,
   toReportResponse,
   toJobResponse,
   validateIdParam,
@@ -207,6 +211,80 @@ describe("DTO Validation and Schemas (Task 26)", () => {
       } as Express.Multer.File;
 
       expect(() => validateUploadFiles({ files: [bigFile] })).toThrow(/exceeds limit/);
+    });
+  });
+
+  describe("Batch Name Schema and Validation (Task 28)", () => {
+    it("trims whitespace from name", () => {
+      expect(batchNameSchema.parse("   My Custom Batch   ")).toBe("My Custom Batch");
+    });
+
+    it("defaults empty string and whitespace-only string to default format", () => {
+      const emptyResult = batchNameSchema.parse("");
+      const spacesResult = batchNameSchema.parse("     ");
+      expect(emptyResult).toMatch(/^Batch \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+      expect(spacesResult).toMatch(/^Batch \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    });
+
+    it("rejects names longer than 100 characters after trimming with validation error", () => {
+      const exact100 = "a".repeat(100);
+      expect(batchNameSchema.parse(exact100)).toBe(exact100);
+      expect(batchNameSchema.parse(`  ${exact100}  `)).toBe(exact100);
+
+      const tooLong101 = "a".repeat(101);
+      expect(() => batchNameSchema.parse(tooLong101)).toThrow();
+      expect(() => batchNameSchema.parse(`  ${tooLong101}  `)).toThrow();
+    });
+
+    it("rejects names containing control characters with validation error", () => {
+      expect(() => batchNameSchema.parse("hello\x00world")).toThrow();
+      expect(() => batchNameSchema.parse("bad\nname")).toThrow();
+      expect(() => batchNameSchema.parse("tab\tcharacter")).toThrow();
+      expect(() => batchNameSchema.parse("carriage\rreturn")).toThrow();
+      expect(() => batchNameSchema.parse("\x1fcontrol")).toThrow();
+    });
+
+    it("formats default batch name consistently as Batch <YYYY-MM-DD HH:mm> in UTC", () => {
+      const fixedDate = new Date("2026-10-31T14:05:09Z");
+      expect(formatDefaultBatchName(fixedDate)).toBe("Batch 2026-10-31 14:05");
+    });
+
+    it("patchBatchBodySchema enforces required name and strict schema without unknown keys", () => {
+      // Valid PATCH payload
+      const valid = patchBatchBodySchema.parse({ name: "Updated Batch Name" });
+      expect(valid.name).toBe("Updated Batch Name");
+
+      // Empty string defaults to server format
+      const emptyRenamed = patchBatchBodySchema.parse({ name: "" });
+      expect(emptyRenamed.name).toMatch(/^Batch \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+
+      // Missing name -> error
+      expect(() => patchBatchBodySchema.parse({})).toThrow();
+
+      // Unknown keys -> error (strict schema)
+      expect(() => patchBatchBodySchema.parse({ name: "New Name", extraKey: "not allowed" })).toThrow();
+      expect(() => patchBatchBodySchema.parse({ other: 123 })).toThrow();
+
+      // Non-string name -> error
+      expect(() => patchBatchBodySchema.parse({ name: 12345 })).toThrow();
+    });
+
+    it("includes name in toBatchResponse and batchName in toReportResponse", () => {
+      const dummyBatch = {
+        id: "123e4567-e89b-12d3-a456-426614174001",
+        name: "Test Batch Name",
+        config: {},
+        whitelistKeys: [],
+        whitelistDeletedAt: null,
+        startedAt: null,
+        createdAt: new Date("2026-10-30T00:00:00Z"),
+      };
+
+      const batchRes = toBatchResponse(dummyBatch as never, []);
+      expect(batchRes.name).toBe("Test Batch Name");
+
+      const reportRes = toReportResponse(dummyBatch as never, []);
+      expect(reportRes.batchName).toBe("Test Batch Name");
     });
   });
 });

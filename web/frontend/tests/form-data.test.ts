@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { uploadBatch, UploadProgress } from "../src/api";
+import { renameBatch, uploadBatch, UploadProgress } from "../src/api";
 import { getFileIdentity, getFolderName, validateImageFiles } from "../src/components/file-selection";
 import { sortBatchJobs } from "../src/components/BatchImageList";
 
@@ -185,5 +185,127 @@ describe("Frontend Batch Upload and Validation", () => {
       "low",
       "normal",
     ]);
+  });
+
+  describe("Folder name helper (single folder, mixed folders, plain files)", () => {
+    it("returns top folder name when all files come from a single folder", () => {
+      const f1 = new File(["1"], "photo1.jpg", { type: "image/jpeg" });
+      const f2 = new File(["2"], "photo2.jpg", { type: "image/jpeg" });
+      const f3 = new File(["3"], "photo3.jpg", { type: "image/jpeg" });
+      Object.defineProperty(f1, "webkitRelativePath", { value: "vacation/sub/photo1.jpg" });
+      Object.defineProperty(f2, "webkitRelativePath", { value: "vacation/photo2.jpg" });
+      Object.defineProperty(f3, "webkitRelativePath", { value: "vacation/deep/nested/photo3.jpg" });
+
+      expect(getFolderName([f1, f2, f3])).toBe("vacation");
+    });
+
+    it("returns null when files come from mixed folders", () => {
+      const f1 = new File(["1"], "photo1.jpg", { type: "image/jpeg" });
+      const f2 = new File(["2"], "photo2.jpg", { type: "image/jpeg" });
+      Object.defineProperty(f1, "webkitRelativePath", { value: "folderA/photo1.jpg" });
+      Object.defineProperty(f2, "webkitRelativePath", { value: "folderB/photo2.jpg" });
+
+      expect(getFolderName([f1, f2])).toBeNull();
+    });
+
+    it("returns null when files are plain files without folder path", () => {
+      const f1 = new File(["1"], "plain1.jpg", { type: "image/jpeg" });
+      const f2 = new File(["2"], "plain2.png", { type: "image/png" });
+
+      expect(getFolderName([f1, f2])).toBeNull();
+    });
+
+    it("returns null when selection mixes folder files and plain files", () => {
+      const f1 = new File(["1"], "photo1.jpg", { type: "image/jpeg" });
+      const f2 = new File(["2"], "plain2.jpg", { type: "image/jpeg" });
+      Object.defineProperty(f1, "webkitRelativePath", { value: "my-folder/photo1.jpg" });
+
+      expect(getFolderName([f1, f2])).toBeNull();
+    });
+  });
+
+  describe("Batch Rename API client (Task 28)", () => {
+    it("renameBatch sends PATCH request with JSON { name }", async () => {
+      let capturedUrl = "";
+      let capturedMethod = "";
+      let capturedHeaders: any = {};
+      let capturedBody = "";
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+          capturedUrl = url;
+          capturedMethod = init?.method ?? "";
+          capturedHeaders = init?.headers;
+          capturedBody = String(init?.body);
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              batch: { id: "test-batch-rename", name: "New Batch Name", status: "PROCESSING" },
+            }),
+          };
+        }),
+      );
+
+      const res = await renameBatch("test-batch-rename", "New Batch Name");
+      expect(capturedUrl).toBe("/api/batches/test-batch-rename");
+      expect(capturedMethod).toBe("PATCH");
+      expect(capturedHeaders["Content-Type"]).toBe("application/json");
+      expect(JSON.parse(capturedBody)).toEqual({ name: "New Batch Name" });
+      expect(res.batch.name).toBe("New Batch Name");
+    });
+
+    it("uploadBatch includes name in createDraftBatch when provided", async () => {
+      const file1 = new File(["test1"], "image1.jpg", { type: "image/jpeg" });
+      let capturedFormData: FormData | null = null;
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+          if (url === "/api/batches" && init?.method === "POST") {
+            capturedFormData = init?.body as FormData;
+            return {
+              ok: true,
+              status: 201,
+              json: async () => ({
+                batch: { id: "batch-name-1", name: "Custom Name", status: "DRAFT" },
+              }),
+            };
+          }
+          if (url.includes("/files")) {
+            return {
+              ok: true,
+              status: 201,
+              json: async () => ({
+                job: { id: "job-1", originalFilename: "image1.jpg", status: "PENDING" },
+              }),
+            };
+          }
+          if (url.includes("/start")) {
+            return {
+              ok: true,
+              status: 202,
+              json: async () => ({
+                batch: { id: "batch-name-1", name: "Custom Name", status: "PROCESSING" },
+              }),
+            };
+          }
+          return { ok: false, status: 404, json: async () => ({ error: { message: "Not found" } }) };
+        }),
+      );
+
+      const result = await uploadBatch(
+        [file1],
+        [],
+        { targets: ["face"] },
+        undefined,
+        undefined,
+        "Custom Name",
+      );
+
+      expect(capturedFormData?.get("name")).toBe("Custom Name");
+      expect(result.batch.name).toBe("Custom Name");
+    });
   });
 });

@@ -1,3 +1,6 @@
+/**
+ * Batch orchestration service managing uploads, start dispatching, retries, and whitelist lifecycle.
+ */
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { config } from "../config";
@@ -24,12 +27,7 @@ import { publishJob } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
 import { BatchConfig } from "../types";
 import { JobStatus } from "../generated/prisma/client";
-import {
-  buildImageRedactCommand,
-  calculateNextJobState,
-  JobState,
-  resolveOutputExtension,
-} from "../domain";
+import { buildImageRedactCommand, calculateNextJobState, JobState, resolveOutputExtension } from "../domain";
 import {
   batchNameSchema,
   BatchResponseDTO,
@@ -94,10 +92,7 @@ export async function createDraftBatch(options: {
 
 export const createBatch = createDraftBatch;
 
-export async function addBatchFile(
-  batchId: string,
-  file?: Express.Multer.File,
-): Promise<JobResponseDTO> {
+export async function addBatchFile(batchId: string, file?: Express.Multer.File): Promise<JobResponseDTO> {
   const validFile = validateSingleUploadFile(file);
 
   const batch = await getBatch(batchId);
@@ -135,6 +130,13 @@ export async function addBatchFile(
   }
 }
 
+/**
+ * Starts a draft batch by publishing all pending image jobs to the NATS worker queue.
+ *
+ * Why start idempotency: Calling startBatch repeatedly is safe and idempotent. If a caller clicks
+ * "Start without them" or retries a failed start call, only jobs remaining in PENDING status are
+ * enqueued. startedAt is marked once, avoiding duplicate command dispatches to workers.
+ */
 export async function startBatch(batchId: string): Promise<BatchResponseDTO> {
   const batch = await getBatch(batchId);
   if (!batch) {
@@ -146,10 +148,12 @@ export async function startBatch(batchId: string): Promise<BatchResponseDTO> {
     throw badRequest("Batch has no jobs", "BATCH_EMPTY");
   }
 
+  // Idempotently record the start timestamp if this is the first start execution
   if (batch.startedAt === null) {
     await setBatchStarted(batchId);
   }
 
+  // Fetch only unstarted jobs to prevent publishing duplicate processing commands
   const pendingJobs = await getPendingJobsByBatchId(batchId);
   const batchConfig = parseBatchConfig(batch.config);
 
@@ -324,6 +328,13 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
   });
 }
 
+/**
+ * Evaluates terminal status across all jobs in a batch to trigger biometric reference cleanup.
+ *
+ * Why whitelist cleanup timing: To uphold privacy commitments and prevent lingering biometric data,
+ * reference whitelist faces stored in the uploads bucket are purged from S3 immediately after all
+ * jobs reach terminal state (COMPLETED or FAILED). Marking whitelistDeletedAt ensures single execution.
+ */
 export async function checkAndCleanBatchWhitelist(batchId: string): Promise<void> {
   const batch = await getBatch(batchId);
   if (!batch || batch.startedAt === null || batch.whitelistDeletedAt !== null) {
@@ -335,6 +346,7 @@ export async function checkAndCleanBatchWhitelist(batchId: string): Promise<void
     return;
   }
 
+  // Whitelist files remain in S3 while any image job is still processing or queued
   const remainingNonTerminal = jobs.some(
     (job) => job.status !== JobStatus.COMPLETED && job.status !== JobStatus.FAILED,
   );

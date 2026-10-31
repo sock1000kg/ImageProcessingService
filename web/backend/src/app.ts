@@ -1,3 +1,6 @@
+/**
+ * Express application factory configuring middleware, routes, and SPA fallback.
+ */
 import cors from "cors";
 import express, { Express } from "express";
 import path from "node:path";
@@ -6,6 +9,9 @@ import { batchesRouter } from "./routes/batches.routes";
 import { jobsRouter } from "./routes/jobs.routes";
 import { systemRouter } from "./routes/system.routes";
 
+/**
+ * Creates and configures the Express application with JSON parsing, API routes, and static frontend assets.
+ */
 export function createApp(): Express {
   const app = express();
 

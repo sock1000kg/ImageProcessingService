@@ -247,28 +247,20 @@ describe("Limit Rules (Acceptance criteria: 100 accepted, 101 rejected whole)", 
     expect(result.images.length > MAX_BATCH_FILES).toBe(true);
 
     const message = getFolderLimitMessage(result.images.length);
-    expect(message).toBe(
-      "The folder has 101 images; the limit is 100 per batch. Pick a smaller folder or split it.",
-    );
+    expect(message).toBe("The folder has 101 images; the limit is 100 per batch. Pick a smaller folder or split it.");
   });
 
   it("rejects 101 images whole with clear message for manual file selection", () => {
     const count = 101;
     const messageInitial = getSelectionLimitMessage(count, 0);
-    expect(messageInitial).toBe(
-      "The selection has 101 images; the limit is 100 per batch. Pick fewer images.",
-    );
+    expect(messageInitial).toBe("The selection has 101 images; the limit is 100 per batch. Pick fewer images.");
 
     const messageAddition = getSelectionLimitMessage(85, 20);
-    expect(messageAddition).toBe(
-      "Adding 85 images would exceed the limit of 100 per batch (currently 20).",
-    );
+    expect(messageAddition).toBe("Adding 85 images would exceed the limit of 100 per batch (currently 20).");
   });
 
   it("validateImageFiles allows up to 100 valid images without error", () => {
-    const files = Array.from({ length: 100 }, (_, i) =>
-      makeFile(`img_${i}.jpg`, `img_${i}.jpg`, "image/jpeg"),
-    );
+    const files = Array.from({ length: 100 }, (_, i) => makeFile(`img_${i}.jpg`, `img_${i}.jpg`, "image/jpeg"));
     const issues = validateImageFiles(files);
     expect(issues).toHaveLength(0);
   });
@@ -284,7 +276,9 @@ describe("Step 2 & 4: Rejection reason builder", () => {
 
   it("formats relative path correctly in formatFileRejection", () => {
     const file = makeFile("notes.txt", "holiday/sub/notes.txt", "text/plain");
-    expect(formatFileRejection(file)).toBe("holiday/sub/notes.txt — not an image (.txt); only JPG, PNG and WEBP are accepted");
+    expect(formatFileRejection(file)).toBe(
+      "holiday/sub/notes.txt — not an image (.txt); only JPG, PNG and WEBP are accepted",
+    );
   });
 
   it("formats unsupported image type (image/tiff)", () => {
@@ -322,7 +316,9 @@ describe("Step 2 & 4: Rejection reason builder", () => {
   it("formats file with no extension and no type", () => {
     const noExt = makeFile("unknown_file", "unknown_file", "");
     expect(getFileRejectionReason(noExt)).toBe("not an image (no file extension); only JPG, PNG and WEBP are accepted");
-    expect(formatFileRejection(noExt)).toBe("unknown_file — not an image (no file extension); only JPG, PNG and WEBP are accepted");
+    expect(formatFileRejection(noExt)).toBe(
+      "unknown_file — not an image (no file extension); only JPG, PNG and WEBP are accepted",
+    );
   });
 
   it("formats validation summary title with correct singular/plural", () => {
@@ -519,9 +515,10 @@ describe("Step 1: Fallback folder detection via isFolderFile", () => {
   it("detects a folder entry when type is empty and slice().arrayBuffer() rejects", async () => {
     const folderFile = new File([new Uint8Array(0)], "images", { type: "" });
     // Mock slice().arrayBuffer() to reject
-    folderFile.slice = () => ({
-      arrayBuffer: () => Promise.reject(new Error("Cannot read folder")),
-    } as any);
+    folderFile.slice = () =>
+      ({
+        arrayBuffer: () => Promise.reject(new Error("Cannot read folder")),
+      }) as any;
 
     const isFolder = await isFolderFile(folderFile);
     expect(isFolder).toBe(true);

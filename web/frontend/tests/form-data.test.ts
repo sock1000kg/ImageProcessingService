@@ -25,7 +25,15 @@ describe("Frontend Batch Upload and Validation", () => {
             ok: true,
             status: 201,
             json: async () => ({
-              batch: { id: "test-batch-1", status: "DRAFT", config, whitelistKeys: [], whitelistDeletedAt: null, createdAt: new Date().toISOString(), jobs: [] },
+              batch: {
+                id: "test-batch-1",
+                status: "DRAFT",
+                config,
+                whitelistKeys: [],
+                whitelistDeletedAt: null,
+                createdAt: new Date().toISOString(),
+                jobs: [],
+              },
             }),
           };
         }
@@ -43,7 +51,15 @@ describe("Frontend Batch Upload and Validation", () => {
             ok: true,
             status: 202,
             json: async () => ({
-              batch: { id: "test-batch-1", status: "PROCESSING", config, whitelistKeys: [], whitelistDeletedAt: null, createdAt: new Date().toISOString(), jobs: [] },
+              batch: {
+                id: "test-batch-1",
+                status: "PROCESSING",
+                config,
+                whitelistKeys: [],
+                whitelistDeletedAt: null,
+                createdAt: new Date().toISOString(),
+                jobs: [],
+              },
             }),
           };
         }
@@ -52,12 +68,7 @@ describe("Frontend Batch Upload and Validation", () => {
     );
 
     const progressReports: UploadProgress[] = [];
-    const result = await uploadBatch(
-      [file1, file2],
-      [faceRef],
-      config,
-      (p) => progressReports.push(p),
-    );
+    const result = await uploadBatch([file1, file2], [faceRef], config, (p) => progressReports.push(p));
 
     expect(result.failed).toHaveLength(0);
     expect(result.batch.status).toBe("PROCESSING");
@@ -84,7 +95,15 @@ describe("Frontend Batch Upload and Validation", () => {
             ok: true,
             status: 201,
             json: async () => ({
-              batch: { id: "test-batch-fail", status: "DRAFT", config, whitelistKeys: [], whitelistDeletedAt: null, createdAt: new Date().toISOString(), jobs: [] },
+              batch: {
+                id: "test-batch-fail",
+                status: "DRAFT",
+                config,
+                whitelistKeys: [],
+                whitelistDeletedAt: null,
+                createdAt: new Date().toISOString(),
+                jobs: [],
+              },
             }),
           };
         }
@@ -119,12 +138,7 @@ describe("Frontend Batch Upload and Validation", () => {
     );
 
     const progressReports: UploadProgress[] = [];
-    const result = await uploadBatch(
-      [file1, file2],
-      [],
-      config,
-      (p) => progressReports.push(p),
-    );
+    const result = await uploadBatch([file1, file2], [], config, (p) => progressReports.push(p));
 
     // image2 failed twice (1 attempt + 1 retry)
     expect(result.failed).toHaveLength(1);
@@ -139,7 +153,10 @@ describe("Frontend Batch Upload and Validation", () => {
     const oversized = new File([new Uint8Array(50 * 1024 * 1024 + 1)], "large.jpg", { type: "image/jpeg" });
 
     expect(validateImageFiles([valid])).toHaveLength(0);
-    expect(validateImageFiles([invalid, oversized]).map((issue) => issue.file.name)).toEqual(["photo.gif", "large.jpg"]);
+    expect(validateImageFiles([invalid, oversized]).map((issue) => issue.file.name)).toEqual([
+      "photo.gif",
+      "large.jpg",
+    ]);
   });
 
   it("preserves folder paths and duplicate names as distinct files", () => {
@@ -153,8 +170,9 @@ describe("Frontend Batch Upload and Validation", () => {
   });
 
   it("does not silently trim a selection over the batch limit", () => {
-    const files = Array.from({ length: 21 }, (_, index) =>
-      new File([String(index)], `photo-${index}.jpg`, { type: "image/jpeg" }),
+    const files = Array.from(
+      { length: 21 },
+      (_, index) => new File([String(index)], `photo-${index}.jpg`, { type: "image/jpeg" }),
     );
 
     expect(files).toHaveLength(21);
@@ -295,14 +313,7 @@ describe("Frontend Batch Upload and Validation", () => {
         }),
       );
 
-      const result = await uploadBatch(
-        [file1],
-        [],
-        { targets: ["face"] },
-        undefined,
-        undefined,
-        "Custom Name",
-      );
+      const result = await uploadBatch([file1], [], { targets: ["face"] }, undefined, undefined, "Custom Name");
 
       expect(capturedFormData?.get("name")).toBe("Custom Name");
       expect(result.batch.name).toBe("Custom Name");

@@ -1,3 +1,6 @@
+/**
+ * HTTP client API layer communicating with the backend REST endpoints.
+ */
 import { Batch, BatchReport, Job } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -13,12 +16,18 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
+/**
+ * Progress event payload emitted during chunked batch uploads.
+ */
 export type UploadProgress = {
   done: number;
   total: number;
   failed: File[];
 };
 
+/**
+ * Creates a new draft batch with optional whitelist faces and configuration profile.
+ */
 export async function createDraftBatch(
   whitelist: File[],
   config: Record<string, unknown>,
@@ -35,16 +44,25 @@ export async function createDraftBatch(
   return request("/api/batches", { method: "POST", body: form });
 }
 
+/**
+ * Uploads a single image file into an existing draft batch.
+ */
 export async function uploadFileToBatch(batchId: string, file: File): Promise<{ job: Job }> {
   const form = new FormData();
   form.append("file", file);
   return request(`/api/batches/${batchId}/files`, { method: "POST", body: form });
 }
 
+/**
+ * Starts processing an existing draft batch by queueing pending jobs to NATS JetStream.
+ */
 export async function startBatch(batchId: string): Promise<{ batch: Batch }> {
   return request(`/api/batches/${batchId}/start`, { method: "POST" });
 }
 
+/**
+ * Coordinates draft creation, parallel file upload workers (concurrency 2), and execution kickoff.
+ */
 export async function uploadBatch(
   files: File[],
   whitelist: File[],
@@ -77,10 +95,10 @@ export async function uploadBatch(
 
       try {
         await uploadFileToBatch(batchId!, file);
-      } catch (firstErr) {
+      } catch {
         try {
           await uploadFileToBatch(batchId!, file);
-        } catch (retryErr) {
+        } catch {
           failed.push(file);
         }
       }
@@ -102,10 +120,16 @@ export async function uploadBatch(
   return { batch: started.batch, failed: [] };
 }
 
+/**
+ * Fetches batch details and current jobs status by batch ID.
+ */
 export function getBatch(id: string): Promise<{ batch: Batch }> {
   return request(`/api/batches/${id}`);
 }
 
+/**
+ * Renames an existing batch.
+ */
 export function renameBatch(id: string, name: string): Promise<{ batch: Batch }> {
   return request<{ batch: Batch }>(`/api/batches/${id}`, {
     method: "PATCH",
@@ -114,22 +138,37 @@ export function renameBatch(id: string, name: string): Promise<{ batch: Batch }>
   });
 }
 
+/**
+ * Fetches the computed audit report for a batch.
+ */
 export function getBatchReport(id: string): Promise<{ report: BatchReport }> {
   return request<{ report: BatchReport }>(`/api/batches/${id}/report`);
 }
 
+/**
+ * Enqueues a retry for a failed job.
+ */
 export function retryJob(id: string): Promise<{ job: Job }> {
   return request(`/api/jobs/${id}/retry`, { method: "POST" });
 }
 
+/**
+ * Permanently deletes a batch, its database records, and associated S3 artifacts.
+ */
 export function deleteBatch(id: string): Promise<void> {
   return request(`/api/batches/${id}`, { method: "DELETE" });
 }
 
+/**
+ * Fetches single job status.
+ */
 export function getJob(id: string): Promise<{ job: Job }> {
   return request(`/api/jobs/${id}`);
 }
 
+/**
+ * Retrieves aggregate system job processing counts across all batches.
+ */
 export function getSystemStats(): Promise<{ jobs: Record<string, number> }> {
   return request("/api/system/stats");
 }

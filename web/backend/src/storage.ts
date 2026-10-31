@@ -1,3 +1,6 @@
+/**
+ * S3-compatible object storage client (MinIO/AWS S3) wrapper and bucket utilities.
+ */
 import {
   S3Client,
   HeadBucketCommand,
@@ -107,9 +110,9 @@ export async function deletePrefix(bucket: string, prefix: string): Promise<void
     const listResponse = await s3Client.send(listCommand);
 
     if (listResponse.Contents && listResponse.Contents.length > 0) {
-      const objects = listResponse.Contents
-        .filter((item: { Key?: string }) => Boolean(item.Key))
-        .map((item: { Key?: string }) => ({ Key: item.Key! }));
+      const objects = listResponse.Contents.filter((item: { Key?: string }) => Boolean(item.Key)).map(
+        (item: { Key?: string }) => ({ Key: item.Key! }),
+      );
 
       if (objects.length > 0) {
         await s3Client.send(

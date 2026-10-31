@@ -90,10 +90,13 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
       createdAt: new Date(),
     };
     vi.spyOn(jobRepository, "getBatch").mockResolvedValue(existingBatch as any);
-    vi.spyOn(jobRepository, "updateBatchName").mockImplementation(async (_id, name) => ({
-      ...existingBatch,
-      name,
-    }) as any);
+    vi.spyOn(jobRepository, "updateBatchName").mockImplementation(
+      async (_id, name) =>
+        ({
+          ...existingBatch,
+          name,
+        }) as any,
+    );
     vi.spyOn(jobRepository, "getJobsByBatchId").mockResolvedValue([]);
 
     const result = await renameBatch(validBatchId, "   ");
@@ -131,9 +134,11 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
       await updateBatchHandler(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-        batch: expect.objectContaining({ name: "Renamed" }),
-      }));
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          batch: expect.objectContaining({ name: "Renamed" }),
+        }),
+      );
       expect(next).not.toHaveBeenCalled();
     });
 

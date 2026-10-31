@@ -56,9 +56,7 @@ describe("batch report review state", () => {
   });
 
   it("does not mark review when similarity is absent and keeps empty detections empty", () => {
-    const report = toReportResponse(batchInput() as never, [
-      reportInput({ detections: [] }) as never,
-    ]);
+    const report = toReportResponse(batchInput() as never, [reportInput({ detections: [] }) as never]);
 
     expect(report.images[0]?.needsReview).toBe(false);
     expect(report.images[0]?.reviewReasons).toEqual([]);
@@ -85,21 +83,14 @@ describe("advanced batch report features (Task 30)", () => {
       createdAt: new Date("2026-10-30T01:00:00Z"),
       error: { code: "RETRY_TRIGGERED", message: "Temporary failure" },
     });
-    const completedJob = reportInput(
-      { counts: { face: 1, redacted: 1 }, detections: [] },
-      "COMPLETED",
-      {
-        id: "job-attempt-2",
-        inputKey: "uploads/batch-1/img1.jpg",
-        originalFilename: "img1.jpg",
-        createdAt: new Date("2026-10-30T01:05:00Z"),
-      },
-    );
+    const completedJob = reportInput({ counts: { face: 1, redacted: 1 }, detections: [] }, "COMPLETED", {
+      id: "job-attempt-2",
+      inputKey: "uploads/batch-1/img1.jpg",
+      originalFilename: "img1.jpg",
+      createdAt: new Date("2026-10-30T01:05:00Z"),
+    });
 
-    const report = toReportResponse(batchInput() as never, [
-      failedJob as never,
-      completedJob as never,
-    ]);
+    const report = toReportResponse(batchInput() as never, [failedJob as never, completedJob as never]);
 
     expect(report.totals.images).toBe(1);
     expect(report.totals.completed).toBe(1);
@@ -112,10 +103,7 @@ describe("advanced batch report features (Task 30)", () => {
 
   it("handles whitelist people summary: one person in 2 images and one in none", () => {
     const batch = batchInput({
-      whitelistKeys: [
-        "uploads/batch-1/whitelist/person0.jpg",
-        "uploads/batch-1/whitelist/person1.jpg",
-      ],
+      whitelistKeys: ["uploads/batch-1/whitelist/person0.jpg", "uploads/batch-1/whitelist/person1.jpg"],
     });
 
     const job1 = reportInput(
@@ -160,17 +148,13 @@ describe("advanced batch report features (Task 30)", () => {
       { id: "job-2", originalFilename: "img2.jpg", inputKey: "uploads/batch-1/img2.jpg" },
     );
 
-    const job3 = reportInput(
-      { detections: [] },
-      "COMPLETED",
-      { id: "job-3", originalFilename: "img3.jpg", inputKey: "uploads/batch-1/img3.jpg" },
-    );
+    const job3 = reportInput({ detections: [] }, "COMPLETED", {
+      id: "job-3",
+      originalFilename: "img3.jpg",
+      inputKey: "uploads/batch-1/img3.jpg",
+    });
 
-    const report = toReportResponse(batch as never, [
-      job1 as never,
-      job2 as never,
-      job3 as never,
-    ]);
+    const report = toReportResponse(batch as never, [job1 as never, job2 as never, job3 as never]);
 
     expect(report.whitelistPeople).toHaveLength(2);
 
@@ -296,18 +280,14 @@ describe("advanced batch report features (Task 30)", () => {
     // Group 1: needsReview = true, lowestRedactedConfidence != null
     const jobG1A = reportInput(
       {
-        detections: [
-          { label: "face", confidence: 0.5, redacted: true, lowConfidence: true },
-        ],
+        detections: [{ label: "face", confidence: 0.5, redacted: true, lowConfidence: true }],
       },
       "COMPLETED",
       { id: "j-g1-a", inputKey: "k-g1-a", originalFilename: "z-g1-conf50.jpg" },
     );
     const jobG1B = reportInput(
       {
-        detections: [
-          { label: "face", confidence: 0.35, redacted: true, lowConfidence: true },
-        ],
+        detections: [{ label: "face", confidence: 0.35, redacted: true, lowConfidence: true }],
       },
       "COMPLETED",
       { id: "j-g1-b", inputKey: "k-g1-b", originalFilename: "a-g1-conf35.jpg" },
@@ -316,9 +296,7 @@ describe("advanced batch report features (Task 30)", () => {
     // Group 2: needsReview = true, lowestRedactedConfidence = null (only kept face near threshold)
     const jobG2 = reportInput(
       {
-        detections: [
-          { label: "face", whitelisted: true, similarity: 0.62 },
-        ],
+        detections: [{ label: "face", whitelisted: true, similarity: 0.62 }],
       },
       "COMPLETED",
       { id: "j-g2", inputKey: "k-g2", originalFilename: "m-g2-kept.jpg" },
@@ -327,32 +305,26 @@ describe("advanced batch report features (Task 30)", () => {
     // Group 3: needsReview = false, lowestRedactedConfidence != null
     const jobG3 = reportInput(
       {
-        detections: [
-          { label: "face", confidence: 0.95, redacted: true, lowConfidence: false },
-        ],
+        detections: [{ label: "face", confidence: 0.95, redacted: true, lowConfidence: false }],
       },
       "COMPLETED",
       { id: "j-g3", inputKey: "k-g3", originalFilename: "b-g3-highconf.jpg" },
     );
 
     // Group 4: needsReview = false, lowestRedactedConfidence = null (no detections)
-    const jobG4 = reportInput(
-      { detections: [] },
-      "COMPLETED",
-      { id: "j-g4", inputKey: "k-g4", originalFilename: "c-g4-nodet.jpg" },
-    );
+    const jobG4 = reportInput({ detections: [] }, "COMPLETED", {
+      id: "j-g4",
+      inputKey: "k-g4",
+      originalFilename: "c-g4-nodet.jpg",
+    });
 
     // Group 5: FAILED image
-    const jobG5 = reportInput(
-      null,
-      "FAILED",
-      {
-        id: "j-g5",
-        inputKey: "k-g5",
-        originalFilename: "d-g5-failed.jpg",
-        error: { code: "CRASH", message: "Worker error" },
-      },
-    );
+    const jobG5 = reportInput(null, "FAILED", {
+      id: "j-g5",
+      inputKey: "k-g5",
+      originalFilename: "d-g5-failed.jpg",
+      error: { code: "CRASH", message: "Worker error" },
+    });
 
     // Provide jobs in shuffled order
     const report = toReportResponse(batch as never, [
@@ -368,10 +340,10 @@ describe("advanced batch report features (Task 30)", () => {
     expect(filenames).toEqual([
       "a-g1-conf35.jpg", // Group 1 (conf 0.35)
       "z-g1-conf50.jpg", // Group 1 (conf 0.50)
-      "m-g2-kept.jpg",   // Group 2 (needsReview, conf null)
+      "m-g2-kept.jpg", // Group 2 (needsReview, conf null)
       "b-g3-highconf.jpg", // Group 3 (no review, conf 0.95)
-      "c-g4-nodet.jpg",    // Group 4 (no review, conf null)
-      "d-g5-failed.jpg",   // Group 5 (FAILED)
+      "c-g4-nodet.jpg", // Group 4 (no review, conf null)
+      "d-g5-failed.jpg", // Group 5 (FAILED)
     ]);
 
     // reviewImages follows the same image order
@@ -410,26 +382,26 @@ describe("advanced batch report features (Task 30)", () => {
   });
 
   it("collects batch-level models and processingTimeMs for completed attempts", () => {
-    const job1 = reportInput(
-      { model: "yolov8m", processingTimeMs: 120 },
-      "COMPLETED",
-      { id: "j-1", inputKey: "k-1", originalFilename: "img1.jpg" },
-    );
-    const job2 = reportInput(
-      { model: "yolov8n-oiv7", processingTimeMs: 180 },
-      "COMPLETED",
-      { id: "j-2", inputKey: "k-2", originalFilename: "img2.jpg" },
-    );
-    const job3 = reportInput(
-      { model: "yolov8m", processingTimeMs: 150 },
-      "COMPLETED",
-      { id: "j-3", inputKey: "k-3", originalFilename: "img3.jpg" },
-    );
-    const jobFail = reportInput(
-      { model: "should-not-appear", processingTimeMs: 999 },
-      "FAILED",
-      { id: "j-4", inputKey: "k-4", originalFilename: "img4.jpg" },
-    );
+    const job1 = reportInput({ model: "yolov8m", processingTimeMs: 120 }, "COMPLETED", {
+      id: "j-1",
+      inputKey: "k-1",
+      originalFilename: "img1.jpg",
+    });
+    const job2 = reportInput({ model: "yolov8n-oiv7", processingTimeMs: 180 }, "COMPLETED", {
+      id: "j-2",
+      inputKey: "k-2",
+      originalFilename: "img2.jpg",
+    });
+    const job3 = reportInput({ model: "yolov8m", processingTimeMs: 150 }, "COMPLETED", {
+      id: "j-3",
+      inputKey: "k-3",
+      originalFilename: "img3.jpg",
+    });
+    const jobFail = reportInput({ model: "should-not-appear", processingTimeMs: 999 }, "FAILED", {
+      id: "j-4",
+      inputKey: "k-4",
+      originalFilename: "img4.jpg",
+    });
 
     const report = toReportResponse(batchInput() as never, [
       job1 as never,

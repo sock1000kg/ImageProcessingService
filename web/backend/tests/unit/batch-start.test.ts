@@ -87,10 +87,13 @@ describe("startBatch Unit Tests", () => {
 
     const allJobs = [pendingJob, queuedJob, completedJob];
 
-    vi.spyOn(jobRepository, "getBatch").mockImplementation(async () => ({
-      ...batchData,
-      startedAt: batchData.startedAt ? new Date(batchData.startedAt) : null,
-    } as any));
+    vi.spyOn(jobRepository, "getBatch").mockImplementation(
+      async () =>
+        ({
+          ...batchData,
+          startedAt: batchData.startedAt ? new Date(batchData.startedAt) : null,
+        }) as any,
+    );
 
     vi.spyOn(jobRepository, "getJobsByBatchId").mockResolvedValue(allJobs as any);
 

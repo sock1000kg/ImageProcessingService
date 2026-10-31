@@ -1,3 +1,6 @@
+/**
+ * Input request validation utilities, UUID validators, and batch naming constraints.
+ */
 import { z } from "zod";
 import { config } from "../config";
 import { badRequest, payloadTooLarge } from "../errors";
@@ -58,10 +61,7 @@ export const patchBatchBodySchema = z
 
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
-export function validateBatchCreation(options: {
-  filesPresent?: boolean;
-  whitelist?: Express.Multer.File[];
-}): void {
+export function validateBatchCreation(options: { filesPresent?: boolean; whitelist?: Express.Multer.File[] }): void {
   const { filesPresent = false, whitelist = [] } = options;
 
   if (filesPresent) {
@@ -101,9 +101,7 @@ export function validateSingleUploadFile(file?: Express.Multer.File): Express.Mu
     );
   }
   if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-    throw badRequest(
-      `File ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
-    );
+    throw badRequest(`File ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`);
   }
   return file;
 }

@@ -1,3 +1,10 @@
+/**
+ * Core domain types and API contract definitions for the image processing frontend.
+ */
+
+/**
+ * Single image redaction job within a batch.
+ */
 export type Job = {
   id: string;
   batchId?: string;
@@ -12,6 +19,9 @@ export type Job = {
   updatedAt: string;
 };
 
+/**
+ * Machine learning detection box and review telemetry for faces or license plates.
+ */
 export type Detection = {
   label: string | null;
   confidence: number | null;
@@ -27,11 +37,14 @@ export type Detection = {
   reviewNotes?: string[];
 };
 
-export type ReviewReason =
-  | "Low confidence"
-  | "Similarity near whitelist threshold"
-  | "Engine reported needsReview";
+/**
+ * Diagnostic reason why an image or detection was flagged for human review.
+ */
+export type ReviewReason = "Low confidence" | "Similarity near whitelist threshold" | "Engine reported needsReview";
 
+/**
+ * Image record in the advanced batch report with detection summary and review flags.
+ */
 export type ReportImage = {
   jobId: string;
   originalFilename: string;
@@ -50,6 +63,9 @@ export type ReportImage = {
   attempts?: number;
 };
 
+/**
+ * Failure diagnosis entry for jobs that could not be processed.
+ */
 export type ReportFailedImage = {
   jobId: string;
   originalFilename: string;
@@ -58,6 +74,9 @@ export type ReportFailedImage = {
   attempts: number;
 };
 
+/**
+ * Biometric reference summary tracing detection appearances of whitelisted individuals.
+ */
 export type ReportWhitelistPerson = {
   whitelistRef: number;
   whitelistKey: string;
@@ -66,12 +85,18 @@ export type ReportWhitelistPerson = {
   detectionCount: number;
 };
 
+/**
+ * Benchmark telemetry for image processing latencies.
+ */
 export type ReportProcessingTime = {
   total: number;
   mean: number;
   max: number;
 };
 
+/**
+ * Comprehensive batch report response containing detection aggregates and review lists.
+ */
 export type BatchReport = {
   batchId: string;
   batchName?: string;
@@ -101,8 +126,14 @@ export type BatchReport = {
   processingTimeMs?: ReportProcessingTime | null;
 };
 
+/**
+ * Lifecycle status of a processing batch.
+ */
 export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL";
 
+/**
+ * Processing batch model representing a grouping of image jobs.
+ */
 export type Batch = {
   id: string;
   name: string;

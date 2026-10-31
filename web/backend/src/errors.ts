@@ -1,3 +1,6 @@
+/**
+ * Standard HTTP error models, factory constructors, and global error middleware.
+ */
 import { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import { ZodError } from "zod";
@@ -130,12 +133,7 @@ export function toErrorResponse(error: unknown): { status: number; body: ErrorDT
   };
 }
 
-export function errorMiddleware(
-  error: unknown,
-  _req: Request,
-  res: Response,
-  _next: NextFunction,
-): void {
+export function errorMiddleware(error: unknown, _req: Request, res: Response, _next: NextFunction): void {
   const { status, body } = toErrorResponse(error);
   if (status >= 500) {
     console.error("Internal server error:", error);

@@ -187,9 +187,7 @@ describe("Batch Service Integration Tests", () => {
       padding: 0.1,
     });
     expect(cmd1.params.output.quality).toBe("high");
-    expect(cmd1.params.whitelist.faces).toEqual([
-      { bucket: "uploads", key: draftBatch.whitelistKeys[0] },
-    ]);
+    expect(cmd1.params.whitelist.faces).toEqual([{ bucket: "uploads", key: draftBatch.whitelistKeys[0] }]);
 
     // 4. Applying events moves jobs and batch to the right state
     // Apply event for job 1: PROCESSING 50%
@@ -285,9 +283,7 @@ describe("Batch Service Integration Tests", () => {
     expect(fetched?.name).toBe("Renamed Batch Title");
 
     // 3. PATCH on an unknown id -> 404
-    await expect(
-      renameBatch("00000000-0000-0000-0000-000000000000", "Valid Name"),
-    ).rejects.toMatchObject({
+    await expect(renameBatch("00000000-0000-0000-0000-000000000000", "Valid Name")).rejects.toMatchObject({
       status: 404,
       code: "NOT_FOUND",
     });

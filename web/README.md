@@ -114,10 +114,10 @@ CLEANUP_INTERVAL_MS=600000
 
 `infra/.env` and `web/.env` have different purposes:
 
-| File | Used by | Main settings |
-| --- | --- | --- |
-| `infra/.env` | Docker Compose | PostgreSQL password and MinIO root credentials |
-| `web/.env` | Backend and Prisma | Database URL, NATS URL, S3/MinIO connection, upload limits |
+| File         | Used by            | Main settings                                              |
+| ------------ | ------------------ | ---------------------------------------------------------- |
+| `infra/.env` | Docker Compose     | PostgreSQL password and MinIO root credentials             |
+| `web/.env`   | Backend and Prisma | Database URL, NATS URL, S3/MinIO connection, upload limits |
 
 Do not commit either file if it contains real credentials.
 
@@ -210,21 +210,21 @@ The Engine must have its Python environment, model weights, and configuration re
 
 ## API endpoints
 
-| Method | Path | Description |
-| --- | --- | --- |
-| `POST` | `/api/batches` | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`) |
-| `POST` | `/api/batches/:id/files` | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`) |
-| `POST` | `/api/batches/:id/start` | Start batch processing for pending jobs. Returns 202 `{ batch }` |
-| `GET` | `/api/batches/:id` | Batch details and jobs (includes `name`) |
-| `PATCH` | `/api/batches/:id` | Rename batch with JSON `{ name }`. Returns 200 `{ batch }` |
-| `GET` | `/api/batches/:id/report` | Batch report with totals, review images/reasons, `batchName`, and detections when provided by Engine |
-| `DELETE` | `/api/batches/:id` | Delete the batch and its `uploads`/`results` objects |
-| `GET` | `/api/jobs/:id` | Job status and details |
-| `POST` | `/api/jobs/:id/retry` | Retry a `FAILED` job with a new job ID and output key |
-| `GET` | `/api/jobs/:id/original` | Stream the private original image |
-| `GET` | `/api/system/stats` | Job counts grouped by status |
-| `GET` | `/health` | Liveness check |
-| `GET` | `/ready` | PostgreSQL, NATS, and MinIO readiness check |
+| Method   | Path                      | Description                                                                                                      |
+| -------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/batches`            | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`) |
+| `POST`   | `/api/batches/:id/files`  | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`)                                   |
+| `POST`   | `/api/batches/:id/start`  | Start batch processing for pending jobs. Returns 202 `{ batch }`                                                 |
+| `GET`    | `/api/batches/:id`        | Batch details and jobs (includes `name`)                                                                         |
+| `PATCH`  | `/api/batches/:id`        | Rename batch with JSON `{ name }`. Returns 200 `{ batch }`                                                       |
+| `GET`    | `/api/batches/:id/report` | Batch report with totals, review images/reasons, `batchName`, and detections when provided by Engine             |
+| `DELETE` | `/api/batches/:id`        | Delete the batch and its `uploads`/`results` objects                                                             |
+| `GET`    | `/api/jobs/:id`           | Job status and details                                                                                           |
+| `POST`   | `/api/jobs/:id/retry`     | Retry a `FAILED` job with a new job ID and output key                                                            |
+| `GET`    | `/api/jobs/:id/original`  | Stream the private original image                                                                                |
+| `GET`    | `/api/system/stats`       | Job counts grouped by status                                                                                     |
+| `GET`    | `/health`                 | Liveness check                                                                                                   |
+| `GET`    | `/ready`                  | PostgreSQL, NATS, and MinIO readiness check                                                                      |
 
 ### Upload flow (Per-image upload)
 
@@ -288,14 +288,14 @@ The report keeps Engine-provided review signals authoritative. An image is marke
   - `"kept face near whitelist threshold (similarity 0.62, threshold 0.60)"` when `whitelisted: true`;
   - `"redacted face near whitelist threshold (similarity 0.58, threshold 0.60)"` otherwise;
   - `"engine flagged for review"`.
-  Image-level `reviewNotes` deduplicates detection notes, placing kept-face notes first due to privacy risk. Existing `reviewReasons` strings remain unchanged.
+    Image-level `reviewNotes` deduplicates detection notes, placing kept-face notes first due to privacy risk. Existing `reviewReasons` strings remain unchanged.
 - **Image ordering**: Images are sorted across five groups:
   1. Images with `needsReview: true` and a numeric `lowestRedactedConfidence` (sorted ascending by lowest redacted confidence);
   2. Images with `needsReview: true` and `lowestRedactedConfidence: null` (e.g. kept face near whitelist threshold);
   3. Completed images with `needsReview: false` and numeric `lowestRedactedConfidence` (sorted ascending);
   4. Completed images with `lowestRedactedConfidence: null` (no detections);
   5. `FAILED` images.
-  Within each group, `originalFilename` (then `jobId`) serves as the tie-break. `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
+     Within each group, `originalFilename` (then `jobId`) serves as the tie-break. `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
 - **Batch-level extras**: Exposes `models: string[]` (unique non-null models across latest completed attempts) and `processingTimeMs: { total, mean, max } | null` over the latest completed attempts.
 
 ## Error response format
@@ -314,14 +314,14 @@ API errors use `ErrorDTO`:
 
 Common statuses:
 
-| HTTP status | Code | Meaning |
-| --- | --- | --- |
-| `400` | `VALIDATION_ERROR`, `INVALID_JSON`, `BAD_REQUEST`, `UPLOAD_ERROR` | Invalid request or file |
-| `404` | `NOT_FOUND` | Resource or route not found |
-| `410` | `GONE` | Batch, input, or whitelist expired |
-| `413` | `FILE_TOO_LARGE` | File or request exceeds configured limit |
-| `503` | `SERVICE_UNAVAILABLE` | NATS or another external dependency unavailable |
-| `500` | `INTERNAL_ERROR` | Unexpected server error |
+| HTTP status | Code                                                              | Meaning                                         |
+| ----------- | ----------------------------------------------------------------- | ----------------------------------------------- |
+| `400`       | `VALIDATION_ERROR`, `INVALID_JSON`, `BAD_REQUEST`, `UPLOAD_ERROR` | Invalid request or file                         |
+| `404`       | `NOT_FOUND`                                                       | Resource or route not found                     |
+| `410`       | `GONE`                                                            | Batch, input, or whitelist expired              |
+| `413`       | `FILE_TOO_LARGE`                                                  | File or request exceeds configured limit        |
+| `503`       | `SERVICE_UNAVAILABLE`                                             | NATS or another external dependency unavailable |
+| `500`       | `INTERNAL_ERROR`                                                  | Unexpected server error                         |
 
 ## Prisma workflow
 

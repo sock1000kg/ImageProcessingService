@@ -1,3 +1,6 @@
+/**
+ * Data transfer objects, response serializers, and batch report aggregation logic.
+ */
 import { z } from "zod";
 import { Batch as PrismaBatch, Job as PrismaJob } from "../generated/prisma/client";
 import { deriveBatchStatus } from "../domain/batch-status";
@@ -53,10 +56,7 @@ export interface JobResponseDTO {
   updatedAt: string;
 }
 
-export type ReviewReason =
-  | "Low confidence"
-  | "Similarity near whitelist threshold"
-  | "Engine reported needsReview";
+export type ReviewReason = "Low confidence" | "Similarity near whitelist threshold" | "Engine reported needsReview";
 
 export interface BatchResponseDTO {
   id: string;
@@ -203,14 +203,21 @@ export function toBatchResponse(batch: PrismaBatch, jobs: PrismaJob[]): BatchRes
   return {
     id: batch.id,
     name: batch.name,
-    status: deriveBatchStatus(jobs.map((j) => j.status), batch.startedAt),
+    status: deriveBatchStatus(
+      jobs.map((j) => j.status),
+      batch.startedAt,
+    ),
     config: configParsed,
     whitelistKeys: batch.whitelistKeys,
     whitelistDeletedAt: batch.whitelistDeletedAt
-      ? (batch.whitelistDeletedAt instanceof Date ? batch.whitelistDeletedAt.toISOString() : String(batch.whitelistDeletedAt))
+      ? batch.whitelistDeletedAt instanceof Date
+        ? batch.whitelistDeletedAt.toISOString()
+        : String(batch.whitelistDeletedAt)
       : null,
     startedAt: batch.startedAt
-      ? (batch.startedAt instanceof Date ? batch.startedAt.toISOString() : String(batch.startedAt))
+      ? batch.startedAt instanceof Date
+        ? batch.startedAt.toISOString()
+        : String(batch.startedAt)
       : null,
     createdAt: batch.createdAt instanceof Date ? batch.createdAt.toISOString() : String(batch.createdAt),
     jobs: jobs.map((j) => toJobResponse(j)!),
@@ -236,6 +243,10 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
     return 0;
   };
 
+  // Why latest-attempt dedup: When a failed image is retried, each attempt generates a distinct
+  // database row referencing the same originalFilename. To prevent double-counting totals or
+  // displaying outdated failures, we deduplicate by originalFilename and take only the latest attempt
+  // (sorted by createdAt DESC with id as tie-break), preserving total attempt count for diagnostics.
   const latestJobsWithAttempts: Array<{ job: PrismaJob; attempts: number }> = [];
   for (const group of groups.values()) {
     group.sort((a, b) => {
@@ -273,9 +284,7 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
 
     const summaryCounts = summary?.counts ?? null;
     const rawDetections = summary?.detections ?? [];
-    const detections = rawDetections.map((raw) =>
-      toReportDetection(raw, batchConfig.similarityThreshold),
-    );
+    const detections = rawDetections.map((raw) => toReportDetection(raw, batchConfig.similarityThreshold));
     const reviewDetections = detections.filter((detection) => detection.reviewReasons.length > 0);
     const reviewReasons = [...new Set(reviewDetections.flatMap((detection) => detection.reviewReasons))];
 
@@ -354,8 +363,10 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
     };
   });
 
-  // Sort images: needsReview first, then lowestRedactedConfidence ascending, then images with null,
-  // then FAILED images, with originalFilename as tie-break.
+  // Why report sort order: Reviewers must prioritize images that need human oversight first.
+  // The sorting algorithm ranks images requiring review at the top, ordered ascending by lowest
+  // redacted confidence (putting the most uncertain detections at the very top), followed by
+  // images without detections, and finally failed jobs with originalFilename as deterministic tie-break.
   perImage.sort(compareReportImages);
 
   const lowConfidenceDetections: ReportLowConfidenceDetectionDTO[] = [];
@@ -443,9 +454,7 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
   const completedImages = perImage.filter((img) => img.status === "COMPLETED");
   const models = [
     ...new Set(
-      completedImages
-        .map((img) => img.model)
-        .filter((m): m is string => typeof m === "string" && m.trim().length > 0),
+      completedImages.map((img) => img.model).filter((m): m is string => typeof m === "string" && m.trim().length > 0),
     ),
   ];
 
@@ -464,7 +473,10 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
   return {
     batchId: batch.id,
     batchName: batch.name,
-    status: deriveBatchStatus(latestJobsWithAttempts.map((j) => j.job.status), batch.startedAt),
+    status: deriveBatchStatus(
+      latestJobsWithAttempts.map((j) => j.job.status),
+      batch.startedAt,
+    ),
     totals: {
       images: perImage.length,
       completed,
@@ -518,13 +530,9 @@ function compareReportImages(a: ReportImageDTO, b: ReportImageDTO): number {
   return a.jobId.localeCompare(b.jobId);
 }
 
-function toReportDetection(
-  detection: ImageDetectionSummary,
-  similarityThreshold: number,
-): ReportDetectionDTO {
+function toReportDetection(detection: ImageDetectionSummary, similarityThreshold: number): ReportDetectionDTO {
   const similarity = typeof detection.similarity === "number" ? detection.similarity : null;
-  const nearThreshold =
-    similarity === null ? null : Math.abs(similarity - similarityThreshold) <= 0.05;
+  const nearThreshold = similarity === null ? null : Math.abs(similarity - similarityThreshold) <= 0.05;
   const reviewReasons: ReviewReason[] = [];
   if (detection.lowConfidence === true) reviewReasons.push("Low confidence");
   if (detection.needsReview === true) reviewReasons.push("Engine reported needsReview");

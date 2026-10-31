@@ -1,3 +1,6 @@
+/**
+ * HTTP request controllers for batch lifecycle management and file intake.
+ */
 import { NextFunction, Request, Response } from "express";
 import {
   addBatchFile,
@@ -11,11 +14,7 @@ import {
 import { notFound } from "../errors";
 import { patchBatchBodySchema, validateIdParam } from "../dto";
 
-export async function createBatchHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function createBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const filesMap = request.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     const files = filesMap?.files ?? [];
@@ -35,11 +34,7 @@ export async function createBatchHandler(
   }
 }
 
-export async function addBatchFileHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function addBatchFileHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
     const job = await addBatchFile(id, request.file);
@@ -49,11 +44,7 @@ export async function addBatchFileHandler(
   }
 }
 
-export async function startBatchHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function startBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
     const batch = await startBatch(id);
@@ -63,11 +54,7 @@ export async function startBatchHandler(
   }
 }
 
-export async function getBatchHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function getBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
     const batch = await getBatchById(id);
@@ -80,11 +67,7 @@ export async function getBatchHandler(
   }
 }
 
-export async function updateBatchHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function updateBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
     const body = patchBatchBodySchema.parse(request.body);
@@ -95,11 +78,7 @@ export async function updateBatchHandler(
   }
 }
 
-export async function getBatchReportHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function getBatchReportHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
     const report = await getBatchReportById(id);
@@ -112,11 +91,7 @@ export async function getBatchReportHandler(
   }
 }
 
-export async function deleteBatchHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function deleteBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
     const deleted = await deleteBatchById(id);

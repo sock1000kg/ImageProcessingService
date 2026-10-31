@@ -1,3 +1,6 @@
+/**
+ * Zod validation schemas and parsers for batch processing and redaction configurations.
+ */
 import { z } from "zod";
 import { badRequest } from "../errors";
 

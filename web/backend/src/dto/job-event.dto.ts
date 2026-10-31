@@ -1,3 +1,6 @@
+/**
+ * Worker event validation schema parsing telemetry emitted by engine workers over NATS.
+ */
 import { z } from "zod";
 import { imageResultSummarySchema, jobErrorSchema } from "./batch.dto";
 

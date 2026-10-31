@@ -1,10 +1,7 @@
-import {
-  BatchConfig,
-  OutputFormat,
-  OutputQuality,
-  RedactionStyle,
-  RedactionTarget,
-} from "../types";
+/**
+ * Worker dispatch command schema and serializer for image redaction tasks.
+ */
+import { BatchConfig, OutputFormat, OutputQuality, RedactionStyle, RedactionTarget } from "../types";
 
 export function resolveOutputExtension(format: OutputFormat, inputFilenameOrExt: string): string {
   if (format === "original") {

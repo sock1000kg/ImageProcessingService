@@ -1,3 +1,6 @@
+/**
+ * Database repository managing batches and image jobs with PostgreSQL row-level locks.
+ */
 import { prisma } from "../db/prisma";
 import { config } from "../config";
 import { conflict, notFound } from "../errors";
@@ -5,6 +8,9 @@ import { BatchConfig } from "../types";
 import { JobStatus, Prisma } from "../generated/prisma/client";
 import { formatDefaultBatchName } from "../dto";
 
+/**
+ * Persists a new draft batch record.
+ */
 export async function createDraftBatch(batch: {
   id: string;
   name: string;
@@ -22,6 +28,13 @@ export async function createDraftBatch(batch: {
   });
 }
 
+/**
+ * Appends a new image job to a draft batch under a PostgreSQL row lock.
+ *
+ * Why row lock (`FOR UPDATE`): Concurrent uploads running in parallel workers could otherwise race
+ * to read the job count simultaneously and exceed `BATCH_MAX_FILES`, or race against `startBatch` and
+ * insert pending jobs after dispatch has completed. The row lock serialises checks and inserts.
+ */
 export async function addJobToBatchWithLock(
   batchId: string,
   jobData: {
@@ -32,6 +45,7 @@ export async function addJobToBatchWithLock(
   },
 ) {
   return prisma.$transaction(async (tx) => {
+    // Acquire exclusive row lock on the batch record to prevent race conditions during file addition
     const rows = await tx.$queryRaw<Array<{ id: string; started_at: Date | null }>>`
       SELECT id, started_at FROM batches WHERE id = ${batchId}::uuid FOR UPDATE
     `;
@@ -143,11 +157,7 @@ export async function getJob(id: string) {
   });
 }
 
-export async function getActiveRetryJob(job: {
-  id: string;
-  batchId: string;
-  inputKey: string;
-}) {
+export async function getActiveRetryJob(job: { id: string; batchId: string; inputKey: string }) {
   return prisma.job.findFirst({
     where: {
       batchId: job.batchId,
@@ -231,9 +241,7 @@ export async function updateJobState(
       stage: state.stage,
       resultUrl: state.resultUrl,
       // Prisma InputJsonValue requires casting for structured JSON fields
-      resultSummary: state.resultSummary
-        ? (state.resultSummary as unknown as Prisma.InputJsonValue)
-        : Prisma.JsonNull,
+      resultSummary: state.resultSummary ? (state.resultSummary as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       error: state.error ? (state.error as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
     },
   });

@@ -8,7 +8,9 @@
     "build": "npm run build:backend && npm run build:frontend",
     "build:backend": "prisma generate && tsc -p backend/tsconfig.json",
     "build:frontend": "vite build --config frontend/vite.config.ts",
-    "lint": "prisma generate && tsc -p backend/tsconfig.json --noEmit && tsc -p frontend/tsconfig.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "npm run format:check && prisma generate && tsc -p backend/tsconfig.json --noEmit && tsc -p frontend/tsconfig.json",
     "test": "npm run test:backend && npm run test:frontend",
     "test:backend": "vitest run --config backend/vitest.config.ts",
     "test:service": "vitest run --config backend/vitest.service.config.ts",
@@ -35,6 +37,7 @@
     "prisma": "^7.10.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.5",
     "vite": "^6.0.7",
     "zod": "^4.6.7"
   },
@@ -48,6 +51,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "happy-dom": "^21.0.4",
+    "prettier": "^3.9.10",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^5.0.5"

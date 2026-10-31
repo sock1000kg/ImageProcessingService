@@ -1,3 +1,6 @@
+/**
+ * Prisma client instance configuration with connection pool adapter.
+ */
 import "dotenv/config";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -9,6 +12,9 @@ const adapter = new PrismaPg(pool);
 
 export const prisma = new PrismaClient({ adapter });
 
+/**
+ * Closes the Prisma client connection and terminates the PostgreSQL connection pool.
+ */
 export async function closeDatabase(): Promise<void> {
   await prisma.$disconnect();
   await pool.end();

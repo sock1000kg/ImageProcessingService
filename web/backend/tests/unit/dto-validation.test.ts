@@ -19,10 +19,41 @@ describe("DTO Validation and Schemas (Task 26)", () => {
       imageSize: [1920, 1080],
       counts: { face: 3, plate: 1, whitelistedFace: 1, redacted: 3, lowConfidence: 1 },
       detections: [
-        { label: "face", confidence: 0.92, box: [34, 12, 120, 250], redacted: true, whitelisted: false, lowConfidence: false, similarity: 0.18 },
-        { label: "face", confidence: 0.88, box: [400, 40, 480, 160], redacted: false, whitelisted: true, similarity: 0.71, whitelistRef: 0 },
-        { label: "face", confidence: 0.41, box: [600, 90, 640, 140], redacted: true, whitelisted: false, lowConfidence: true, similarity: 0.55 },
-        { label: "plate", confidence: 0.81, box: [220, 300, 310, 340], redacted: true, whitelisted: false, lowConfidence: false },
+        {
+          label: "face",
+          confidence: 0.92,
+          box: [34, 12, 120, 250],
+          redacted: true,
+          whitelisted: false,
+          lowConfidence: false,
+          similarity: 0.18,
+        },
+        {
+          label: "face",
+          confidence: 0.88,
+          box: [400, 40, 480, 160],
+          redacted: false,
+          whitelisted: true,
+          similarity: 0.71,
+          whitelistRef: 0,
+        },
+        {
+          label: "face",
+          confidence: 0.41,
+          box: [600, 90, 640, 140],
+          redacted: true,
+          whitelisted: false,
+          lowConfidence: true,
+          similarity: 0.55,
+        },
+        {
+          label: "plate",
+          confidence: 0.81,
+          box: [220, 300, 310, 340],
+          redacted: true,
+          whitelisted: false,
+          lowConfidence: false,
+        },
       ],
       redaction: { style: "pixelate", strength: 12, padding: 0.1 },
       model: "yolov8n-oiv7",
@@ -49,9 +80,7 @@ describe("DTO Validation and Schemas (Task 26)", () => {
 
     it("rejects detection with box of length 3 (box: [1, 2, 3])", () => {
       const invalidSummary = {
-        detections: [
-          { label: "face", confidence: 0.9, box: [1, 2, 3], redacted: true },
-        ],
+        detections: [{ label: "face", confidence: 0.9, box: [1, 2, 3], redacted: true }],
       };
       const parsed = imageResultSummarySchema.safeParse(invalidSummary);
       expect(parsed.success).toBe(false);
@@ -60,9 +89,7 @@ describe("DTO Validation and Schemas (Task 26)", () => {
     it("treats invalid summary (box: [1, 2, 3]) as missing in toReportResponse but preserves raw in toJobResponse", () => {
       const invalidSummary = {
         counts: { face: 1 },
-        detections: [
-          { label: "face", confidence: 0.9, box: [1, 2, 3], redacted: true },
-        ],
+        detections: [{ label: "face", confidence: 0.9, box: [1, 2, 3], redacted: true }],
       };
 
       const dummyJob = {

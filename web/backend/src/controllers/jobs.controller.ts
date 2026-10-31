@@ -1,13 +1,12 @@
+/**
+ * HTTP request controllers for single-job inspection, stream downloads, and retries.
+ */
 import { NextFunction, Request, Response } from "express";
 import { getJobById, getJobOriginalStream, retryFailedJob } from "../services/batch.service";
 import { notFound } from "../errors";
 import { validateIdParam } from "../dto";
 
-export async function getJobHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function getJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
     const job = await getJobById(id);
@@ -20,11 +19,7 @@ export async function getJobHandler(
   }
 }
 
-export async function getJobOriginalHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function getJobOriginalHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
     const streamInfo = await getJobOriginalStream(id);
@@ -50,11 +45,7 @@ export async function getJobOriginalHandler(
   }
 }
 
-export async function retryJobHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function retryJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
     const job = await retryFailedJob(id);

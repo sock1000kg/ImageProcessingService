@@ -1,9 +1,12 @@
+/**
+ * Aggregate status calculator determining overall batch status from individual job states.
+ */
 import { BatchStatus, JobStatus } from "../types";
 
-export function deriveBatchStatus(
-  jobStatuses: JobStatus[],
-  startedAt?: Date | string | null,
-): BatchStatus {
+/**
+ * Derives collective batch status (DRAFT, PROCESSING, COMPLETED, or PARTIAL).
+ */
+export function deriveBatchStatus(jobStatuses: JobStatus[], startedAt?: Date | string | null): BatchStatus {
   if (startedAt === null) {
     return "DRAFT";
   }

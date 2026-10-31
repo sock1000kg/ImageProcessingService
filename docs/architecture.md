@@ -2,7 +2,7 @@
 
 ## 1. Architecture Overview
 
-**Objective:** Build a scalable, event-driven service that automatically detects and redacts faces and license plates in images and videos, demonstrating dynamic worker scaling via KEDA and NATS JetStream on a constrained 2C/4T / 12GB RAM Kubernetes node. Project scope: `docs/report-material/de-tai.md`.
+**Objective:** Build a scalable, event-driven service that automatically detects and redacts faces and license plates in images and videos, demonstrating dynamic worker scaling via KEDA and NATS JetStream on a constrained 2C/4T / 12GB RAM Kubernetes node.
 
 The architecture deliberately avoids a custom Kubernetes Operator/CRD. Kubernetes-native resources, KEDA, PostgreSQL, MinIO, and NATS JetStream are sufficient for the project's scaling and integration requirements.
 

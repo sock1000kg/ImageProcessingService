@@ -22,12 +22,16 @@ export type UploadProgress = {
 export async function createDraftBatch(
   whitelist: File[],
   config: Record<string, unknown>,
+  name?: string,
 ): Promise<{ batch: Batch }> {
   const form = new FormData();
   for (const file of whitelist) {
     form.append("whitelist", file);
   }
   form.append("config", JSON.stringify(config));
+  if (name !== undefined && name !== null && name.trim() !== "") {
+    form.append("name", name.trim());
+  }
   return request("/api/batches", { method: "POST", body: form });
 }
 
@@ -47,12 +51,13 @@ export async function uploadBatch(
   config: Record<string, unknown>,
   onProgress?: (progress: UploadProgress) => void,
   existingBatchId?: string,
+  name?: string,
 ): Promise<{ batch: Batch; failed: File[] }> {
   let batchId = existingBatchId;
   let batch: Batch;
 
   if (!batchId) {
-    const created = await createDraftBatch(whitelist, config);
+    const created = await createDraftBatch(whitelist, config, name);
     batch = created.batch;
     batchId = batch.id;
   } else {
@@ -99,6 +104,14 @@ export async function uploadBatch(
 
 export function getBatch(id: string): Promise<{ batch: Batch }> {
   return request(`/api/batches/${id}`);
+}
+
+export function renameBatch(id: string, name: string): Promise<{ batch: Batch }> {
+  return request<{ batch: Batch }>(`/api/batches/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
 }
 
 export function getBatchReport(id: string): Promise<{ report: BatchReport }> {

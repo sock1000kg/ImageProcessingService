@@ -49,6 +49,7 @@ export type ReportImage = {
 
 export type BatchReport = {
   batchId: string;
+  batchName?: string;
   status: string;
   totals: {
     images: number;
@@ -70,6 +71,7 @@ export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL";
 
 export type Batch = {
   id: string;
+  name: string;
   status: BatchStatus | string;
   config: Record<string, unknown>;
   whitelistKeys: string[];

@@ -24,11 +24,12 @@ function App() {
     config: Record<string, unknown>,
     onProgress?: (progress: { done: number; total: number; failed: File[] }) => void,
     existingBatchId?: string,
+    name?: string,
   ) => {
     setBusy(true);
     setError("");
     try {
-      const result = await uploadBatch(files, whitelist, config, onProgress, existingBatchId);
+      const result = await uploadBatch(files, whitelist, config, onProgress, existingBatchId, name);
       if (result.failed.length === 0) {
         setBatch(result.batch);
         setView("dashboard");

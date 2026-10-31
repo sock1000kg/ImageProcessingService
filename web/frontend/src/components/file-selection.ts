@@ -17,10 +17,27 @@ export function getFileIdentity(file: File): string {
 }
 
 export function getFolderName(files: File[]): string | null {
-  const relativePath = files
-    .map(getFilePath)
-    .find((filePath) => filePath.includes("/"));
-  return relativePath?.split("/")[0] ?? null;
+  if (!files || files.length === 0) {
+    return null;
+  }
+
+  let commonTopFolder: string | null = null;
+
+  for (const file of files) {
+    const filePath = getFilePath(file);
+    const slashIndex = filePath.indexOf("/");
+    if (slashIndex <= 0) {
+      return null;
+    }
+    const topFolder = filePath.slice(0, slashIndex);
+    if (commonTopFolder === null) {
+      commonTopFolder = topFolder;
+    } else if (commonTopFolder !== topFolder) {
+      return null;
+    }
+  }
+
+  return commonTopFolder;
 }
 
 export function validateImageFiles(files: File[]): FileSelectionIssue[] {

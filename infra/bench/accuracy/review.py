@@ -28,6 +28,7 @@ try:
         compute_coverage,
         compute_iou,
         get_redacted_box,
+        find_detections,
         load_detections,
         load_labels,
         manifest_path_to_filename,
@@ -38,6 +39,7 @@ except ImportError:
         compute_coverage,
         compute_iou,
         get_redacted_box,
+        find_detections,
         load_detections,
         load_labels,
         manifest_path_to_filename,
@@ -398,8 +400,8 @@ def evaluate_run_review(
     else:
         op_thresh = 0.35
 
-    dets_file = os.path.join(run_dir, "detections.jsonl")
-    if not os.path.isfile(dets_file):
+    dets_file = find_detections(run_dir)
+    if dets_file is None:
         raise FileNotFoundError(
             f"detections.jsonl not found in {run_dir}. Run must be recorded with --save-detections."
         )
@@ -672,8 +674,7 @@ def main() -> None:
         if not os.path.isdir(rdir):
             print(f"Skipping '{rdir}' (not a directory)")
             continue
-        dets_file = os.path.join(rdir, "detections.jsonl")
-        if not os.path.isfile(dets_file):
+        if find_detections(rdir) is None:
             print(f"Skipping '{rdir}' (no detections.jsonl)")
             continue
         valid_dirs.append(rdir)

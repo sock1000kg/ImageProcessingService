@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import gzip
 import json
 import math
 import os
@@ -290,10 +291,20 @@ def load_labels(labels_file: str) -> Dict[str, Dict[str, Any]]:
     return labels_by_img
 
 
+def find_detections(run_dir: str) -> Optional[str]:
+    """Path of the run's detections file: detections.jsonl, or detections.jsonl.gz as committed. None if neither exists."""
+    for name in ("detections.jsonl", "detections.jsonl.gz"):
+        path = os.path.join(run_dir, name)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
 def load_detections(detections_file: str) -> Dict[str, List[Dict[str, Any]]]:
-    """Load detections JSONL file mapped by image filename."""
+    """Load detections JSONL file (plain or .gz) mapped by image filename."""
     dets_by_img: Dict[str, List[Dict[str, Any]]] = {}
-    with open(detections_file, "r", encoding="utf-8") as f:
+    opener = gzip.open if detections_file.endswith(".gz") else open
+    with opener(detections_file, "rt", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -685,9 +696,9 @@ def evaluate_run(
 
     padding = float(meta.get("padding", 0.1))
 
-    dets_path = os.path.join(run_dir, "detections.jsonl")
-    if not os.path.isfile(dets_path):
-        raise FileNotFoundError(f"Detections file not found: {dets_path}")
+    dets_path = find_detections(run_dir)
+    if dets_path is None:
+        raise FileNotFoundError(f"Detections file not found in {run_dir} (detections.jsonl or detections.jsonl.gz)")
 
     labels_by_img = load_labels(labels_file)
     dets_by_img = load_detections(dets_path)
@@ -1161,8 +1172,7 @@ def main() -> None:
             if not os.path.isdir(rdir):
                 print(f"Skipping '{rdir}' (not a directory)")
                 continue
-            dets_f = os.path.join(rdir, "detections.jsonl")
-            if not os.path.isfile(dets_f):
+            if find_detections(rdir) is None:
                 print(f"Skipping review evaluation for '{rdir}' (no detections.jsonl)")
                 continue
             print(f"Evaluating review warning for {rdir}...")

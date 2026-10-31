@@ -1,3 +1,6 @@
+/**
+ * Drag-and-drop file and directory intake zone supporting folder traversal and click selection.
+ */
 import { DragEvent, useEffect, useRef, useState } from "react";
 import {
   ClassifiedDrop,
@@ -13,14 +16,18 @@ import {
   WebkitFileEntry,
 } from "./file-selection";
 
-type Props = {
+export interface FileDropzoneProps {
   files: File[];
   errors: Record<string, string>;
   onFiles: (files: File[]) => void;
   onFolderFiles?: (files: File[]) => void;
-};
+}
 
-export function FileDropzone({ files, errors, onFiles, onFolderFiles }: Props) {
+/**
+ * Dropzone component accepting individual image drops, folder drops via webkitGetAsEntry,
+ * or standard button file pickers.
+ */
+export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDropzoneProps) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -158,8 +165,14 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: Props) {
         aria-label="Choose images to redact"
       >
         <span className="dropzone-icon">↑</span>
-        <strong>{files.length ? `${files.length} image${files.length === 1 ? "" : "s"} selected` : "Drop images here or browse"}</strong>
-        <span>JPG, PNG or WEBP · up to {MAX_BATCH_FILES} files · {maxMb} MB each</span>
+        <strong>
+          {files.length
+            ? `${files.length} image${files.length === 1 ? "" : "s"} selected`
+            : "Drop images here or browse"}
+        </strong>
+        <span>
+          JPG, PNG or WEBP · up to {MAX_BATCH_FILES} files · {maxMb} MB each
+        </span>
         <div className="dropzone-actions">
           <button
             type="button"

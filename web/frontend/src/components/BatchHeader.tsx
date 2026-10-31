@@ -1,14 +1,21 @@
+/**
+ * Batch header component with active status indicators, progress breakdown, and inline renaming.
+ */
 import { useEffect, useRef, useState } from "react";
 import { renameBatch } from "../api";
 import { Batch } from "../types";
+import { StatusBadge } from "./ui/StatusBadge";
 
-type Props = {
+export interface BatchHeaderProps {
   batch: Batch;
   onDelete: () => void;
   onBatchUpdated?: (batch: Batch) => void;
-};
+}
 
-export function BatchHeader({ batch, onDelete, onBatchUpdated }: Props) {
+/**
+ * Displays active batch metadata, overall completion progress, and supports renaming in-place.
+ */
+export function BatchHeader({ batch, onDelete, onBatchUpdated }: BatchHeaderProps) {
   const [name, setName] = useState(batch.name);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(batch.name);
@@ -126,7 +133,7 @@ export function BatchHeader({ batch, onDelete, onBatchUpdated }: Props) {
         <p>Created {new Date(batch.createdAt).toLocaleString()}</p>
       </div>
       <div className="batch-header-meta">
-        <span className={`status ${batch.status.toLowerCase()}`}>{batch.status}</span>
+        <StatusBadge status={batch.status} />
         <strong>
           {completed}/{batch.jobs.length} complete
         </strong>

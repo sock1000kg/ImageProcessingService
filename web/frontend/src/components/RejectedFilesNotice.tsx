@@ -1,26 +1,28 @@
+/**
+ * Dismissible warning notice listing invalid or oversized files rejected during drag-and-drop or selection.
+ */
 import { FileSelectionIssue, formatValidationTitle, getFilePath, getFileIdentity } from "./file-selection";
+import { Banner } from "./ui/Banner";
 
-type Props = {
+export interface RejectedFilesNoticeProps {
   issues: FileSelectionIssue[];
   onDismiss?: () => void;
-};
+}
 
-export function RejectedFilesNotice({ issues, onDismiss }: Props) {
+/**
+ * Renders a summary banner and list of dropped files that failed type or size constraints.
+ */
+export function RejectedFilesNotice({ issues, onDismiss }: RejectedFilesNoticeProps) {
   if (!issues || issues.length === 0) {
     return null;
   }
 
   return (
-    <div className="notice warning-banner" role="status">
+    <Banner variant="warning" className="notice" role="status">
       <div className="notice-header">
         <strong className="notice-title">{formatValidationTitle(issues.length)}</strong>
         {onDismiss && (
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Dismiss rejected files list"
-            onClick={onDismiss}
-          >
+          <button type="button" className="icon-button" aria-label="Dismiss rejected files list" onClick={onDismiss}>
             ×
           </button>
         )}
@@ -31,12 +33,8 @@ export function RejectedFilesNotice({ issues, onDismiss }: Props) {
             <code className="notice-code">{getFilePath(issue.file)}</code> — {issue.reason}
           </li>
         ))}
-        {issues.length > 10 && (
-          <li className="notice-more">
-            +{issues.length - 10} more
-          </li>
-        )}
+        {issues.length > 10 && <li className="notice-more">+{issues.length - 10} more</li>}
       </ul>
-    </div>
+    </Banner>
   );
 }

@@ -2,6 +2,7 @@
 > 1000 images (700 WIDER FACE val + 300 VN plates, ~1024px; `dataset/images-1000.txt`).
 > Laptop node (WSL2, throwaway k3s v1.31.2): Intel i5-12500H, 16 threads, WSL RAM 10GB; GPU NVIDIA RTX 3050 Laptop 4GB (all workers share it).
 > Engine image `05760356…` (same as the lab). Worker limits: 1 CPU, 1536MiB. KEDA lagThreshold 5, cooldown 120s.
+> Model: `yolov8n-oiv7` = YOLOv8 **nano** pretrained on Open Images V7 (600 classes; we keep `Human face` → face, `Vehicle registration plate` → plate), default 640px input (letterboxed; boxes mapped back to the original size). deface uses CenterFace (ONNX) at full resolution.
 > Fixed runs: `--preload --parallel 4` (workers held at 0 while all 1000 jobs are queued, then N released). Autoscale runs: `--parallel 4`, no preload.
 >
 > How to read it:

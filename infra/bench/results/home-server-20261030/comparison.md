@@ -3,6 +3,7 @@
 - CPU only node: Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz, 2 cores - 4 threads. 
 - Worker limits: 1 CPU, 1536MiBs.
 - Container_image: "socknot1000kg/imgproc-engine:05760356e1420a07e32e9ff0c0296eefb5598187"
+- Model: `yolov8n-oiv7` = YOLOv8 **nano** pretrained on Open Images V7 (600 classes; we keep `Human face` → face, `Vehicle registration plate` → plate), default 640px input (letterboxed; boxes mapped back to the original size). deface uses CenterFace (ONNX) at full resolution.
 - dataset: 70 WIDER FACE + 30 VN plate images, about 1024px;
 - KEDA lagThreshold 5, cooldownPeriod 120s;
 - The node is shared with web, Postgres, MinIO and NATS.

@@ -3,7 +3,7 @@
 This benchmark measures the baseline processing performance, latency, throughput, and resource utilization of the `imgproc` image redaction pipeline prior to introducing M2 whitelist embeddings.
 
 The benchmark evaluates the **real processing flow** end-to-end:
-1. Images enter through the real Web API (`POST /api/batches`, batches of 20 images: 5 for the small set, 50 for the large set).
+1. Images enter through the real Web API (the three-step draft → `/files` → `/start` upload, batches of 20 images: 5 for the small set, 50 for the large set).
 2. The Web backend uploads private originals to MinIO, persists job records in PostgreSQL, and publishes commands to NATS JetStream (`jobs.image`).
 3. `image-worker` pods consume jobs, execute YOLO detection and redaction (blurring faces and plates), and publish events back to NATS.
 4. Timestamps and metrics are recorded directly from PostgreSQL (`created_at`, `updated_at`, `processingTimeMs`) and sampled from Kubernetes (`kubectl top`, KEDA/Deployment replica state).
@@ -150,7 +150,7 @@ infra/bench/run.sh [--workers N | --autoscale [--min M] [--max N]] [--imgsz N] [
 - `--preload`: Fixed mode only (refused with `--autoscale`, before touching the cluster). Sets `paused-replicas=0` and waits until there are 0 worker pods, uploads **every** batch (the jobs wait in the queue), then sets `paused-replicas=N`, waits until exactly $N$ pods are Ready and continues as usual. The upload speed is out of the measurement: use the **Drain Throughput** of these runs as the worker-capacity number. There is no warm-up batch (it would queue behind the preloaded jobs), so each worker loads the model on its first job after the release. The pause annotation is removed by `cleanup()` even on Ctrl-C or failure.
 
 ### What `run.sh` Does
-1. Submits all images (100 as 5 batches, or 1000 as 50 batches with `--dataset large`) in batches of 20 images to `POST /api/batches` (one after another, or `--parallel P` at a time) with fixed configuration:
+1. Submits all images (100 as 5 batches, or 1000 as 50 batches with `--dataset large`) in batches of 20 images through the three-step upload (`POST /api/batches` draft, one `/files` request per image, then `/start`; one batch after another, or `--parallel P` at a time) with fixed configuration:
    ```json
    {"targets": ["face", "plate"], "style": "blur"}
    ```

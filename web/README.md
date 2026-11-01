@@ -25,7 +25,7 @@ Postgres  jobs.image       uploads/results
            jobs.events
 ```
 
-The current upload API accepts one multipart request for the whole batch. The planned three-step DRAFT/files/start flow is not enabled yet, so do not use it.
+Uploads use three steps: `POST /api/batches` creates a `DRAFT` batch, `POST /api/batches/:id/files` adds one image per request, and `POST /api/batches/:id/start` queues the jobs.
 
 ## Prerequisites
 

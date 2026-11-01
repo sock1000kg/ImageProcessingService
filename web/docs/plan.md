@@ -7,14 +7,6 @@ Ký hiệu trong task:
 - **[Cần Infra]**: nhờ Đạt.
 - **[Đổi contract]**: thay đổi `docs/integration-contracts.md`, phải báo cả nhóm.
 
-## Hiện trạng (30/10)
-
-Backend đã theo contract mới (Task 14, 16): batch + job `image-redact` trên `jobs.image`, event theo §3/§8, xoá dữ liệu theo §5, Prisma (schema +
-`npm run db:studio`), ErrorDTO `{ error: { code, message, details? } }`, layout `domain/` + `dto/` + `routes/controllers/services/repositories`, test ở
-`backend/tests/{unit,service}` và `frontend/tests`.
-Đức Huy (30/10, trên main): thử lại ảnh lỗi (`POST /api/jobs/:id/retry`), báo cáo nâng cao (`needsReview`), chọn thư mục (vẫn tối đa 20 ảnh), UI M3 tách
-component (form cấu hình có checkbox mặt/biển số, xem trước, trang batch, thanh trượt, báo cáo). Chủ task tự tick sau khi kiểm tra trên lab.
-
 ## Quy tắc để không giẫm chân nhau:
 
 - **Prisma:** mỗi tính năng tự thêm field/model và migration của mình. `git pull` **trước** khi chạy `prisma migrate dev`; không sửa migration của người
@@ -22,8 +14,6 @@ component (form cấu hình có checkbox mặt/biển số, xem trước, trang 
 - **Backend:** mỗi tính năng có `routes/<x>.routes.ts` + controller + service + repository riêng. `app.ts` chỉ thêm một dòng đăng ký router.
 - **Frontend:** mỗi tính năng có component/trang riêng. `main.tsx` chỉ thêm một dòng gắn trang. Hàm gọi API tách theo tính năng (`api/batches.ts`,
   `api/reports.ts`...), không cùng sửa một file.
-- Chỗ giao nhau: upload từng ảnh (Đạt) chỉ đổi đường gửi file trong `BatchCreateForm` (thay một lần `POST` bằng helper `uploadBatch(files, config,
-onProgress)`), không đổi giao diện form; báo Đức Huy trước khi sửa. Ô nhập tên batch (Đạt) thêm vào form, trang batch hiện tên đó.
 - Mỗi tính năng một branch, PR nhỏ. Endpoint mới hoặc đổi ghi vào `web/README.md` trong cùng PR.
 - Phase 2: **tài khoản làm đầu tiên** (thêm `userId` cho batch, chặn API). Mọi tính năng merge sau đó phải chỉ trả/xoá dữ liệu của chính user. Đức Huy
   bắt đầu video trong lúc Đạt làm tài khoản.
@@ -50,9 +40,9 @@ onProgress)`), không đổi giao diện form; báo Đức Huy trước khi sử
 Đường dẫn cụ thể do Web quyết định. Contract §9 chỉ liệt kê khả năng cần có.
 
 - **Tasks:**
-  - [x] Tạo batch: multipart nhiều `files` (JPG/PNG/WEBP, giới hạn số lượng + dung lượng mỗi file), 0..n `whitelist` (ảnh chân dung), `config` (targets, style, strength, padding, `quality` (`standard`/`high`/`max`) → `params.output.quality`, `format` (`original`/`jpg`/`png`/`webp`) → đuôi của `output.key`, confidenceThreshold, reviewThreshold, similarityThreshold). Validate rõ ràng, lỗi 4xx kèm message.
+  - [x] Tạo batch (nay theo 3 bước ở task upload từng ảnh bên dưới): ảnh JPG/PNG/WEBP (giới hạn số lượng + dung lượng mỗi file), 0..5 `whitelist` (ảnh chân dung), `config` (targets, style, strength, padding, `quality` (`standard`/`high`/`max`) → `params.output.quality`, `format` (`original`/`jpg`/`png`/`webp`) → đuôi của `output.key`, confidenceThreshold, reviewThreshold, similarityThreshold). Validate rõ ràng, lỗi 4xx kèm message.
   - [x] Xem batch: thông tin batch + danh sách job (trạng thái, `counts`, `resultUrl`).
-  - [x] **[Đạt]** **Upload từng ảnh một request** (thay cho một request cả batch). Hiện tại `POST /api/batches` gửi mọi ảnh + whitelist trong **một** multipart: multer đọc hết vào RAM rồi mới kiểm tra tổng `BATCH_MAX_BYTES` (90MB), nên batch chỉ được 20 ảnh/90MB, giới hạn 50MB mỗi file gần như vô nghĩa, và local (không có Cloudflare chặn 100MB) có thể dồn tới 20×50MB vào RAM pod 512Mi. Đổi thành 3 bước:
+  - [x] **[Đạt]** **Upload từng ảnh một request** (thay cho một multipart cả batch, trước đây bị giới hạn 20 ảnh/90MB và dồn hết vào RAM pod). 3 bước:
     - `POST /api/batches` (`config` + 0..5 ảnh whitelist + `name` tuỳ chọn) → batch ở trạng thái `DRAFT`.
     - `POST /api/batches/:id/files`: một ảnh mỗi request (≤ `UPLOAD_MAX_BYTES`), tạo job `PENDING`. Tối đa `BATCH_MAX_FILES` (ví dụ 100). Sau `start` → 409.
     - `POST /api/batches/:id/start`: publish các job `PENDING` lên `jobs.image`. Gọi lại không publish trùng; publish lỗi thì gọi lại để gửi phần còn thiếu.
@@ -61,7 +51,7 @@ onProgress)`), không đổi giao diện form; báo Đức Huy trước khi sử
   - [x] **[Đạt]** **Tên batch** (sau khi có upload từng ảnh): cột `name` (≤ 100 ký tự, tuỳ chọn). Bỏ trống thì đặt mặc định: tên thư mục nếu upload thư mục, không thì `Batch <ngày giờ>`. Trả `name` trong response batch, hiện trên trang batch. Đổi tên bằng `PATCH /api/batches/:id` (`{ name }`).
   - [x] **[Đạt]** **Upload cả thư mục** (sau khi có upload từng ảnh): thêm nút "Chọn thư mục" (`<input type="file" webkitdirectory>`, lấy cả thư mục con). Lọc ở client chỉ giữ JPG/PNG/WEBP (input thư mục bỏ qua `accept`), báo số file bị bỏ qua. Một thư mục = một batch, tên batch mặc định = tên thư mục. Vẫn theo giới hạn `BATCH_MAX_FILES`: vượt thì báo trước khi tải, không cắt âm thầm. Kéo-thả thư mục (`webkitGetAsEntry()`) là [Could].
   - [x] Ảnh gốc cho thanh trượt: endpoint trả ảnh gốc từ `uploads` (stream qua backend, hoặc presigned URL ngắn hạn). Bucket `uploads` là private. (`GET /api/jobs/:id/original`)
-  - [ ] **[Đức Huy]** Thử lại ảnh `FAILED`: tạo job `image-redact` mới cho đúng ảnh đó. Phase 1: input còn trong TTL 24h thì thử lại được, hết hạn thì trả 410 (từ Phase 2 không còn giới hạn này, xem thư viện media). Batch có whitelist mà ảnh mẫu đã bị xoá cũng trả 410 (contract §5).
+  - [x] **[Đức Huy]** Thử lại ảnh `FAILED`: tạo job `image-redact` mới cho đúng ảnh đó. Phase 1: input còn trong TTL 24h thì thử lại được, hết hạn thì trả 410 (từ Phase 2 không còn giới hạn này, xem thư viện media). Batch có whitelist mà ảnh mẫu đã bị xoá cũng trả 410 (contract §5).
   - [x] **Xoá dữ liệu** (contract §5): `DELETE` batch xoá prefix `uploads/<batchId>/` + `results/<batchId>/` trên MinIO rồi xoá dòng PG. Xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch kết thúc. Tác vụ định kỳ xoá (hoặc đánh dấu `EXPIRED`) batch quá 24h. Xem batch đã xoá/hết hạn → 404/410 kèm message.
   - [x] Báo cáo batch (JSON) cơ bản: tổng số ảnh, số khuôn mặt/biển số, đã che, được whitelist, `lowConfidence`, số liệu từng ảnh, lỗi (`GET /api/batches/:id/report`, format trong `web/README.md`).
   - [x] **[Đạt]** Báo cáo nâng cao: danh sách phát hiện `lowConfidence` (ảnh nào, box nào, confidence), model đã dùng, thời gian xử lý, và:
@@ -74,12 +64,12 @@ onProgress)`), không đổi giao diện form; báo Đức Huy trước khi sử
 ## Milestone 3: Giao diện (01/11 → 12/11)
 
 - **Tasks:**
-  - [ ] **[Đức Huy]** **Trang tạo batch:** kéo-thả nhiều ảnh (preview thumbnail, bỏ từng ảnh), khu vực "Người cần giữ nguyên" để thêm ảnh chân dung whitelist, chọn đối tượng che bằng **checkbox** mặt/biển số (chọn một hoặc cả hai, bắt buộc ít nhất một; gửi `targets` tương ứng, contract đã hỗ trợ, hiện UI gửi cứng cả hai), style (Blur/Pixelate/Blackout), độ mạnh. Chọn định dạng xuất (Giữ nguyên/JPG/PNG/WEBP) và chất lượng (Tiêu chuẩn/Cao/Tối đa, mặc định Cao). Có "Nâng cao" cho các ngưỡng. Kiểm tra định dạng/dung lượng ngay trên trình duyệt.
-  - [ ] **[Đức Huy]** **Trang batch:** dropdown (hoặc danh sách thu gọn) liệt kê các ảnh trong batch, mỗi ảnh hiện trạng thái hiện tại (`QUEUED`/`PROCESSING`/`COMPLETED`/`FAILED`). Chọn một ảnh để mở phần xem kết quả bên dưới. Không cần lưới ảnh hay thanh progress. Kèm số ảnh đã xong (x/N), nút thử lại ảnh lỗi, nút tải báo cáo JSON, "Tải tất cả" (link từng ảnh, zip để Phase 2), nút **"Xoá dữ liệu"** (có xác nhận) và dòng "tự xoá lúc <giờ>". Trạng thái tự cập nhật (polling vài giây là đủ).
-  - [ ] **[Đức Huy]** **Xem một ảnh:** thanh trượt before/after (ảnh gốc ↔ kết quả). Danh sách phát hiện (mặt/biển số, confidence, cảnh báo `lowConfidence`, nhãn "whitelist").
-  - [ ] **[Đức Huy]** **Ảnh mẫu xem trước:** cạnh form cấu hình có một ảnh mẫu cố định (ví dụ cảnh đường phố có người và xe) với các vùng mặt/biển số đánh dấu sẵn trong code. Khi người dùng đổi style, độ mạnh hoặc bỏ chọn mặt/biển số, ảnh mẫu vẽ lại ngay trên `<canvas>` (blur: `ctx.filter = "blur(Npx)"` trong vùng box; pixelate: vẽ thu nhỏ rồi phóng lại với `imageSmoothingEnabled = false`; blackout: `fillRect`). Không gọi server, không chạy AI. Kết quả thật của từng ảnh trả về đã đúng style đã chọn. Độ mạnh tính **theo kích thước box** giống engine (contract §2, `strength` tương đối, chờ chốt với Engine), để xem trước khớp kết quả thật với mặt to/nhỏ.
-  - [ ] **[Đức Huy]** **Báo cáo trên web:** bảng tổng hợp (mặt/biển số tìm thấy, đã che, giữ nguyên theo whitelist, từng người whitelist xuất hiện mấy ảnh). Danh sách ảnh **sắp xếp ảnh `needsReview` lên đầu, tô đỏ**, kèm lý do ("confidence 0.41", "khuôn mặt giữ nguyên sát ngưỡng 0.62"), sau đó theo điểm tin cậy tăng dần. Dropdown ảnh ở trang batch dùng cùng thứ tự và màu.
-  - [ ] **[Đức Huy]** Lỗi API và job `FAILED` (`error.code` + message) hiện rõ trên UI, không chỉ log console.
+  - [x] **[Đức Huy]** **Trang tạo batch:** kéo-thả nhiều ảnh (preview thumbnail, bỏ từng ảnh), khu vực "Người cần giữ nguyên" để thêm ảnh chân dung whitelist, chọn đối tượng che bằng **checkbox** mặt/biển số (chọn một hoặc cả hai, bắt buộc ít nhất một; gửi `targets` tương ứng, contract đã hỗ trợ, hiện UI gửi cứng cả hai), style (Blur/Pixelate/Blackout), độ mạnh. Chọn định dạng xuất (Giữ nguyên/JPG/PNG/WEBP) và chất lượng (Tiêu chuẩn/Cao/Tối đa, mặc định Cao). Có "Nâng cao" cho các ngưỡng. Kiểm tra định dạng/dung lượng ngay trên trình duyệt.
+  - [ ] **[Đức Huy]** **Trang batch:** nút "Tải tất cả" (link từng ảnh, zip để Phase 2). Dòng "tự xoá lúc <giờ>" hiện giờ cụ thể thay cho "sau 24 giờ".
+  - [x] **[Đức Huy]** **Xem một ảnh:** thanh trượt before/after (ảnh gốc ↔ kết quả). Danh sách phát hiện (mặt/biển số, confidence, cảnh báo `lowConfidence`, nhãn "whitelist").
+  - [ ] **[Đức Huy]** **Ảnh mẫu xem trước:** thay hình giả trong `PreviewCanvas` bằng một ảnh mẫu cố định (đường phố có người và xe) với box mặt/biển số viết sẵn trong code. Vẽ hiệu ứng thật trên `<canvas>` (blur: `ctx.filter = "blur(Npx)"`; pixelate: thu nhỏ rồi phóng lại với `imageSmoothingEnabled = false`; blackout: `fillRect`), theo checkbox mặt/biển số. Độ mạnh tính theo kích thước box giống engine (contract §2, chờ chốt `strength` tương đối với Engine).
+  - [ ] **[Đức Huy]** **Báo cáo trên web:** hiện từng người whitelist xuất hiện mấy ảnh, ảnh nào (`whitelistPeople`). Danh sách ảnh ở trang batch dùng cùng thứ tự với báo cáo (hiện đưa `FAILED` lên đầu, báo cáo để cuối).
+  - [ ] **[Đức Huy]** Ảnh `FAILED` hiện `error.code` + message của job (hiện chỉ ghi "This image failed processing.").
 - **Kiểm chứng (thủ công):** chạy compose local + engine local (hoặc publish event tay theo contract §3), đi hết luồng trên với 5–10 ảnh có mặt người và xe.
 
 ## Milestone 4: Deploy và demo (10/11 → 15/11)
@@ -87,9 +77,8 @@ onProgress)`), không đổi giao diện form; báo Đức Huy trước khi sử
 - **Tasks:**
   - [x] **[Cần Infra]** Deploy web lên `imgproc`: Deployment + Service + HTTPRoute `/` và `/api` (giữ `/results/` → MinIO), Secret (`DATABASE_URL`, MinIO credentials), memory limit. Image `socknot1000kg/imgproc-web` do CI build theo SHA. (Infra, 24/10)
   - [x] Toàn bộ cấu hình qua env. Liệt kê biến env trong `web/README.md`.
-  - [x] Giới hạn upload dưới giới hạn body của Cloudflare (100MB/request ở gói free): `BATCH_MAX_BYTES` mặc định 90MB, `UPLOAD_MAX_BYTES` cho từng file. Traefik không giới hạn thêm.
+  - [x] Giới hạn upload dưới giới hạn body của Cloudflare (100MB/request ở gói free): mỗi request một ảnh ≤ `UPLOAD_MAX_BYTES` (50MB), `BATCH_MAX_FILES` ảnh mỗi batch. Traefik không giới hạn thêm.
   - [ ] **[Đạt + Đức Huy]** **[Cần Engine]** Chạy luồng thật với worker engine trên lab. Ghi lại chỗ lệch contract và sửa ở phía chịu trách nhiệm (contract §6).
-  - [ ] **[Đạt]** Kịch bản demo (`web/docs/demo.md`): bộ ảnh mẫu (đường phố, sự kiện có người quen), các bước thao tác, chỗ nên dừng giải thích (whitelist, chỉnh độ mạnh, báo cáo).
 - **Kiểm chứng:** demo trọn luồng trên hostname public với bộ ảnh mẫu 20 ảnh. Không ảnh nào kẹt ở `QUEUED`/`PROCESSING`.
 
 ---

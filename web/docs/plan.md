@@ -78,7 +78,7 @@ Ký hiệu trong task:
   - [x] **[Cần Infra]** Deploy web lên `imgproc`: Deployment + Service + HTTPRoute `/` và `/api` (giữ `/results/` → MinIO), Secret (`DATABASE_URL`, MinIO credentials), memory limit. Image `socknot1000kg/imgproc-web` do CI build theo SHA. (Infra, 24/10)
   - [x] Toàn bộ cấu hình qua env. Liệt kê biến env trong `web/README.md`.
   - [x] Giới hạn upload dưới giới hạn body của Cloudflare (100MB/request ở gói free): mỗi request một ảnh ≤ `UPLOAD_MAX_BYTES` (50MB), `BATCH_MAX_FILES` ảnh mỗi batch. Traefik không giới hạn thêm.
-  - [ ] **[Đạt + Đức Huy]** **[Cần Engine]** Chạy luồng thật với worker engine trên lab. Ghi lại chỗ lệch contract và sửa ở phía chịu trách nhiệm (contract §6).
+  - [x] **[Đạt + Đức Huy]** **[Cần Engine]** Chạy luồng thật với worker engine trên lab. Ghi lại chỗ lệch contract và sửa ở phía chịu trách nhiệm (contract §6).
 - **Kiểm chứng:** demo trọn luồng trên hostname public với bộ ảnh mẫu 20 ảnh. Không ảnh nào kẹt ở `QUEUED`/`PROCESSING`.
 
 ---
@@ -87,7 +87,7 @@ Ký hiệu trong task:
 
 Tier: **[Must]** phải có, **[Should]** nên có, **[Could]** nếu còn thời gian.
 
-- [ ] **[Đạt]** **[Must, làm đầu tiên]** Xác thực cơ bản:
+- [ ] **[Đức Huy]** **[Must, làm đầu tiên]** Xác thực cơ bản:
   - Đăng ký/đăng nhập. JWT access token ngắn hạn + refresh token (httpOnly cookie, xoay vòng khi refresh, thu hồi khi đăng xuất).
   - Đăng ký cần **mã đăng ký** (env `REGISTER_KEY`), nhập trên form đăng ký: chỉ người trong nhóm tạo được tài khoản. Thiếu env → tắt đăng ký.
   - Rate-limit: chặt cho đăng nhập/đăng ký (chống dò mật khẩu/mã), vừa phải cho tạo batch/upload.
@@ -100,11 +100,11 @@ Tier: **[Must]** phải có, **[Should]** nên có, **[Could]** nếu còn thờ
 - [ ] **[Đức Huy]** **[Must]** Video: tải lên MP4 H.264 15–60s (kiểm tra thời lượng/codec), dùng chung cấu hình che + whitelist, publish `video-redact` lên `jobs.video`, theo dõi progress (worker gửi % theo khung hình), xem/tải video kết quả. **[Cần Engine]** chốt `resultSummary` của video (contract §2B, §3 B2).
   - Batch trộn ảnh + video (ví dụ upload cả thư mục): cùng một cấu hình, mỗi file một job, backend chọn pool theo loại file (`jobs.image`/`jobs.video`). Báo cáo và zip gộp cả hai.
   - Cần kiểm tra trong video: danh sách **thời điểm bị đánh dấu** (đối tượng theo track, khoảng thời gian, lý do). Bấm vào thì tua cả video gốc và kết quả tới đó (hai `<video>` đồng bộ `currentTime`, hoặc một player có nút bật/tắt bản gốc). **[Cần Engine]** `resultSummary` video có khoảng khung hình theo track.
-- [ ] **[Đức Huy]** **[Must]** Xuất báo cáo PDF từ báo cáo JSON (render phía server hoặc in từ trang báo cáo).
+- [ ] **[Đức Huy]** **[Could]** Xuất báo cáo PDF từ báo cáo JSON (render phía server hoặc in từ trang báo cáo).
 - [ ] **[Đạt]** **[Should]** Danh sách khuôn mặt đã lưu (**opt-in**): nút "Tạo allowList/blockList" lưu ảnh mẫu theo tài khoản (`uploads/lists/<userId>/<listId>/`, private), đặt tên, dùng lại khi tạo batch. Giữ tới khi user xoá danh sách; xoá danh sách thì xoá object MinIO ngay. Không bấm lưu thì như hiện tại: ảnh mẫu thuộc batch, xoá khi batch kết thúc. **[Đổi contract]** §5 (nơi lưu + quy tắc giữ dữ liệu sinh trắc).
-- [ ] **[Đạt]** **[Could]** Chế độ **blockList**: chỉ che những khuôn mặt khớp danh sách, người khác giữ nguyên. Mỗi batch chọn allow **hoặc** block. Nguy cơ: khớp trượt (góc nghiêng, thiếu sáng) thì người cần che bị **lộ** (fail-open, ngược với allowList). Bắt buộc: ngưỡng thấp hơn ở chế độ block, khuôn mặt sát ngưỡng vào `needsReview`, cảnh báo rõ trên UI. **[Cần Engine]** **[Đổi contract]** thêm chế độ cho `params.whitelist`.
-- [ ] **[Đạt]** **[Should]** Whitelist biển số: nhập danh sách biển số (cả chế độ allow/block như khuôn mặt). **[Cần Engine]** cần OCR (không có OCR thì không biết biển nào là biển nào). **[Đổi contract]** thêm `whitelist.plates`.
-- [ ] **[Đức Huy]** **[Could]** Nút **"Sửa ảnh"** trong danh sách kết quả: bật/tắt từng box, vẽ thêm box, đổi style/độ mạnh, rồi render lại ảnh đó mà không chạy lại AI. **[Cần Engine]** **[Đổi contract]** cần thêm job chỉ render theo box có sẵn. Demo không phụ thuộc lỗi của model: dùng ảnh có mặt người trên poster (bỏ che) và bảng tên/số nhà (vẽ thêm box).
+- [ ] **[Đạt]** **[Should]** Chế độ **blockList**: chỉ che những khuôn mặt khớp danh sách, người khác giữ nguyên. Mỗi batch chọn allow **hoặc** block. Nguy cơ: khớp trượt (góc nghiêng, thiếu sáng) thì người cần che bị **lộ** (fail-open, ngược với allowList). Bắt buộc: ngưỡng thấp hơn ở chế độ block, khuôn mặt sát ngưỡng vào `needsReview`, cảnh báo rõ trên UI. **[Cần Engine]** **[Đổi contract]** thêm chế độ cho `params.whitelist`.
+- [ ] **[Đức Huy]** **[Should]** Whitelist biển số: nhập danh sách biển số (cả chế độ allow/block như khuôn mặt). **[Cần Engine]** cần OCR (không có OCR thì không biết biển nào là biển nào). **[Đổi contract]** thêm `whitelist.plates`.
+- [ ] **[Đức Huy]** **[Should]** Nút **"Sửa ảnh"** trong danh sách kết quả: bật/tắt từng box, vẽ thêm box, đổi style/độ mạnh, rồi render lại ảnh đó mà không chạy lại AI. **[Cần Engine]** **[Đổi contract]** cần thêm job chỉ render theo box có sẵn. Demo không phụ thuộc lỗi của model: dùng ảnh có mặt người trên poster (bỏ che) và bảng tên/số nhà (vẽ thêm box).
 - [ ] **[Đạt]** **[Should]** Tải cả batch dạng zip: `GET /api/batches/:id/download.zip` (chỉ chủ batch). Backend đọc từng kết quả `COMPLETED` từ MinIO và **stream** thẳng vào zip (`archiver`/`yazl`): không giữ trong RAM, không lưu file zip. Tên file trong zip theo tên ảnh gốc (trùng tên thì thêm hậu tố). Dùng chung cho trang batch và thư viện media. Giới hạn 100MB của Cloudflare chỉ áp cho body request nên tải về không bị ảnh hưởng.
 - [ ] **[Đức Huy]** **[Could]** Trang thống kê hệ thống cho buổi bảo vệ: số job theo trạng thái, độ dài hàng đợi từng pool, số worker. **[Cần Infra]** nguồn số liệu (NATS monitoring/KEDA).
 

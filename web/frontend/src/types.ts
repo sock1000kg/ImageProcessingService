@@ -61,6 +61,7 @@ export type ReportImage = {
   similarityThreshold: number | null;
   error: { code?: string; message?: string } | null;
   attempts?: number;
+  createdAt?: string;
 };
 
 /**
@@ -144,4 +145,9 @@ export type Batch = {
   startedAt?: string | null;
   createdAt: string;
   jobs: Job[];
+};
+
+export type User = {
+  id: string;
+  email: string;
 };

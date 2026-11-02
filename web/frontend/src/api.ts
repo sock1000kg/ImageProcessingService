@@ -2,14 +2,27 @@
  * HTTP client API layer communicating with the backend REST endpoints.
  */
 import { Batch, BatchReport, Job } from "./types";
+import { getAccessToken, refreshAccessToken } from "./auth";
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+async function request<T>(url: string, init?: RequestInit, retry = true): Promise<T> {
+  const token = getAccessToken();
+  const requestInit: RequestInit = { ...init };
+  if (token) {
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    requestInit.headers = headers;
+    requestInit.credentials = "include";
+  }
+  const response = await fetch(url, init || token ? requestInit : undefined);
   if (response.status === 204) {
     return {} as T;
   }
   const data = await response.json();
   if (!response.ok) {
+    if (response.status === 401 && retry && !url.startsWith("/api/auth/")) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) return request<T>(url, init, false);
+    }
     const message = data.error?.message ?? (typeof data.error === "string" ? data.error : "Request failed");
     throw new Error(message);
   }

@@ -3,6 +3,7 @@
  */
 import { Router } from "express";
 import { getHealthHandler, getReadyHandler, getSystemStatsHandler } from "../controllers/system.controller";
+import { requireAuth } from "../middleware/auth.middleware";
 
 export const systemRouter = Router();
 
@@ -28,4 +29,4 @@ systemRouter.get("/ready", getReadyHandler);
  * Response: 200 { jobs: Record<JobStatus, number> }
  * Errors: 500 INTERNAL_SERVER_ERROR if database query fails
  */
-systemRouter.get("/api/system/stats", getSystemStatsHandler);
+systemRouter.get("/api/system/stats", requireAuth, getSystemStatsHandler);

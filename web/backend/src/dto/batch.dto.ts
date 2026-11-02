@@ -86,6 +86,7 @@ export interface ReportImageDTO {
   similarityThreshold: number | null;
   error: JobError | null;
   attempts: number;
+  createdAt: string;
 }
 
 export interface ReportDetectionDTO {
@@ -360,6 +361,7 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
       similarityThreshold: batchConfig.similarityThreshold,
       error: err,
       attempts,
+      createdAt: job.createdAt instanceof Date ? job.createdAt.toISOString() : String(job.createdAt),
     };
   });
 
@@ -500,11 +502,11 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
 
 function compareReportImages(a: ReportImageDTO, b: ReportImageDTO): number {
   const getGroup = (img: ReportImageDTO): number => {
-    if (img.status === "FAILED") return 5;
+    if (img.status === "FAILED") return 0;
     if (img.needsReview) {
-      return img.lowestRedactedConfidence !== null ? 1 : 2;
+      return 1;
     }
-    return img.lowestRedactedConfidence !== null ? 3 : 4;
+    return 2;
   };
 
   const groupA = getGroup(a);
@@ -514,17 +516,15 @@ function compareReportImages(a: ReportImageDTO, b: ReportImageDTO): number {
     return groupA - groupB;
   }
 
-  if (groupA === 1 || groupA === 3) {
-    const confA = a.lowestRedactedConfidence!;
-    const confB = b.lowestRedactedConfidence!;
-    if (confA !== confB) {
-      return confA - confB;
-    }
+  const confA = a.lowestRedactedConfidence ?? Number.POSITIVE_INFINITY;
+  const confB = b.lowestRedactedConfidence ?? Number.POSITIVE_INFINITY;
+  if (confA !== confB) {
+    return confA - confB;
   }
 
-  const filenameCmp = a.originalFilename.localeCompare(b.originalFilename);
-  if (filenameCmp !== 0) {
-    return filenameCmp;
+  const createdCmp = a.createdAt.localeCompare(b.createdAt);
+  if (createdCmp !== 0) {
+    return createdCmp;
   }
 
   return a.jobId.localeCompare(b.jobId);

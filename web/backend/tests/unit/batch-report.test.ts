@@ -338,12 +338,12 @@ describe("advanced batch report features (Task 30)", () => {
 
     const filenames = report.images.map((img) => img.originalFilename);
     expect(filenames).toEqual([
+      "d-g5-failed.jpg", // FAILED
       "a-g1-conf35.jpg", // Group 1 (conf 0.35)
       "z-g1-conf50.jpg", // Group 1 (conf 0.50)
       "m-g2-kept.jpg", // Group 2 (needsReview, conf null)
       "b-g3-highconf.jpg", // Group 3 (no review, conf 0.95)
       "c-g4-nodet.jpg", // Group 4 (no review, conf null)
-      "d-g5-failed.jpg", // Group 5 (FAILED)
     ]);
 
     // reviewImages follows the same image order

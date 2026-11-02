@@ -27,6 +27,8 @@ Postgres  jobs.image       uploads/results
 
 Uploads use three steps: `POST /api/batches` creates a `DRAFT` batch, `POST /api/batches/:id/files` adds one image per request, and `POST /api/batches/:id/start` queues the jobs.
 
+Phase 2 authentication uses email as the unique login identifier. Access tokens are short-lived JWTs kept in frontend memory. Refresh tokens are rotated, stored only as hashes in PostgreSQL, and sent to the browser through an `httpOnly` cookie. Registration requires `REGISTER_KEY`; when that variable is absent, registration is disabled.
+
 ## Prerequisites
 
 Install:
@@ -110,6 +112,11 @@ PUBLIC_RESULTS_BASE_URL=/results
 UPLOAD_MAX_BYTES=52428800
 BATCH_MAX_FILES=100
 CLEANUP_INTERVAL_MS=600000
+JWT_SECRET=replace-with-at-least-32-random-characters
+JWT_ACCESS_TTL=900
+JWT_REFRESH_TTL=604800
+REGISTER_KEY=change-this-team-registration-key
+COOKIE_SECURE=false
 ```
 
 `infra/.env` and `web/.env` have different purposes:
@@ -223,6 +230,11 @@ The Engine must have its Python environment, model weights, and configuration re
 | `POST`   | `/api/jobs/:id/retry`     | Retry a `FAILED` job with a new job ID and output key                                                            |
 | `GET`    | `/api/jobs/:id/original`  | Stream the private original image                                                                                |
 | `GET`    | `/api/system/stats`       | Job counts grouped by status                                                                                     |
+| `POST`   | `/api/auth/register`      | Create an account with email, password, and `REGISTER_KEY`                                                       |
+| `POST`   | `/api/auth/login`         | Sign in and receive a short-lived access token                                                                   |
+| `POST`   | `/api/auth/refresh`       | Rotate the `httpOnly` refresh cookie and issue a new access token                                                |
+| `POST`   | `/api/auth/logout`        | Revoke the current refresh token and clear the cookie                                                            |
+| `GET`    | `/api/auth/me`            | Return the authenticated user's public profile                                                                   |
 | `GET`    | `/health`                 | Liveness check                                                                                                   |
 | `GET`    | `/ready`                  | PostgreSQL, NATS, and MinIO readiness check                                                                      |
 
@@ -289,14 +301,15 @@ The report keeps Engine-provided review signals authoritative. An image is marke
   - `"redacted face near whitelist threshold (similarity 0.58, threshold 0.60)"` otherwise;
   - `"engine flagged for review"`.
     Image-level `reviewNotes` deduplicates detection notes, placing kept-face notes first due to privacy risk. Existing `reviewReasons` strings remain unchanged.
-- **Image ordering**: Images are sorted across five groups:
-  1. Images with `needsReview: true` and a numeric `lowestRedactedConfidence` (sorted ascending by lowest redacted confidence);
-  2. Images with `needsReview: true` and `lowestRedactedConfidence: null` (e.g. kept face near whitelist threshold);
-  3. Completed images with `needsReview: false` and numeric `lowestRedactedConfidence` (sorted ascending);
-  4. Completed images with `lowestRedactedConfidence: null` (no detections);
-  5. `FAILED` images.
-     Within each group, `originalFilename` (then `jobId`) serves as the tie-break. `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
+- **Image ordering**: Images are sorted consistently in the report and UI:
+  1. `FAILED` images;
+  2. images with `needsReview: true`;
+  3. lowest non-null `lowestRedactedConfidence` ascending;
+  4. `createdAt` ascending as the tie-break.
+     `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
 - **Batch-level extras**: Exposes `models: string[]` (unique non-null models across latest completed attempts) and `processingTimeMs: { total, mean, max } | null` over the latest completed attempts.
+
+The batch page shows the automatic deletion time as 24 hours after `createdAt`, using the browser's locale. It also provides **Download all results**, which starts one download per completed job with a `resultUrl`; ZIP export is not implemented in Phase 1. The local PreviewCanvas uses a bundled SVG sample image only and never uploads it.
 
 ## Error response format
 

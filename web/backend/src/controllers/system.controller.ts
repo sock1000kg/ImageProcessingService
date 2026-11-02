@@ -27,9 +27,9 @@ export async function getReadyHandler(_req: Request, res: Response): Promise<voi
   }
 }
 
-export async function getSystemStatsHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function getSystemStatsHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const stats = await getStats();
+    const stats = await getStats(req.authUser?.id);
     res.json({ jobs: stats, timestamp: new Date().toISOString() });
   } catch (error) {
     next(error);

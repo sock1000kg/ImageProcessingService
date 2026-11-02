@@ -212,6 +212,19 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
   return (
     <form className="create-form" onSubmit={(event) => void submit(event)}>
       <div className="create-main">
+        <div className="create-preview-panel">
+          <div>
+            <span className="section-kicker">LIVE PREVIEW</span>
+            <h3>See the redaction effect</h3>
+            <p>Adjust the style and strength on the right to preview the result before uploading.</p>
+          </div>
+          <PreviewCanvas
+            style={config.style}
+            strength={config.strength}
+            targets={config.targets}
+            padding={config.padding}
+          />
+        </div>
         <div className="batch-name-group">
           <label htmlFor="batch-name-input" className="mini-label">
             Batch name (optional)
@@ -243,10 +256,7 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
         <div className="section-kicker">REDACTION CONFIG</div>
         <h3>Processing profile</h3>
         <RedactionConfigForm config={config} setConfig={setConfig} />
-        <div className="preview-wrap">
-          <PreviewCanvas style={config.style} strength={config.strength} />
-          <span>Preview runs locally. No upload is triggered.</span>
-        </div>
+        <p className="preview-note">Preview runs locally. No upload is triggered.</p>
         <button
           type="submit"
           className="primary-button submit-button"

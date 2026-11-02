@@ -1,17 +1,64 @@
 /**
- * Canvas simulator rendering a local mock preview of redaction style and blur/pixel strength.
+ * Local-only preview using a bundled sample image. It is never uploaded or sent to the Engine.
  */
 import { useEffect, useRef } from "react";
 
 export interface PreviewCanvasProps {
   style: string;
   strength: number;
+  targets?: string[];
+  padding?: number;
 }
 
 /**
  * Draws a representative graphic with the selected redaction filter on an HTML5 canvas.
  */
-export function PreviewCanvas({ style, strength }: PreviewCanvasProps) {
+const SAMPLE_IMAGE = "/preview-sample.svg";
+const SAMPLE_BOXES = {
+  face: { x: 69, y: 63, width: 84, height: 190 },
+  plate: { x: 463, y: 268, width: 42, height: 18 },
+};
+
+function drawRedaction(
+  context: CanvasRenderingContext2D,
+  box: { x: number; y: number; width: number; height: number },
+  style: string,
+  strength: number,
+  padding: number,
+) {
+  const horizontal = box.width * padding;
+  const vertical = box.height * padding;
+  const x = Math.max(0, box.x - horizontal);
+  const y = Math.max(0, box.y - vertical);
+  const width = Math.min(640 - x, box.width + horizontal * 2);
+  const height = Math.min(400 - y, box.height + vertical * 2);
+  if (style === "blackout") {
+    context.fillStyle = "#111827";
+    context.fillRect(x, y, width, height);
+    return;
+  }
+  if (style === "blur") {
+    context.save();
+    context.filter = `blur(${Math.max(1, strength / 3)}px)`;
+    context.drawImage(context.canvas, x, y, width, height, x, y, width, height);
+    context.restore();
+    return;
+  }
+  const pixelSize = Math.max(2, Math.round(strength / 2));
+  const temporary = document.createElement("canvas");
+  temporary.width = Math.max(1, Math.ceil(width / pixelSize));
+  temporary.height = Math.max(1, Math.ceil(height / pixelSize));
+  const temporaryContext = temporary.getContext("2d");
+  if (!temporaryContext) return;
+  temporaryContext.imageSmoothingEnabled = true;
+  temporaryContext.drawImage(context.canvas, x, y, width, height, 0, 0, temporary.width, temporary.height);
+  context.save();
+  context.imageSmoothingEnabled = false;
+  context.drawImage(temporary, 0, 0, temporary.width, temporary.height, x, y, width, height);
+  context.restore();
+}
+
+export function PreviewCanvas({ style, strength, targets = ["face", "plate"], padding = 0.1 }: PreviewCanvasProps) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -20,41 +67,21 @@ export function PreviewCanvas({ style, strength }: PreviewCanvasProps) {
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, "#dce8f8");
-    gradient.addColorStop(1, "#f5e6f4");
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-
-    context.fillStyle = "#b8c5d8";
-    context.beginPath();
-    context.arc(92, 82, 38, 0, Math.PI * 2);
-    context.fill();
-
-    context.fillStyle = "#9caec6";
-    context.fillRect(48, 122, 88, 52);
-
-    context.fillStyle = "#1f2c49";
-    context.font = "600 12px system-ui";
-    context.fillText(`${style} preview`, 16, 22);
-
-    context.strokeStyle = "#7566e8";
-    context.lineWidth = 3;
-    context.strokeRect(48, 42, 88, 135);
-
-    if (style === "blackout") {
-      context.fillStyle = "#171b28";
-      context.fillRect(49, 85, 86, Math.max(12, strength));
-    } else {
-      context.fillStyle = "#7566e8aa";
-      context.fillRect(49, 85, 86, Math.max(12, strength));
-    }
-  }, [style, strength]);
+    const image = new Image();
+    image.onload = () => {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      for (const target of targets) {
+        const box = SAMPLE_BOXES[target as keyof typeof SAMPLE_BOXES];
+        if (box) drawRedaction(context, box, style, strength, padding);
+      }
+    };
+    image.src = SAMPLE_IMAGE;
+  }, [style, strength, targets, padding]);
 
   return (
     <div className="preview-canvas">
-      <canvas ref={ref} width={184} height={194} aria-label="Local redaction preview" />
+      <canvas ref={ref} width={640} height={400} aria-label="Local redaction preview using a sample image" />
     </div>
   );
 }

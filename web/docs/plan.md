@@ -65,11 +65,11 @@ Ký hiệu trong task:
 
 - **Tasks:**
   - [x] **[Đức Huy]** **Trang tạo batch:** kéo-thả nhiều ảnh (preview thumbnail, bỏ từng ảnh), khu vực "Người cần giữ nguyên" để thêm ảnh chân dung whitelist, chọn đối tượng che bằng **checkbox** mặt/biển số (chọn một hoặc cả hai, bắt buộc ít nhất một; gửi `targets` tương ứng, contract đã hỗ trợ, hiện UI gửi cứng cả hai), style (Blur/Pixelate/Blackout), độ mạnh. Chọn định dạng xuất (Giữ nguyên/JPG/PNG/WEBP) và chất lượng (Tiêu chuẩn/Cao/Tối đa, mặc định Cao). Có "Nâng cao" cho các ngưỡng. Kiểm tra định dạng/dung lượng ngay trên trình duyệt.
-  - [ ] **[Đức Huy]** **Trang batch:** nút "Tải tất cả" (link từng ảnh, zip để Phase 2). Dòng "tự xoá lúc <giờ>" hiện giờ cụ thể thay cho "sau 24 giờ".
+  - [x] **[Đức Huy]** **Trang batch:** nút "Tải tất cả" (link từng ảnh, zip để Phase 2). Dòng "tự xoá lúc <giờ>" hiện giờ cụ thể thay cho "sau 24 giờ".
   - [x] **[Đức Huy]** **Xem một ảnh:** thanh trượt before/after (ảnh gốc ↔ kết quả). Danh sách phát hiện (mặt/biển số, confidence, cảnh báo `lowConfidence`, nhãn "whitelist").
-  - [ ] **[Đức Huy]** **Ảnh mẫu xem trước:** thay hình giả trong `PreviewCanvas` bằng một ảnh mẫu cố định (đường phố có người và xe) với box mặt/biển số viết sẵn trong code. Vẽ hiệu ứng thật trên `<canvas>` (blur: `ctx.filter = "blur(Npx)"`; pixelate: thu nhỏ rồi phóng lại với `imageSmoothingEnabled = false`; blackout: `fillRect`), theo checkbox mặt/biển số. Độ mạnh tính theo kích thước box giống engine (contract §2, chờ chốt `strength` tương đối với Engine).
-  - [ ] **[Đức Huy]** **Báo cáo trên web:** hiện từng người whitelist xuất hiện mấy ảnh, ảnh nào (`whitelistPeople`). Danh sách ảnh ở trang batch dùng cùng thứ tự với báo cáo (hiện đưa `FAILED` lên đầu, báo cáo để cuối).
-  - [ ] **[Đức Huy]** Ảnh `FAILED` hiện `error.code` + message của job (hiện chỉ ghi "This image failed processing.").
+  - [x] **[Đức Huy]** **Ảnh mẫu xem trước:** thay hình giả trong `PreviewCanvas` bằng một ảnh mẫu cố định (đường phố có người và xe) với box mặt/biển số viết sẵn trong code. Vẽ hiệu ứng thật trên `<canvas>` (blur: `ctx.filter = "blur(Npx)"`; pixelate: thu nhỏ rồi phóng lại với `imageSmoothingEnabled = false`; blackout: `fillRect`), theo checkbox mặt/biển số. Độ mạnh tính theo kích thước box giống engine (contract §2, chờ chốt `strength` tương đối với Engine).
+  - [x] **[Đức Huy]** **Báo cáo trên web:** hiện từng người whitelist xuất hiện mấy ảnh, ảnh nào (`whitelistPeople`). Danh sách ảnh ở trang batch dùng cùng thứ tự với báo cáo (FAILED, needsReview, confidence thấp, thời gian tạo).
+  - [x] **[Đức Huy]** Ảnh `FAILED` hiện `error.code` + message của job (hiện chỉ ghi "This image failed processing.").
 - **Kiểm chứng (thủ công):** chạy compose local + engine local (hoặc publish event tay theo contract §3), đi hết luồng trên với 5–10 ảnh có mặt người và xe.
 
 ## Milestone 4: Deploy và demo (10/11 → 15/11)

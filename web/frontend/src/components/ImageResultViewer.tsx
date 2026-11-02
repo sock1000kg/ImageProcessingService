@@ -185,9 +185,20 @@ export function ImageResultViewer({
         </>
       ) : (
         <div className="viewer-empty">
-          {job.status === "FAILED"
-            ? "This image failed processing."
-            : "Result will appear here when processing completes."}
+          {job.status === "FAILED" ? (
+            <>
+              <strong>This image failed processing.</strong>
+              {job.error && (
+                <p className="failure-detail">
+                  {job.error.code && <span>{job.error.code}</span>}
+                  {job.error.code && job.error.message ? ": " : ""}
+                  {job.error.message}
+                </p>
+              )}
+            </>
+          ) : (
+            "Result will appear here when processing completes."
+          )}
         </div>
       )}
 

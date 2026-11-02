@@ -289,14 +289,15 @@ The report keeps Engine-provided review signals authoritative. An image is marke
   - `"redacted face near whitelist threshold (similarity 0.58, threshold 0.60)"` otherwise;
   - `"engine flagged for review"`.
     Image-level `reviewNotes` deduplicates detection notes, placing kept-face notes first due to privacy risk. Existing `reviewReasons` strings remain unchanged.
-- **Image ordering**: Images are sorted across five groups:
-  1. Images with `needsReview: true` and a numeric `lowestRedactedConfidence` (sorted ascending by lowest redacted confidence);
-  2. Images with `needsReview: true` and `lowestRedactedConfidence: null` (e.g. kept face near whitelist threshold);
-  3. Completed images with `needsReview: false` and numeric `lowestRedactedConfidence` (sorted ascending);
-  4. Completed images with `lowestRedactedConfidence: null` (no detections);
-  5. `FAILED` images.
-     Within each group, `originalFilename` (then `jobId`) serves as the tie-break. `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
+- **Image ordering**: Images are sorted consistently in the report and UI:
+  1. `FAILED` images;
+  2. images with `needsReview: true`;
+  3. lowest non-null `lowestRedactedConfidence` ascending;
+  4. `createdAt` ascending as the tie-break.
+     `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
 - **Batch-level extras**: Exposes `models: string[]` (unique non-null models across latest completed attempts) and `processingTimeMs: { total, mean, max } | null` over the latest completed attempts.
+
+The batch page shows the automatic deletion time as 24 hours after `createdAt`, using the browser's locale. It also provides **Download all results**, which starts one download per completed job with a `resultUrl`; ZIP export is not implemented in Phase 1. The local PreviewCanvas uses a bundled SVG sample image only and never uploads it.
 
 ## Error response format
 

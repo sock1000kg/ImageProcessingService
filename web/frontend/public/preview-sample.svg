@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
+  <rect width="640" height="400" fill="#cfe4f2"/>
+  <rect y="245" width="640" height="155" fill="#536477"/>
+  <path d="M0 315h640" stroke="#f4d35e" stroke-width="8" stroke-dasharray="48 28"/>
+  <rect x="70" y="130" width="82" height="125" rx="38" fill="#d99d7b"/>
+  <circle cx="111" cy="105" r="32" fill="#d99d7b"/>
+  <path d="M78 104c4-48 65-48 68 0-22-12-45-12-68 0" fill="#3c2b27"/>
+  <path d="M69 255h85l-8 78H77z" fill="#41658c"/>
+  <rect x="390" y="242" width="170" height="70" rx="14" fill="#b84e46"/>
+  <path d="M420 242l25-42h74l31 42z" fill="#b84e46"/>
+  <rect x="450" y="214" width="42" height="28" fill="#a9d2dc"/>
+  <rect x="507" y="214" width="42" height="28" fill="#a9d2dc"/>
+  <circle cx="430" cy="315" r="23" fill="#1e2732"/>
+  <circle cx="530" cy="315" r="23" fill="#1e2732"/>
+  <rect x="463" y="270" width="42" height="14" rx="3" fill="#f3e7c2"/>
+  <circle cx="570" cy="95" r="42" fill="#f5c46b"/>
+  <text x="20" y="30" font-family="sans-serif" font-size="18" fill="#25364d">PrivacyCloud sample</text>
+</svg>

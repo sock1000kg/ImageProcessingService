@@ -244,7 +244,12 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
         <h3>Processing profile</h3>
         <RedactionConfigForm config={config} setConfig={setConfig} />
         <div className="preview-wrap">
-          <PreviewCanvas style={config.style} strength={config.strength} />
+          <PreviewCanvas
+            style={config.style}
+            strength={config.strength}
+            targets={config.targets}
+            padding={config.padding}
+          />
           <span>Preview runs locally. No upload is triggered.</span>
         </div>
         <button

@@ -69,6 +69,24 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
       ) : (
         <Banner variant="success">No images need review.</Banner>
       )}
+      <div className="report-section">
+        <h4>Whitelist people</h4>
+        {report.whitelistPeople && report.whitelistPeople.length > 0 ? (
+          report.whitelistPeople.map((person) => (
+            <div className="whitelist-person" key={person.whitelistRef}>
+              <strong>Whitelist #{person.whitelistRef + 1}</strong>
+              <span>
+                {person.imageCount} image(s), {person.detectionCount} detection(s)
+              </span>
+              {person.imageCount > 0 && (
+                <small>{person.images.map((image) => image.originalFilename).join(", ")}</small>
+              )}
+            </div>
+          ))
+        ) : (
+          <div className="empty-inline">No whitelist detections were returned by the Engine.</div>
+        )}
+      </div>
     </div>
   );
 }

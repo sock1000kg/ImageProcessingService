@@ -1291,3 +1291,42 @@ output {
   margin-top: 2px;
   opacity: 0.9;
 }
+.failure-detail {
+  color: #a52e43;
+  font-size: 0.72rem;
+}
+.viewer-empty .failure-detail {
+  margin: 8px 0 0;
+}
+.report-downloads {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.report-downloads span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.report-section {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.report-section h4 {
+  margin: 0 0 10px;
+}
+.whitelist-person {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-top: 7px;
+}
+.whitelist-person span,
+.whitelist-person small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}

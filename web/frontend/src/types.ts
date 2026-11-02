@@ -61,6 +61,7 @@ export type ReportImage = {
   similarityThreshold: number | null;
   error: { code?: string; message?: string } | null;
   attempts?: number;
+  createdAt?: string;
 };
 
 /**

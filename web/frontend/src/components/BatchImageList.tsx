@@ -60,6 +60,11 @@ export function BatchImageList({ batch, report, selected, onSelect }: BatchImage
               <small>
                 {job.stage ?? "Waiting"} · {job.progress}%
               </small>
+              {job.status === "FAILED" && job.error && (
+                <small className="failure-detail">
+                  {[job.error.code, job.error.message].filter(Boolean).join(": ")}
+                </small>
+              )}
             </span>
             {flagged && <StatusBadge variant="pill" label="Needs review" />}
             <span className="row-status">{job.status}</span>

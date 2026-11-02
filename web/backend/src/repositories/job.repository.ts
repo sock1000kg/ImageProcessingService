@@ -13,6 +13,7 @@ import { formatDefaultBatchName } from "../dto";
  */
 export async function createDraftBatch(batch: {
   id: string;
+  userId?: string;
   name: string;
   config: BatchConfig;
   whitelistKeys: string[];
@@ -20,6 +21,7 @@ export async function createDraftBatch(batch: {
   return prisma.batch.create({
     data: {
       id: batch.id,
+      ...(batch.userId ? { userId: batch.userId } : {}),
       name: batch.name,
       config: batch.config as unknown as Prisma.InputJsonValue,
       whitelistKeys: batch.whitelistKeys,
@@ -157,6 +159,10 @@ export async function getJob(id: string) {
   });
 }
 
+export async function getJobOwnedByUser(id: string, userId: string) {
+  return prisma.job.findFirst({ where: { id, batch: { userId } } });
+}
+
 export async function getActiveRetryJob(job: { id: string; batchId: string; inputKey: string }) {
   return prisma.job.findFirst({
     where: {
@@ -198,6 +204,10 @@ export async function getBatch(id: string) {
   });
 }
 
+export async function getBatchOwnedByUser(id: string, userId: string) {
+  return prisma.batch.findFirst({ where: { id, userId } });
+}
+
 export async function getJobsByBatchId(batchId: string) {
   return prisma.job.findMany({
     where: { batchId },
@@ -209,6 +219,11 @@ export async function deleteBatchRow(id: string): Promise<boolean> {
   const result = await prisma.batch.deleteMany({
     where: { id },
   });
+  return result.count > 0;
+}
+
+export async function deleteBatchRowOwnedByUser(id: string, userId: string): Promise<boolean> {
+  const result = await prisma.batch.deleteMany({ where: { id, userId } });
   return result.count > 0;
 }
 
@@ -286,9 +301,10 @@ export async function getExpiredBatches() {
   });
 }
 
-export async function getStats(): Promise<Record<string, number>> {
+export async function getStats(userId?: string): Promise<Record<string, number>> {
   const groups = await prisma.job.groupBy({
     by: ["status"],
+    where: userId ? { batch: { userId } } : undefined,
     _count: { _all: true },
   });
   return Object.fromEntries(groups.map((group) => [group.status, group._count._all]));

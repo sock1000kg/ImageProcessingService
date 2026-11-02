@@ -127,6 +127,47 @@ select:focus-visible {
   margin: auto;
   padding: 38px 48px 80px;
 }
+.auth-card {
+  width: min(460px, 100%);
+  margin: 8vh auto;
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 18px 50px #17233d12;
+}
+.auth-card h2 {
+  margin: 0 0 24px;
+  font-size: 2rem;
+}
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+.auth-form input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 12px;
+}
+.auth-form label {
+  color: var(--navy);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.form-error {
+  margin: 4px 0;
+  color: var(--danger);
+}
+.auth-link {
+  margin: 20px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.user-email {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
 .topbar {
   display: flex;
   align-items: flex-start;

@@ -2,12 +2,15 @@
  * Main application shell hosting global navigation layout, topbar, and routed pages.
  */
 import { useState } from "react";
-import { NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { CreateBatchPage } from "./pages/CreateBatchPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { BatchPage } from "./pages/BatchPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { Banner } from "./components/ui/Banner";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { LoginPage } from "./pages/LoginPage";
+import { RegisterPage } from "./pages/RegisterPage";
 
 interface TopbarProps {
   onRefresh?: (() => Promise<void> | void) | null;
@@ -17,6 +20,7 @@ interface TopbarProps {
  * Topbar header component reflecting the active view's context and refresh action.
  */
 function Topbar({ onRefresh }: TopbarProps) {
+  const { user, signOut } = useAuth();
   const location = useLocation();
   const isCreate = location.pathname === "/batches/new";
 
@@ -40,7 +44,14 @@ function Topbar({ onRefresh }: TopbarProps) {
             Refresh
           </button>
         )}
-        <div className="avatar">PC</div>
+        {user && (
+          <>
+            <span className="user-email">{user.email}</span>
+            <button type="button" className="secondary-button" onClick={() => void signOut()}>
+              Sign out
+            </button>
+          </>
+        )}
       </div>
     </header>
   );
@@ -50,9 +61,19 @@ function Topbar({ onRefresh }: TopbarProps) {
  * Primary App component providing sidebar navigation, contextual notifications, and routed pages.
  */
 export function App() {
+  return (
+    <AuthProvider>
+      <AuthenticatedApp />
+    </AuthProvider>
+  );
+}
+
+function AuthenticatedApp() {
+  const { status } = useAuth();
   const location = useLocation();
   const [message, setMessage] = useState<string>("");
   const [refreshHandler, setRefreshHandler] = useState<(() => Promise<void> | void) | null>(null);
+  if (status === "loading") return <div className="viewer-empty">Checking session…</div>;
 
   // Store function reference safely without triggering React's functional updater pattern
   const handleRegisterRefresh = (handler: (() => Promise<void> | void) | null) => {
@@ -100,15 +121,40 @@ export function App() {
           </Banner>
         )}
         <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/batches/new" element={<CreateBatchPage onMessage={setMessage} />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/batches/new"
+            element={
+              <ProtectedRoute>
+                <CreateBatchPage onMessage={setMessage} />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/batches/:id"
-            element={<BatchPage onMessage={setMessage} onRegisterRefresh={handleRegisterRefresh} />}
+            element={
+              <ProtectedRoute>
+                <BatchPage onMessage={setMessage} onRegisterRefresh={handleRegisterRefresh} />
+              </ProtectedRoute>
+            }
           />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
     </div>
   );
+}
+
+function ProtectedRoute({ children }: { children: JSX.Element }) {
+  const { status } = useAuth();
+  return status === "authenticated" ? children : <Navigate to="/login" replace />;
 }

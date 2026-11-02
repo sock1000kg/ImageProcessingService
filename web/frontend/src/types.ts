@@ -146,3 +146,8 @@ export type Batch = {
   createdAt: string;
   jobs: Job[];
 };
+
+export type User = {
+  id: string;
+  email: string;
+};

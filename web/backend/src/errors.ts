@@ -52,6 +52,14 @@ export function unavailable(message: string, code = "SERVICE_UNAVAILABLE"): AppE
   return new AppError(503, code, message);
 }
 
+export function unauthorized(message: string, code = "UNAUTHORIZED"): AppError {
+  return new AppError(401, code, message);
+}
+
+export function tooManyRequests(message: string, code = "RATE_LIMITED"): AppError {
+  return new AppError(429, code, message);
+}
+
 export function toErrorResponse(error: unknown): { status: number; body: ErrorDTO } {
   if (error instanceof AppError) {
     return {

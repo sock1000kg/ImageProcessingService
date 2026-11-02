@@ -9,10 +9,13 @@ import {
   createDraftBatch as createDraftBatchRepository,
   deleteJob,
   deleteBatchRow,
+  deleteBatchRowOwnedByUser,
   getActiveRetryJob,
   getBatch,
+  getBatchOwnedByUser,
   getExpiredBatches,
   getJob,
+  getJobOwnedByUser,
   getJobsByBatchId,
   getPendingJobsByBatchId,
   insertBatchAndJobs,
@@ -51,6 +54,7 @@ export async function createDraftBatch(options: {
   rawConfig?: unknown;
   filesPresent?: boolean;
   name?: unknown;
+  userId?: string;
 }): Promise<BatchResponseDTO> {
   const { whitelist = [], rawConfig, filesPresent = false, name } = options;
 
@@ -72,6 +76,7 @@ export async function createDraftBatch(options: {
 
     const createdBatch = await createDraftBatchRepository({
       id: batchId,
+      userId: options.userId,
       name: validatedName,
       config: batchConfig,
       whitelistKeys,
@@ -92,10 +97,14 @@ export async function createDraftBatch(options: {
 
 export const createBatch = createDraftBatch;
 
-export async function addBatchFile(batchId: string, file?: Express.Multer.File): Promise<JobResponseDTO> {
+export async function addBatchFile(
+  batchId: string,
+  file?: Express.Multer.File,
+  userId?: string,
+): Promise<JobResponseDTO> {
   const validFile = validateSingleUploadFile(file);
 
-  const batch = await getBatch(batchId);
+  const batch = userId ? await getBatchOwnedByUser(batchId, userId) : await getBatch(batchId);
   if (!batch) {
     throw notFound("Batch not found");
   }
@@ -137,8 +146,8 @@ export async function addBatchFile(batchId: string, file?: Express.Multer.File):
  * "Start without them" or retries a failed start call, only jobs remaining in PENDING status are
  * enqueued. startedAt is marked once, avoiding duplicate command dispatches to workers.
  */
-export async function startBatch(batchId: string): Promise<BatchResponseDTO> {
-  const batch = await getBatch(batchId);
+export async function startBatch(batchId: string, userId?: string): Promise<BatchResponseDTO> {
+  const batch = userId ? await getBatchOwnedByUser(batchId, userId) : await getBatch(batchId);
   if (!batch) {
     throw notFound("Batch not found");
   }
@@ -181,15 +190,15 @@ export async function startBatch(batchId: string): Promise<BatchResponseDTO> {
   return toBatchResponse(updatedBatch!, updatedJobs);
 }
 
-export async function getBatchById(id: string): Promise<BatchResponseDTO | null> {
-  const batch = await getBatch(id);
+export async function getBatchById(id: string, userId?: string): Promise<BatchResponseDTO | null> {
+  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
   if (!batch) return null;
   const jobs = await getJobsByBatchId(id);
   return toBatchResponse(batch, jobs);
 }
 
-export async function renameBatch(id: string, rawName: string): Promise<BatchResponseDTO> {
-  const batch = await getBatch(id);
+export async function renameBatch(id: string, rawName: string, userId?: string): Promise<BatchResponseDTO> {
+  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
   if (!batch) {
     throw notFound("Batch not found");
   }
@@ -199,30 +208,29 @@ export async function renameBatch(id: string, rawName: string): Promise<BatchRes
   return toBatchResponse(updated, jobs);
 }
 
-export async function getBatchReportById(id: string): Promise<ReportResponseDTO | null> {
-  const batch = await getBatch(id);
+export async function getBatchReportById(id: string, userId?: string): Promise<ReportResponseDTO | null> {
+  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
   if (!batch) return null;
   const jobs = await getJobsByBatchId(id);
   return toReportResponse(batch, jobs);
 }
 
-export async function deleteBatchById(id: string): Promise<boolean> {
-  const batch = await getBatch(id);
+export async function deleteBatchById(id: string, userId?: string): Promise<boolean> {
+  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
   if (!batch) return false;
 
   await storage.deletePrefix(UPLOADS_BUCKET, `${id}/`);
   await storage.deletePrefix(RESULTS_BUCKET, `${id}/`);
-  await deleteBatchRow(id);
-  return true;
+  return userId ? deleteBatchRowOwnedByUser(id, userId) : deleteBatchRow(id);
 }
 
-export async function getJobById(id: string): Promise<JobResponseDTO | null> {
-  const job = await getJob(id);
+export async function getJobById(id: string, userId?: string): Promise<JobResponseDTO | null> {
+  const job = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
   return toJobResponse(job);
 }
 
-export async function retryFailedJob(id: string): Promise<JobResponseDTO> {
-  const failedJob = await getJob(id);
+export async function retryFailedJob(id: string, userId?: string): Promise<JobResponseDTO> {
+  const failedJob = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
   if (!failedJob) {
     throw gone("Job not found or its batch has expired", "JOB_EXPIRED");
   }
@@ -292,8 +300,8 @@ export async function retryFailedJob(id: string): Promise<JobResponseDTO> {
   return toJobResponse(createdRetry)!;
 }
 
-export async function getJobOriginalStream(id: string) {
-  const job = await getJob(id);
+export async function getJobOriginalStream(id: string, userId?: string) {
+  const job = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
   if (!job) return null;
   const streamInfo = await storage.getObjectStream(UPLOADS_BUCKET, job.inputKey);
   if (!streamInfo) return null;

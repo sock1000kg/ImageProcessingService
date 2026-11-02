@@ -29,6 +29,22 @@ const configSchema = z.object({
     .int()
     .positive()
     .default(10 * 60 * 1000),
+  JWT_SECRET: z.string().min(32).optional(),
+  JWT_ACCESS_TTL: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60),
+  JWT_REFRESH_TTL: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(7 * 24 * 60 * 60),
+  REGISTER_KEY: z.string().min(1).optional(),
+  COOKIE_SECURE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
 });
 
 const parsed = configSchema.safeParse(process.env);

@@ -27,6 +27,8 @@ Postgres  jobs.image       uploads/results
 
 Uploads use three steps: `POST /api/batches` creates a `DRAFT` batch, `POST /api/batches/:id/files` adds one image per request, and `POST /api/batches/:id/start` queues the jobs.
 
+Phase 2 authentication uses email as the unique login identifier. Access tokens are short-lived JWTs kept in frontend memory. Refresh tokens are rotated, stored only as hashes in PostgreSQL, and sent to the browser through an `httpOnly` cookie. Registration requires `REGISTER_KEY`; when that variable is absent, registration is disabled.
+
 ## Prerequisites
 
 Install:
@@ -110,6 +112,11 @@ PUBLIC_RESULTS_BASE_URL=/results
 UPLOAD_MAX_BYTES=52428800
 BATCH_MAX_FILES=100
 CLEANUP_INTERVAL_MS=600000
+JWT_SECRET=replace-with-at-least-32-random-characters
+JWT_ACCESS_TTL=900
+JWT_REFRESH_TTL=604800
+REGISTER_KEY=change-this-team-registration-key
+COOKIE_SECURE=false
 ```
 
 `infra/.env` and `web/.env` have different purposes:
@@ -223,6 +230,11 @@ The Engine must have its Python environment, model weights, and configuration re
 | `POST`   | `/api/jobs/:id/retry`     | Retry a `FAILED` job with a new job ID and output key                                                            |
 | `GET`    | `/api/jobs/:id/original`  | Stream the private original image                                                                                |
 | `GET`    | `/api/system/stats`       | Job counts grouped by status                                                                                     |
+| `POST`   | `/api/auth/register`      | Create an account with email, password, and `REGISTER_KEY`                                                       |
+| `POST`   | `/api/auth/login`         | Sign in and receive a short-lived access token                                                                   |
+| `POST`   | `/api/auth/refresh`       | Rotate the `httpOnly` refresh cookie and issue a new access token                                                |
+| `POST`   | `/api/auth/logout`        | Revoke the current refresh token and clear the cookie                                                            |
+| `GET`    | `/api/auth/me`            | Return the authenticated user's public profile                                                                   |
 | `GET`    | `/health`                 | Liveness check                                                                                                   |
 | `GET`    | `/ready`                  | PostgreSQL, NATS, and MinIO readiness check                                                                      |
 

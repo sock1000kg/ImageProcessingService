@@ -1330,3 +1330,41 @@ output {
   color: var(--muted);
   font-size: 0.72rem;
 }
+.create-preview-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+  align-items: center;
+  gap: 22px;
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border: 1px solid #dfe5f0;
+  border-radius: 12px;
+  background: linear-gradient(120deg, #f8fbff, #f5f2ff);
+}
+.create-preview-panel h3 {
+  margin: 0;
+  color: #253653;
+  font-size: 1.05rem;
+}
+.create-preview-panel p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+.create-preview-panel .preview-canvas {
+  width: 100%;
+  min-height: 180px;
+}
+.create-preview-panel .preview-canvas canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 250px;
+  object-fit: contain;
+}
+.preview-note {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}

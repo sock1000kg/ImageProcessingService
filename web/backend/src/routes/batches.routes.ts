@@ -5,6 +5,7 @@ import { Router } from "express";
 import multer from "multer";
 import { config } from "../config";
 import { requireAuth } from "../middleware/auth.middleware";
+import { rateLimit, userKey } from "../middleware/rate-limit.middleware";
 import { validateBatchCreation, validateIdParam } from "../dto";
 import { NextFunction, Request, Response } from "express";
 import {
@@ -23,6 +24,10 @@ const upload = multer({
 });
 
 export const batchesRouter = Router();
+// Moderate, per account: a 100-image batch uploads one file per request, so this leaves room for a few batches a
+// minute while capping a runaway client.
+const createBatchLimit = rateLimit(60_000, 20, userKey);
+const uploadLimit = rateLimit(60_000, 300, userKey);
 function validateId(request: Request, _response: Response, next: NextFunction): void {
   try {
     validateIdParam(request.params);
@@ -53,12 +58,14 @@ function validateCreateRequest(request: Request, _response: Response, next: Next
  */
 batchesRouter.post(
   "/",
+  // Auth runs before multer so an anonymous request is rejected before its files are buffered in memory.
+  requireAuth,
+  createBatchLimit,
   upload.fields([
     { name: "files", maxCount: config.BATCH_MAX_FILES },
     { name: "whitelist", maxCount: 5 },
   ]),
   validateCreateRequest,
-  requireAuth,
   createBatchHandler,
 );
 
@@ -68,7 +75,7 @@ batchesRouter.post(
  * Response: 201 { batch: BatchResponseDTO }
  * Errors: 400 VALIDATION_ERROR / INVALID_UUID, 404 NOT_FOUND, 409 BATCH_STARTED / BATCH_FULL, 503 SERVICE_UNAVAILABLE
  */
-batchesRouter.post("/:id/files", upload.single("file"), validateId, requireAuth, addBatchFileHandler);
+batchesRouter.post("/:id/files", requireAuth, uploadLimit, validateId, upload.single("file"), addBatchFileHandler);
 
 /**
  * POST /api/batches/:id/start
@@ -76,7 +83,7 @@ batchesRouter.post("/:id/files", upload.single("file"), validateId, requireAuth,
  * Response: 200 { batch: BatchResponseDTO }
  * Errors: 400 INVALID_UUID / BATCH_EMPTY, 404 NOT_FOUND, 503 SERVICE_UNAVAILABLE
  */
-batchesRouter.post("/:id/start", validateId, requireAuth, startBatchHandler);
+batchesRouter.post("/:id/start", requireAuth, validateId, startBatchHandler);
 
 /**
  * GET /api/batches/:id
@@ -84,7 +91,7 @@ batchesRouter.post("/:id/start", validateId, requireAuth, startBatchHandler);
  * Response: 200 { batch: BatchResponseDTO }
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
-batchesRouter.get("/:id", validateId, requireAuth, getBatchHandler);
+batchesRouter.get("/:id", requireAuth, validateId, getBatchHandler);
 
 /**
  * PATCH /api/batches/:id
@@ -92,7 +99,7 @@ batchesRouter.get("/:id", validateId, requireAuth, getBatchHandler);
  * Response: 200 { batch: BatchResponseDTO }
  * Errors: 400 INVALID_UUID / VALIDATION_ERROR, 404 NOT_FOUND
  */
-batchesRouter.patch("/:id", validateId, requireAuth, updateBatchHandler);
+batchesRouter.patch("/:id", requireAuth, validateId, updateBatchHandler);
 
 /**
  * GET /api/batches/:id/report
@@ -100,7 +107,7 @@ batchesRouter.patch("/:id", validateId, requireAuth, updateBatchHandler);
  * Response: 200 { report: BatchReportResponseDTO }
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
-batchesRouter.get("/:id/report", validateId, requireAuth, getBatchReportHandler);
+batchesRouter.get("/:id/report", requireAuth, validateId, getBatchReportHandler);
 
 /**
  * DELETE /api/batches/:id
@@ -108,4 +115,4 @@ batchesRouter.get("/:id/report", validateId, requireAuth, getBatchReportHandler)
  * Response: 204 No Content
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
-batchesRouter.delete("/:id", validateId, requireAuth, deleteBatchHandler);
+batchesRouter.delete("/:id", requireAuth, validateId, deleteBatchHandler);

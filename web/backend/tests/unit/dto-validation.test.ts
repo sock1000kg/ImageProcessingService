@@ -12,6 +12,14 @@ import {
   validateUploadFiles,
 } from "../../src/dto";
 import { createApp } from "../../src/app";
+import { createAccessToken } from "../../src/auth";
+import { config } from "../../src/config";
+
+// Protected routes check auth before validating params, so these HTTP tests send a valid token.
+function authHeaders(): Record<string, string> {
+  config.JWT_SECRET = "test-secret-with-at-least-32-characters";
+  return { Authorization: `Bearer ${createAccessToken({ id: "user-1", email: "user@example.com" })}` };
+}
 
 describe("DTO Validation and Schemas (Task 26)", () => {
   describe("Result Summary Schema (§3 Contract)", () => {
@@ -146,7 +154,7 @@ describe("DTO Validation and Schemas (Task 26)", () => {
       const port = (server.address() as { port: number }).port;
 
       try {
-        const res = await fetch(`http://127.0.0.1:${port}/api/batches/not-a-uuid`);
+        const res = await fetch(`http://127.0.0.1:${port}/api/batches/not-a-uuid`, { headers: authHeaders() });
         expect(res.status).toBe(400);
         const body = (await res.json()) as { error: { code: string; message: string; details: unknown } };
         expect(body.error.code).toBe("VALIDATION_ERROR");
@@ -164,7 +172,7 @@ describe("DTO Validation and Schemas (Task 26)", () => {
       const port = (server.address() as { port: number }).port;
 
       try {
-        const res = await fetch(`http://127.0.0.1:${port}/api/jobs/not-a-uuid`);
+        const res = await fetch(`http://127.0.0.1:${port}/api/jobs/not-a-uuid`, { headers: authHeaders() });
         expect(res.status).toBe(400);
         const body = (await res.json()) as { error: { code: string; message: string; details: unknown } };
         expect(body.error.code).toBe("VALIDATION_ERROR");
@@ -184,11 +192,32 @@ describe("DTO Validation and Schemas (Task 26)", () => {
         formData.append("files", new Blob(["content"]), "image.jpg");
         const res = await fetch(`http://127.0.0.1:${port}/api/batches`, {
           method: "POST",
+          headers: authHeaders(),
           body: formData,
         });
         expect(res.status).toBe(400);
         const body = (await res.json()) as { error: { code: string; message: string } };
         expect(body.error.message).toContain("/files");
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
+  });
+
+  describe("Auth before body parsing", () => {
+    it("rejects an anonymous upload with 401 before reading the files", async () => {
+      const app = createApp();
+      const server = http.createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const formData = new FormData();
+        formData.append("files", new Blob(["content"]), "image.jpg");
+        const res = await fetch(`http://127.0.0.1:${port}/api/batches`, { method: "POST", body: formData });
+        expect(res.status).toBe(401);
+        const body = (await res.json()) as { error: { code: string } };
+        expect(body.error.code).toBe("AUTH_REQUIRED");
       } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }

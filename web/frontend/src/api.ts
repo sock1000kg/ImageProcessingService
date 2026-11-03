@@ -4,29 +4,50 @@
 import { Batch, BatchReport, Job } from "./types";
 import { getAccessToken, refreshAccessToken } from "./auth";
 
-async function request<T>(url: string, init?: RequestInit, retry = true): Promise<T> {
-  const token = getAccessToken();
-  const requestInit: RequestInit = { ...init };
-  if (token) {
+/**
+ * fetch() with the in-memory access token as a Bearer header. On a 401 it refreshes the token once (the refresh
+ * cookie rides along automatically) and repeats the request, so callers never see an expired-token error.
+ */
+async function authedFetch(url: string, init?: RequestInit): Promise<Response> {
+  const send = () => {
+    const token = getAccessToken();
+    if (!token) return fetch(url, init);
     const headers = new Headers(init?.headers);
     headers.set("Authorization", `Bearer ${token}`);
-    requestInit.headers = headers;
-    requestInit.credentials = "include";
-  }
-  const response = await fetch(url, init || token ? requestInit : undefined);
+    return fetch(url, { ...init, headers });
+  };
+  const response = await send();
+  if (response.status !== 401 || url.startsWith("/api/auth/")) return response;
+  const refreshed = await refreshAccessToken();
+  return refreshed ? send() : response;
+}
+
+async function errorMessage(response: Response): Promise<string> {
+  const data = await response.json().catch(() => ({}));
+  return data.error?.message ?? (typeof data.error === "string" ? data.error : "Request failed");
+}
+
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await authedFetch(url, init);
   if (response.status === 204) {
     return {} as T;
   }
-  const data = await response.json();
   if (!response.ok) {
-    if (response.status === 401 && retry && !url.startsWith("/api/auth/")) {
-      const refreshed = await refreshAccessToken();
-      if (refreshed) return request<T>(url, init, false);
-    }
-    const message = data.error?.message ?? (typeof data.error === "string" ? data.error : "Request failed");
-    throw new Error(message);
+    throw new Error(await errorMessage(response));
   }
-  return data;
+  return response.json();
+}
+
+/**
+ * Downloads a job's original image. It is a protected API route, so an <img src> (which cannot send the Bearer
+ * header) would get 401; callers turn this Blob into an object URL instead.
+ */
+export async function fetchJobOriginal(id: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await authedFetch(`/api/jobs/${id}/original`, { signal });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+  return response.blob();
 }
 
 /**

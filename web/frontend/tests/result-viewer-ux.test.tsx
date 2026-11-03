@@ -15,6 +15,14 @@ import { ImageResultViewer } from "../src/components/ImageResultViewer";
 import { boxToPercent, ImageStage } from "../src/components/ui/ImageStage";
 import { Batch, BatchReport as Report, Detection, Job } from "../src/types";
 
+// The viewer fetches the original image through the authed API; answer with a tiny blob instead of the network.
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(new Response(new Blob(["img"]), { status: 200 }))),
+  );
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();

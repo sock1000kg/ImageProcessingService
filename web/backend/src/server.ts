@@ -26,6 +26,10 @@ function stopCleanupTimer(): void {
 }
 
 async function start(): Promise<void> {
+  // Every API route needs a signed access token, so without a secret the app would only answer 500s.
+  if (!config.JWT_SECRET) {
+    throw new Error("JWT_SECRET is not set (at least 32 characters); see web/.env.example");
+  }
   await verifyBuckets();
   await connectMessaging();
   startCleanupTimer();

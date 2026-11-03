@@ -24,6 +24,13 @@ function requireJwtSecret(): string {
   return config.JWT_SECRET;
 }
 
+/** Constant-time string compare (hashing first makes the lengths equal), so timing does not leak the key. */
+function sameSecret(given: string, expected: string): boolean {
+  const a = createHash("sha256").update(given).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -116,12 +123,21 @@ export function readRefreshCookie(cookieHeader: string | undefined): string | nu
 
 export async function registerUser(emailInput: string, password: string, registerKey: string): Promise<AuthUser> {
   if (!config.REGISTER_KEY) throw badRequest("Registration is disabled", "REGISTRATION_DISABLED");
-  if (registerKey !== config.REGISTER_KEY) throw unauthorized("Invalid registration key", "INVALID_REGISTER_KEY");
+  if (!sameSecret(registerKey, config.REGISTER_KEY))
+    throw unauthorized("Invalid registration key", "INVALID_REGISTER_KEY");
   const email = normalizeEmail(emailInput);
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw conflict("Unable to create account", "REGISTRATION_CONFLICT");
-  const user = await prisma.user.create({ data: { email, passwordHash: await hashPassword(password) } });
-  return { id: user.id, email: user.email };
+  const passwordHash = await hashPassword(password);
+  try {
+    const user = await prisma.user.create({ data: { email, passwordHash } });
+    return { id: user.id, email: user.email };
+  } catch (error) {
+    // Unique violation: another request registered the same email between the check and the insert.
+    if ((error as { code?: unknown }).code === "P2002")
+      throw conflict("Unable to create account", "REGISTRATION_CONFLICT");
+    throw error;
+  }
 }
 
 export async function authenticateUser(emailInput: string, password: string): Promise<AuthUser> {
@@ -152,7 +168,14 @@ export async function rotateRefreshToken(token: string): Promise<{ user: AuthUse
   if (!stored || stored.revokedAt || stored.expiresAt <= new Date()) {
     throw unauthorized("Refresh token expired or invalid", "INVALID_REFRESH_TOKEN");
   }
-  await prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
+  // Revoke only if still unrevoked: of two concurrent refreshes with the same token, exactly one wins.
+  const revoked = await prisma.refreshToken.updateMany({
+    where: { id: stored.id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  if (revoked.count === 0) {
+    throw unauthorized("Refresh token expired or invalid", "INVALID_REFRESH_TOKEN");
+  }
   const next = await issueRefreshToken(stored.userId);
   return { user: { id: stored.user.id, email: stored.user.email }, token: next };
 }

@@ -3,6 +3,7 @@
  */
 import { useEffect, useState } from "react";
 import { Detection, Job, ReviewReason } from "../types";
+import { useJobOriginalUrl } from "../hooks/useJobOriginalUrl";
 import { DetectionList } from "./DetectionList";
 import { boxToPercent, ImageStage } from "./ui/ImageStage";
 import { StatusBadge } from "./ui/StatusBadge";
@@ -64,6 +65,7 @@ export function ImageResultViewer({
   const [showBoxes, setShowBoxes] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const originalUrl = useJobOriginalUrl(job.id);
 
   useEffect(() => {
     setNaturalSize(null);
@@ -112,11 +114,9 @@ export function ImageResultViewer({
                 onLoad={handleImageLoad}
               />
               <div className="comparison-before" style={{ clipPath: `inset(0 calc(100% - ${split}%) 0 0)` }}>
-                <img
-                  src={`/api/jobs/${job.id}/original`}
-                  alt={`Original ${job.originalFilename}`}
-                  onLoad={handleImageLoad}
-                />
+                {originalUrl && (
+                  <img src={originalUrl} alt={`Original ${job.originalFilename}`} onLoad={handleImageLoad} />
+                )}
               </div>
               <div className="comparison-divider" style={{ left: `${split}%` }} />
 
@@ -206,9 +206,11 @@ export function ImageResultViewer({
         <span>
           {job.stage ?? "Waiting"} · {job.progress}%
         </span>
-        <a href={`/api/jobs/${job.id}/original`} target="_blank" rel="noreferrer">
-          Open original
-        </a>
+        {originalUrl && (
+          <a href={originalUrl} target="_blank" rel="noreferrer">
+            Open original
+          </a>
+        )}
         {job.resultUrl && (
           <a href={job.resultUrl} download target="_blank" rel="noreferrer">
             Download result

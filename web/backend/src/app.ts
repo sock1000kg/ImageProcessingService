@@ -1,7 +1,6 @@
 /**
  * Express application factory configuring middleware, routes, and SPA fallback.
  */
-import cors from "cors";
 import express, { Express } from "express";
 import path from "node:path";
 import { errorMiddleware, notFound } from "./errors";
@@ -16,7 +15,6 @@ import { authRouter } from "./routes/auth.routes";
 export function createApp(): Express {
   const app = express();
 
-  app.use(cors({ origin: true, credentials: true }));
   app.use(express.json());
 
   app.use("/api/auth", authRouter);

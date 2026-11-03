@@ -45,6 +45,12 @@ const configSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
+  // Header holding the real client IP when the API sits behind a proxy that sets it (the lab: Cloudflare's
+  // cf-connecting-ip). Empty = use the socket address, which is right for local runs.
+  CLIENT_IP_HEADER: z
+    .string()
+    .default("")
+    .transform((value) => value.trim().toLowerCase()),
 });
 
 const parsed = configSchema.safeParse(process.env);

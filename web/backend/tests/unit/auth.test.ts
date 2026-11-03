@@ -16,7 +16,16 @@ vi.mock("../../src/db/prisma", () => ({
 }));
 
 import { config } from "../../src/config";
-import { createAccessToken, hashPassword, normalizeEmail, verifyAccessToken, verifyPassword } from "../../src/auth";
+import { prisma } from "../../src/db/prisma";
+import {
+  createAccessToken,
+  hashPassword,
+  normalizeEmail,
+  registerUser,
+  rotateRefreshToken,
+  verifyAccessToken,
+  verifyPassword,
+} from "../../src/auth";
 
 describe("Authentication primitives", () => {
   beforeEach(() => {
@@ -42,5 +51,45 @@ describe("Authentication primitives", () => {
   it("rejects a tampered access token", () => {
     const token = createAccessToken({ id: "user-1", email: "user@example.com" });
     expect(() => verifyAccessToken(`${token}tampered`)).toThrow("Invalid access token");
+  });
+});
+
+describe("Refresh rotation and registration races", () => {
+  beforeEach(() => {
+    config.JWT_SECRET = "test-secret-with-at-least-32-characters";
+    config.REGISTER_KEY = "team-key";
+    vi.clearAllMocks();
+  });
+
+  it("rejects the second of two concurrent refreshes with the same token", async () => {
+    const stored = {
+      id: "token-1",
+      userId: "user-1",
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      user: { id: "user-1", email: "user@example.com" },
+    };
+    vi.mocked(prisma.refreshToken.findUnique).mockResolvedValue(stored as never);
+    // The first revoke updates the row; the second finds it already revoked.
+    vi.mocked(prisma.refreshToken.updateMany).mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as never);
+
+    const results = await Promise.allSettled([rotateRefreshToken("raw"), rotateRefreshToken("raw")]);
+    expect(results.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(prisma.refreshToken.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 409 when a concurrent registration wins the unique email insert", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.user.create).mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" }));
+    await expect(registerUser("a@example.com", "password123", "team-key")).rejects.toMatchObject({
+      status: 409,
+      code: "REGISTRATION_CONFLICT",
+    });
+  });
+
+  it("rejects a wrong registration key", async () => {
+    await expect(registerUser("a@example.com", "password123", "nope")).rejects.toMatchObject({ status: 401 });
+    expect(prisma.user.create).not.toHaveBeenCalled();
   });
 });

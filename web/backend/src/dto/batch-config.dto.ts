@@ -25,7 +25,7 @@ export const rawBatchConfigSchema = z.object({
   format: outputFormatSchema.default("original"),
   confidenceThreshold: z.number().min(0).max(1).default(0.35),
   reviewThreshold: z.number().min(0).max(1).default(0.5),
-  similarityThreshold: z.number().min(0).max(1).default(0.6),
+  similarityThreshold: z.number().min(0).max(1).default(0.5),
 });
 
 export const batchConfigSchema = z.object({

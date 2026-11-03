@@ -12,7 +12,7 @@ describe("Batch Config Schema and Defaults", () => {
     expect(config.format).toBe("original");
     expect(config.confidenceThreshold).toBe(0.35);
     expect(config.reviewThreshold).toBe(0.5);
-    expect(config.similarityThreshold).toBe(0.6);
+    expect(config.similarityThreshold).toBe(0.5);
   });
 
   it("applies pixelate default strength of 12 when style is pixelate", () => {

@@ -65,7 +65,7 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
     format: "original",
     confidenceThreshold: 0.35,
     reviewThreshold: 0.5,
-    similarityThreshold: 0.6,
+    similarityThreshold: 0.5,
   });
 
   const addFiles = (incoming: File[]) => {

@@ -29,6 +29,7 @@ class Settings(BaseModel):
     yolo_model_name: str = os.getenv("YOLO_MODEL_NAME", "yolov8n-oiv7.pt")
     # YOLO input size in px (multiple of 32). Larger finds smaller faces/plates but is slower.
     yolo_imgsz: int = int(os.getenv("YOLO_IMGSZ", "640"))
+    face_embedding_model: str = os.getenv("FACE_EMBEDDING_MODEL", "w600k_mbf.onnx")
 
     # Resilience & Fault Tolerance
     max_attempts: int = int(os.getenv("MAX_ATTEMPTS", "3"))

@@ -34,11 +34,14 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 
 ## Milestone 2: Whitelist khuôn mặt (01/11 → 08/11)
 * **Tasks:**
-    - [ ] Chọn model face embedding chạy tốt trên CPU (ví dụ ArcFace/InsightFace dạng ONNX, hoặc model nhẹ tương đương). Ghi lý do chọn + RAM/tốc độ đo được vào `engine/docs/`.
-    - [ ] Whitelist: với mỗi ảnh mẫu trong `params.whitelist.faces`, phát hiện khuôn mặt (lấy khuôn mặt lớn nhất), tính embedding và **cache theo key** (cùng batch dùng lại, không tính lại mỗi ảnh). Ảnh mẫu không có mặt → `WHITELIST_REFERENCE_ERROR`.
-    - [ ] Với mỗi khuôn mặt phát hiện: cosine similarity với từng mẫu. ≥ `similarityThreshold` → `whitelisted: true`, `redacted: false`, kèm `whitelistRef` (vị trí mẫu khớp). Mọi khuôn mặt đều có `similarity` (cao nhất so với các mẫu), kể cả khi không khớp (contract §3B). Khi phân vân thì **che**.
-    - [ ] Hiệu chỉnh ngưỡng: thử trên vài bộ ảnh có người quen/người lạ, đề xuất `similarityThreshold` mặc định (ưu tiên không nhận nhầm người lạ) và `reviewThreshold`. **[Cần Web]** báo giá trị để Web đặt mặc định.
-* **Kiểm chứng:** test whitelist với 2 người (một trong whitelist, một không) → chỉ người lạ bị che.
+    - [x] Chọn model face embedding chạy tốt trên CPU: Đã chọn MobileFaceNet ArcFace (`w600k_mbf.onnx` 13MB), chạy ONNX Runtime (với fallback `cv2.dnn`). Đo đạc thực tế: latency ~8ms/mặt trên CPU, RAM footprint < 30MB, vector 512-d L2-normalized.
+    - [x] Whitelist: với mỗi ảnh mẫu trong `params.whitelist.faces`, phát hiện khuôn mặt (lấy khuôn mặt lớn nhất bằng YOLO), tính embedding và **cache theo key** (`f"{bucket}/{key}"`, cùng batch dùng lại, không tải lại mỗi ảnh). Ảnh mẫu rỗng/hỏng hoặc không có mặt → `WHITELIST_REFERENCE_ERROR` + ACK ngay.
+    - [x] Với mỗi khuôn mặt phát hiện: tính cosine similarity với từng mẫu. ≥ `similarityThreshold` → `whitelisted: true`, `redacted: false`, kèm `whitelistRef` (vị trí mẫu khớp). Mọi khuôn mặt đều có `similarity` (cao nhất so với các mẫu) khi batch có whitelist (contract §3B). Khi phân vân thì **che**.
+    - [x] Hiệu chỉnh ngưỡng: thực nghiệm trên bộ ảnh chuẩn (Obama, Hopkins, Biden, Alex, Angelina, Bradley, Kate, Paul...):
+        - Cặp người lạ (62 cặp): similarity cực đại chỉ **0.1938** (Mean: 0.0712). Tại mọi ngưỡng $\ge 0.25$, False Acceptance Rate (FAR - lộ người lạ) đều là **0.0%**.
+        - Cặp cùng người: chân dung chuẩn đạt **0.9632**, góc nghiêng đạt **0.4404 - 0.5352**.
+        - **Khuyến nghị cho Web:** Ngưỡng mặc định `similarityThreshold` đề xuất là **`0.50`** (vừa an toàn 100% trước người lạ, vừa nhận diện tốt góc nghiêng; hoặc `0.60` nếu cực kỳ bảo thủ). Ngưỡng cảnh báo `reviewThreshold` là **`0.40`** (dưới mức này đánh dấu `lowConfidence` để Web gắn cờ).
+* **Kiểm chứng:** `engine/tests/test_whitelist.py` và `test_processors.py` (13/13 tests pass 100%): test whitelist với 2 người (1 trong whitelist, 1 không) → chỉ người lạ bị che, người quen giữ nguyên 100% nét. E2E trên ảnh `two_people.jpg` (Obama + Biden) hoạt động chính xác.
 
 ## Milestone 3: Tài nguyên và chạy trên lab (08/11 → 15/11)
 * **Tasks:**

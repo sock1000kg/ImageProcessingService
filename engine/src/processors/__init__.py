@@ -2,6 +2,8 @@
 from ..config import settings
 from .base import BaseProcessor
 from .image_redact import ImageRedactProcessor, InvalidInputFileError
+from .whitelist import WhitelistManager, WhitelistReferenceError
+from .face_embedding import FaceEmbedder
 
 
 def get_processor_registry() -> dict[str, BaseProcessor]:
@@ -11,7 +13,11 @@ def get_processor_registry() -> dict[str, BaseProcessor]:
     Any unsupported job type will return None and trigger UNSUPPORTED_JOB_TYPE error.
     """
     registry: dict[str, BaseProcessor] = {
-        "image-redact": ImageRedactProcessor(model_name=settings.yolo_model_name, imgsz=settings.yolo_imgsz),
+        "image-redact": ImageRedactProcessor(
+            model_name=settings.yolo_model_name,
+            face_embedding_model=settings.face_embedding_model,
+            imgsz=settings.yolo_imgsz,
+        ),
     }
     return registry
 
@@ -20,5 +26,8 @@ __all__ = [
     "BaseProcessor",
     "ImageRedactProcessor",
     "InvalidInputFileError",
+    "WhitelistReferenceError",
+    "WhitelistManager",
+    "FaceEmbedder",
     "get_processor_registry",
 ]

@@ -22,7 +22,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Pre-download AI model weights during build time (so Pods can run completely offline)
 RUN mkdir -p /app/models && \
     python -c "from ultralytics import YOLO; YOLO('yolov8n-oiv7.pt')" && \
-    mv yolov8n-oiv7.pt /app/models/ 2>/dev/null || true
+    mv yolov8n-oiv7.pt /app/models/ 2>/dev/null || true && \
+    curl -sSL -o /app/models/w600k_mbf.onnx https://huggingface.co/deepghs/insightface/resolve/main/buffalo_s/w600k_mbf.onnx || true
 
 # Copy source code and local model weights
 COPY src/ /app/src/

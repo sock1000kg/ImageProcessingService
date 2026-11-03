@@ -10,7 +10,7 @@ import nats.errors
 from .config import settings
 from .storage import StorageClient
 from .messaging import MessagingClient
-from .processors import get_processor_registry, InvalidInputFileError
+from .processors import get_processor_registry, InvalidInputFileError, WhitelistReferenceError
 
 # Configure logging
 logging.basicConfig(
@@ -154,12 +154,19 @@ class EngineWorker:
             )
             try:
                 output_bytes, result_summary, content_type = await asyncio.to_thread(
-                    processor.process, input_bytes, params, out_key
+                    processor.process, input_bytes, params, out_key, self.storage
                 )
             except InvalidInputFileError as e:
                 logger.warning(f"Invalid input file on job {job_id}: {e}")
                 await self.messaging.emit_failure_event(
                     job_id, "INVALID_INPUT_FILE", str(e), stage="PROCESSING", batch_id=batch_id
+                )
+                await msg.ack()
+                return
+            except WhitelistReferenceError as e:
+                logger.warning(f"Whitelist reference error on job {job_id}: {e}")
+                await self.messaging.emit_failure_event(
+                    job_id, "WHITELIST_REFERENCE_ERROR", str(e), stage="PROCESSING", batch_id=batch_id
                 )
                 await msg.ack()
                 return

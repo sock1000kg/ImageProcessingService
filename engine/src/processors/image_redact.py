@@ -9,6 +9,8 @@ import cv2
 from PIL import Image
 
 from .base import BaseProcessor
+from .face_embedding import FaceEmbedder
+from .whitelist import WhitelistManager
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +38,12 @@ class ImageRedactProcessor(BaseProcessor):
     def __init__(
         self,
         model_name: str = "yolov8n-oiv7.pt",
+        face_embedding_model: str = "w600k_mbf.onnx",
         class_mapping: Optional[Dict[str, str]] = None,
         imgsz: int = 640,
+        face_embedder: Optional[FaceEmbedder] = None,
+        whitelist_manager: Optional[WhitelistManager] = None,
+        storage_client: Optional[Any] = None,
     ):
         from ultralytics import YOLO
 
@@ -45,6 +51,10 @@ class ImageRedactProcessor(BaseProcessor):
         if imgsz <= 0 or imgsz % 32 != 0:
             raise ValueError(f"YOLO input size must be a positive multiple of 32, got {imgsz}")
         self.imgsz = imgsz
+        self.face_embedding_model = face_embedding_model
+        self.face_embedder = face_embedder
+        self.whitelist_manager = whitelist_manager
+        self.storage_client = storage_client
 
         # Search for model weights locally
         candidate_paths = [
@@ -67,6 +77,14 @@ class ImageRedactProcessor(BaseProcessor):
         raw_tag = os.path.splitext(os.path.basename(chosen_model))[0]
         self.model_tag = raw_tag
         logger.info(f"YOLO model ({self.model_tag}) loaded successfully with {len(self.model.names)} classes, input size {self.imgsz}px!")
+
+    def _get_whitelist_manager(self) -> WhitelistManager:
+        """Lazily initialize WhitelistManager and FaceEmbedder when first requested."""
+        if self.whitelist_manager is None:
+            if self.face_embedder is None:
+                self.face_embedder = FaceEmbedder(model_name=self.face_embedding_model)
+            self.whitelist_manager = WhitelistManager(embedder=self.face_embedder)
+        return self.whitelist_manager
 
     @staticmethod
     def _apply_redaction_style(roi: np.ndarray, style: str, strength: int) -> np.ndarray:
@@ -98,6 +116,7 @@ class ImageRedactProcessor(BaseProcessor):
         input_bytes: bytes,
         params: Dict[str, Any],
         output_key: str = "",
+        storage_client: Optional[Any] = None,
     ) -> Tuple[bytes, Dict[str, Any], str]:
         start_time = time.perf_counter()
 
@@ -149,6 +168,24 @@ class ImageRedactProcessor(BaseProcessor):
         conf_threshold = float(params.get("confidenceThreshold", 0.35))
         review_threshold = float(params.get("reviewThreshold", 0.50))
 
+        # 2b. Parse Whitelist configuration (Milestone 2)
+        whitelist_cfg = params.get("whitelist", {}) if params else {}
+        face_specs = whitelist_cfg.get("faces", []) if isinstance(whitelist_cfg, dict) else []
+        similarity_threshold = float(whitelist_cfg.get("similarityThreshold", 0.5)) if isinstance(whitelist_cfg, dict) else 0.5
+        has_whitelist = bool(face_specs and len(face_specs) > 0)
+
+        ref_embeddings = []
+        whitelist_mgr = None
+        if has_whitelist:
+            whitelist_mgr = self._get_whitelist_manager()
+            active_storage = storage_client or self.storage_client
+            ref_embeddings = whitelist_mgr.load_reference_embeddings(
+                faces_specs=face_specs,
+                yolo_model=self.model,
+                class_mapping=self.class_mapping,
+                storage_client=active_storage,
+            )
+
         # 3. Run YOLO inference
         try:
             results = self.model.predict(
@@ -162,7 +199,7 @@ class ImageRedactProcessor(BaseProcessor):
             logger.exception(f"YOLO inference failed: {e}")
             raise
 
-        # 4. Filter detections and extract bounding boxes
+        # 4. Filter detections, match whitelist, and extract bounding boxes
         detections = []
         boxes = result.boxes
         if boxes is not None and len(boxes) > 0:
@@ -191,15 +228,54 @@ class ImageRedactProcessor(BaseProcessor):
 
                 is_low_conf = bool(conf < review_threshold)
 
-                # In Milestone 1: no whitelist, all targets are redacted
-                detections.append({
-                    "label": norm_label,
-                    "confidence": conf,
-                    "box": [x1, y1, x2, y2],
-                    "redacted": True,
-                    "whitelisted": False,
-                    "lowConfidence": is_low_conf,
-                })
+                # Whitelist evaluation for face detections
+                if norm_label == "face" and has_whitelist and ref_embeddings and whitelist_mgr is not None:
+                    face_roi = img_bgr[y1:y2, x1:x2]
+                    try:
+                        det_emb = whitelist_mgr.embedder.extract_embedding(face_roi)
+                        sims = [whitelist_mgr.embedder.compute_similarity(det_emb, ref_emb) for ref_emb in ref_embeddings]
+                        best_idx = int(np.argmax(sims))
+                        best_sim = float(sims[best_idx])
+                    except Exception as emb_err:
+                        logger.warning(f"Failed to extract face embedding from detection ROI: {emb_err}")
+                        best_idx = 0
+                        best_sim = 0.0
+
+                    is_whitelisted = bool(best_sim >= similarity_threshold)
+                    det_data = {
+                        "label": "face",
+                        "confidence": conf,
+                        "box": [x1, y1, x2, y2],
+                        "redacted": not is_whitelisted,
+                        "whitelisted": is_whitelisted,
+                        "lowConfidence": is_low_conf,
+                        "similarity": round(best_sim, 4),
+                    }
+                    if is_whitelisted:
+                        det_data["whitelistRef"] = best_idx
+                    detections.append(det_data)
+
+                elif norm_label == "face":
+                    # Face detection without whitelist
+                    detections.append({
+                        "label": "face",
+                        "confidence": conf,
+                        "box": [x1, y1, x2, y2],
+                        "redacted": True,
+                        "whitelisted": False,
+                        "lowConfidence": is_low_conf,
+                    })
+
+                else:
+                    # License plate or custom target
+                    detections.append({
+                        "label": norm_label,
+                        "confidence": conf,
+                        "box": [x1, y1, x2, y2],
+                        "redacted": True,
+                        "whitelisted": False,
+                        "lowConfidence": is_low_conf,
+                    })
 
         # 5. Apply redaction with padding expansion
         for det in detections:

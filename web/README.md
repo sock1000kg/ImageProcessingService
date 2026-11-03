@@ -29,6 +29,13 @@ Uploads use three steps: `POST /api/batches` creates a `DRAFT` batch, `POST /api
 
 Phase 2 authentication uses email as the unique login identifier. Access tokens are short-lived JWTs kept in frontend memory. Refresh tokens are rotated, stored only as hashes in PostgreSQL, and sent to the browser through an `httpOnly` cookie. Registration requires `REGISTER_KEY`; when that variable is absent, registration is disabled.
 
+- The backend refuses to start without `JWT_SECRET` (at least 32 characters), since every API route needs a signed token.
+- Protected routes check the token **before** reading the request body, so anonymous uploads are rejected without buffering files.
+- Login, register and refresh are limited to 10 requests per minute per client IP. Creating batches (20/min) and uploading files (300/min) are limited per account. Behind a proxy, set `CLIENT_IP_HEADER` to the header that carries the real client IP (`cf-connecting-ip` on the lab); leave it empty locally.
+- `GET /api/jobs/:id/original` needs the Bearer token, so the frontend fetches it as a Blob and shows it through an object URL instead of a plain `<img src>`.
+- There is no CORS middleware: the SPA and the API share one origin (Vite proxies `/api` in development).
+- Batches created before the auth migration have no owner (`user_id` is null) and are not visible to any account; the periodic cleanup still removes them.
+
 ## Prerequisites
 
 Install:
@@ -117,6 +124,7 @@ JWT_ACCESS_TTL=900
 JWT_REFRESH_TTL=604800
 REGISTER_KEY=change-this-team-registration-key
 COOKIE_SECURE=false
+CLIENT_IP_HEADER=
 ```
 
 `infra/.env` and `web/.env` have different purposes:
@@ -309,7 +317,7 @@ The report keeps Engine-provided review signals authoritative. An image is marke
      `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
 - **Batch-level extras**: Exposes `models: string[]` (unique non-null models across latest completed attempts) and `processingTimeMs: { total, mean, max } | null` over the latest completed attempts.
 
-The batch page shows the automatic deletion time as 24 hours after `createdAt`, using the browser's locale. It also provides **Download all results**, which starts one download per completed job with a `resultUrl`; ZIP export is not implemented in Phase 1. The local PreviewCanvas uses a bundled SVG sample image only and never uploads it.
+The batch page shows the automatic deletion time as 24 hours after `createdAt`, using the browser's locale. It also provides **Download all results**, which starts one download per completed job with a `resultUrl`; ZIP export is not implemented in Phase 1. The local PreviewCanvas draws on a bundled street photo (`frontend/public/preview-sample.jpg`: Jorge Láscar, CC BY 2.0, cropped; credited under the preview) with hand-marked face and plate boxes. It is never uploaded.
 
 ## Error response format
 

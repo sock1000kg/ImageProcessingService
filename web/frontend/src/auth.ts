@@ -1,6 +1,9 @@
 import { User } from "./types";
 
 let accessToken: string | null = null;
+// The signed-in user from the last login/register/refresh response. After a page reload only the refresh call
+// restores the session, so this is where AuthContext gets the user back from.
+let currentUser: User | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 
 export function getAccessToken(): string | null {
@@ -9,6 +12,11 @@ export function getAccessToken(): string | null {
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
+  if (token === null) currentUser = null;
+}
+
+export function getCurrentUser(): User | null {
+  return currentUser;
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -29,6 +37,7 @@ export async function login(email: string, password: string): Promise<User> {
   });
   const data = await parseResponse<{ user: User; accessToken: string }>(response);
   setAccessToken(data.accessToken);
+  currentUser = data.user;
   return data.user;
 }
 
@@ -41,6 +50,7 @@ export async function register(email: string, password: string, registerKey: str
   });
   const data = await parseResponse<{ user: User; accessToken: string }>(response);
   setAccessToken(data.accessToken);
+  currentUser = data.user;
   return data.user;
 }
 
@@ -52,8 +62,9 @@ export async function refreshAccessToken(): Promise<string | null> {
           setAccessToken(null);
           return null;
         }
-        const data = await parseResponse<{ accessToken: string }>(response);
+        const data = await parseResponse<{ user: User; accessToken: string }>(response);
         setAccessToken(data.accessToken);
+        currentUser = data.user;
         return data.accessToken;
       })
       .catch(() => {

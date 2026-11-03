@@ -213,11 +213,7 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
     <form className="create-form" onSubmit={(event) => void submit(event)}>
       <div className="create-main">
         <div className="create-preview-panel">
-          <div>
-            <span className="section-kicker">LIVE PREVIEW</span>
-            <h3>See the redaction effect</h3>
-            <p>Adjust the style and strength on the right to preview the result before uploading.</p>
-          </div>
+          <span className="section-kicker">Preview</span>
           <PreviewCanvas
             style={config.style}
             strength={config.strength}

@@ -1,5 +1,5 @@
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
-import { login, logout, refreshAccessToken, register } from "../auth";
+import { getCurrentUser, login, logout, refreshAccessToken, register } from "../auth";
 import { User } from "../types";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
@@ -21,6 +21,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (testMode) return;
     refreshAccessToken().then((token) => {
+      setUser(getCurrentUser());
       setStatus(token ? "authenticated" : "unauthenticated");
     });
   }, [testMode]);

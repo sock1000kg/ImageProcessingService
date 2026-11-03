@@ -103,6 +103,22 @@ spec:
                   key: password
             - name: DATABASE_URL
               value: postgresql://imgproc:$(PGPASSWORD)@postgresql:5432/imgproc
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: imgproc-web-auth
+                  key: jwtSecret
+            - name: REGISTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: imgproc-web-auth
+                  key: registerKey
+            # The public site is HTTPS only (Cloudflare), so the refresh cookie must be Secure.
+            - name: COOKIE_SECURE
+              value: "true"
+            # Requests arrive through cloudflared + Traefik; Cloudflare sets the real client IP here.
+            - name: CLIENT_IP_HEADER
+              value: cf-connecting-ip
       volumes:
         - name: tmp
           emptyDir: {}

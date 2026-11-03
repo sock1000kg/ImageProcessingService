@@ -23,7 +23,7 @@ function validateId(request: Request, _response: Response, next: NextFunction): 
  * Response: 200 { job: JobResponseDTO }
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
-jobsRouter.get("/:id", validateId, requireAuth, getJobHandler);
+jobsRouter.get("/:id", requireAuth, validateId, getJobHandler);
 
 /**
  * GET /api/jobs/:id/original
@@ -31,7 +31,7 @@ jobsRouter.get("/:id", validateId, requireAuth, getJobHandler);
  * Response: 200 binary image stream with Content-Type and Content-Disposition headers
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
-jobsRouter.get("/:id/original", validateId, requireAuth, getJobOriginalHandler);
+jobsRouter.get("/:id/original", requireAuth, validateId, getJobOriginalHandler);
 
 /**
  * POST /api/jobs/:id/retry
@@ -39,4 +39,4 @@ jobsRouter.get("/:id/original", validateId, requireAuth, getJobOriginalHandler);
  * Response: 201 { job: JobResponseDTO }
  * Errors: 400 INVALID_UUID / NOT_FAILED, 404 NOT_FOUND, 503 SERVICE_UNAVAILABLE
  */
-jobsRouter.post("/:id/retry", validateId, requireAuth, retryJobHandler);
+jobsRouter.post("/:id/retry", requireAuth, validateId, retryJobHandler);

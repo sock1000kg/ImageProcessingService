@@ -10,7 +10,8 @@ import { requireAuth } from "../middleware/auth.middleware";
 import { rateLimit } from "../middleware/rate-limit.middleware";
 
 export const authRouter = Router();
-const strictAuthLimit = rateLimit(60_000, 10, "auth");
+// Strict: slows password and register-key guessing. Per IP, since there is no user yet.
+const strictAuthLimit = rateLimit(60_000, 10);
 
 authRouter.post("/register", strictAuthLimit, registerHandler);
 authRouter.post("/login", strictAuthLimit, loginHandler);

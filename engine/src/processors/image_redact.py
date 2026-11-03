@@ -171,7 +171,7 @@ class ImageRedactProcessor(BaseProcessor):
         # 2b. Parse Whitelist configuration (Milestone 2)
         whitelist_cfg = params.get("whitelist", {}) if params else {}
         face_specs = whitelist_cfg.get("faces", []) if isinstance(whitelist_cfg, dict) else []
-        similarity_threshold = float(whitelist_cfg.get("similarityThreshold", 0.5)) if isinstance(whitelist_cfg, dict) else 0.5
+        similarity_threshold = float(whitelist_cfg.get("similarityThreshold", 0.45)) if isinstance(whitelist_cfg, dict) else 0.45
         has_whitelist = bool(face_specs and len(face_specs) > 0)
 
         ref_embeddings = []

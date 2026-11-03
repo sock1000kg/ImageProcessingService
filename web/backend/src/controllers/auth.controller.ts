@@ -14,7 +14,7 @@ import {
 import { badRequest } from "../errors";
 
 const credentialsSchema = z.object({
-  email: z.string().email().max(320),
+  email: z.string().trim().toLowerCase().email().max(320),
   password: z.string().min(8).max(200),
 });
 

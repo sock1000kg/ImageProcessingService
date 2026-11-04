@@ -226,28 +226,30 @@ The Engine must have its Python environment, model weights, and configuration re
 
 ## API endpoints
 
-| Method   | Path                      | Description                                                                                                      |
-| -------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `GET`    | `/api/batches`            | List authed user's batches (`?limit`, `?cursor`): items with thumbnail, status, size, and total account storage  |
-| `POST`   | `/api/batches`            | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`) |
-| `POST`   | `/api/batches/:id/files`  | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`)                                   |
-| `POST`   | `/api/batches/:id/start`  | Start batch processing for pending jobs. Returns 202 `{ batch }`                                                 |
-| `GET`    | `/api/batches/:id`        | Batch details and jobs (includes `name`)                                                                         |
-| `PATCH`  | `/api/batches/:id`        | Rename batch with JSON `{ name }`. Returns 200 `{ batch }`                                                       |
-| `GET`    | `/api/batches/:id/report` | Batch report with totals, review images/reasons, `batchName`, and detections when provided by Engine             |
-| `DELETE` | `/api/batches/:id`        | Delete the batch and its `uploads`/`results` objects                                                             |
-| `GET`    | `/api/jobs/:id`           | Job status and details                                                                                           |
-| `DELETE` | `/api/jobs/:id`           | Delete single image job and its storage objects (deletes batch if last job; 409 if active)                       |
-| `POST`   | `/api/jobs/:id/retry`     | Retry a `FAILED` job with a new job ID and output key                                                            |
-| `GET`    | `/api/jobs/:id/original`  | Stream the private original image                                                                                |
-| `GET`    | `/api/system/stats`       | Job counts grouped by status                                                                                     |
-| `POST`   | `/api/auth/register`      | Create an account with email, password, and `REGISTER_KEY`                                                       |
-| `POST`   | `/api/auth/login`         | Sign in and receive a short-lived access token                                                                   |
-| `POST`   | `/api/auth/refresh`       | Rotate the `httpOnly` refresh cookie and issue a new access token                                                |
-| `POST`   | `/api/auth/logout`        | Revoke the current refresh token and clear the cookie                                                            |
-| `GET`    | `/api/auth/me`            | Return the authenticated user's public profile                                                                   |
-| `GET`    | `/health`                 | Liveness check                                                                                                   |
-| `GET`    | `/ready`                  | PostgreSQL, NATS, and MinIO readiness check                                                                      |
+| Method   | Path                              | Description                                                                                                      |
+| -------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/batches`                    | List authed user's batches (`?limit`, `?cursor`): items with thumbnail, status, size, and total account storage  |
+| `POST`   | `/api/batches`                    | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`) |
+| `POST`   | `/api/batches/:id/files`          | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`)                                   |
+| `POST`   | `/api/batches/:id/start`          | Start batch processing for pending jobs. Returns 202 `{ batch }`                                                 |
+| `GET`    | `/api/batches/:id`                | Batch details and jobs (includes `name`)                                                                         |
+| `PATCH`  | `/api/batches/:id`                | Rename batch with JSON `{ name }`. Returns 200 `{ batch }`                                                       |
+| `GET`    | `/api/batches/:id/report`         | Batch report with totals, review images/reasons, `batchName`, and detections when provided by Engine             |
+| `DELETE` | `/api/batches/:id`                | Delete the batch and its `uploads`/`results` objects                                                             |
+| `POST`   | `/api/batches/:id/download-token` | Issue short-lived (60 s) signed token for streaming batch zip (owner only)                                       |
+| `GET`    | `/api/batches/:id/download.zip`   | Stream all completed results as a zip archive using signed token                                                 |
+| `GET`    | `/api/jobs/:id`                   | Job status and details                                                                                           |
+| `DELETE` | `/api/jobs/:id`                   | Delete single image job and its storage objects (deletes batch if last job; 409 if active)                       |
+| `POST`   | `/api/jobs/:id/retry`             | Retry a `FAILED` job with a new job ID and output key                                                            |
+| `GET`    | `/api/jobs/:id/original`          | Stream the private original image                                                                                |
+| `GET`    | `/api/system/stats`               | Job counts grouped by status                                                                                     |
+| `POST`   | `/api/auth/register`              | Create an account with email, password, and `REGISTER_KEY`                                                       |
+| `POST`   | `/api/auth/login`                 | Sign in and receive a short-lived access token                                                                   |
+| `POST`   | `/api/auth/refresh`               | Rotate the `httpOnly` refresh cookie and issue a new access token                                                |
+| `POST`   | `/api/auth/logout`                | Revoke the current refresh token and clear the cookie                                                            |
+| `GET`    | `/api/auth/me`                    | Return the authenticated user's public profile                                                                   |
+| `GET`    | `/health`                         | Liveness check                                                                                                   |
+| `GET`    | `/ready`                          | PostgreSQL, NATS, and MinIO readiness check                                                                      |
 
 ### Upload flow (Per-image upload)
 
@@ -320,7 +322,7 @@ The report keeps Engine-provided review signals authoritative. An image is marke
      `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
 - **Batch-level extras**: Exposes `models: string[]` (unique non-null models across latest completed attempts) and `processingTimeMs: { total, mean, max } | null` over the latest completed attempts.
 
-The batch page provides **Download all results**, which starts one download per completed job with a `resultUrl`; ZIP export is not implemented in Phase 1. The local PreviewCanvas draws on a bundled street photo (`frontend/public/preview-sample.jpg`: Jorge Láscar, CC BY 2.0, cropped; credited under the preview) with hand-marked face and plate boxes. It is never uploaded.
+The batch page and media library provide **Download zip**, which requests a short-lived signed download token via `POST /api/batches/:id/download-token` (60 s TTL) and streams the entire batch of completed results as an uncompressed zip archive (`GET /api/batches/:id/download.zip?token=…`). The archive is streamed directly from MinIO into the response without buffering in server memory or writing temporary files, deduplicating names inside the archive (`name (2).jpg`), listing any missing results in `MISSING.txt`, and aborting the stream cleanly if the client disconnects. The local PreviewCanvas draws on a bundled street photo (`frontend/public/preview-sample.jpg`: Jorge Láscar, CC BY 2.0, cropped; credited under the preview) with hand-marked face and plate boxes. It is never uploaded.
 
 ## Error response format
 

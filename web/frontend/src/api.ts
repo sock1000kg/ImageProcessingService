@@ -180,6 +180,16 @@ export function getBatchReport(id: string): Promise<{ report: BatchReport }> {
 }
 
 /**
+ * Requests a short-lived download token URL for streaming a batch's completed results as a zip.
+ */
+export async function getBatchZipUrl(id: string): Promise<string> {
+  const data = await request<{ url: string }>(`/api/batches/${id}/download-token`, {
+    method: "POST",
+  });
+  return data.url;
+}
+
+/**
  * Enqueues a retry for a failed job.
  */
 export function retryJob(id: string): Promise<{ job: Job }> {

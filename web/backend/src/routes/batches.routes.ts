@@ -10,8 +10,10 @@ import { validateBatchCreation, validateIdParam } from "../dto";
 import { NextFunction, Request, Response } from "express";
 import {
   addBatchFileHandler,
+  createBatchDownloadTokenHandler,
   createBatchHandler,
   deleteBatchHandler,
+  downloadBatchZipHandler,
   getBatchHandler,
   getBatchReportHandler,
   listBatchesHandler,
@@ -29,6 +31,7 @@ export const batchesRouter = Router();
 // minute while capping a runaway client.
 const createBatchLimit = rateLimit(60_000, 20, userKey);
 const uploadLimit = rateLimit(60_000, 300, userKey);
+const downloadTokenLimit = rateLimit(60_000, 30, userKey);
 function validateId(request: Request, _response: Response, next: NextFunction): void {
   try {
     validateIdParam(request.params);
@@ -125,3 +128,19 @@ batchesRouter.get("/:id/report", requireAuth, validateId, getBatchReportHandler)
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
 batchesRouter.delete("/:id", requireAuth, validateId, deleteBatchHandler);
+
+/**
+ * POST /api/batches/:id/download-token
+ * Request: None
+ * Response: 200 { url: string }
+ * Errors: 400 INVALID_UUID, 401 UNAUTHORIZED, 404 NOT_FOUND, 429 RATE_LIMITED
+ */
+batchesRouter.post("/:id/download-token", requireAuth, downloadTokenLimit, validateId, createBatchDownloadTokenHandler);
+
+/**
+ * GET /api/batches/:id/download.zip?token=...
+ * Request: Query { token: string }
+ * Response: 200 (zip stream)
+ * Errors: 400 INVALID_UUID, 401 INVALID_DOWNLOAD_TOKEN, 404 NOT_FOUND / NO_RESULTS
+ */
+batchesRouter.get("/:id/download.zip", validateId, downloadBatchZipHandler);

@@ -3,7 +3,7 @@
  */
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { deleteBatch, listBatches, renameBatch } from "../api";
+import { deleteBatch, getBatchZipUrl, listBatches, renameBatch } from "../api";
 import { DeleteBatchDialog } from "../components/DeleteBatchDialog";
 import { InlineRename } from "../components/InlineRename";
 import { Banner } from "../components/ui/Banner";
@@ -87,6 +87,17 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
     }
   };
 
+  const handleDownloadZip = async (batchId: string) => {
+    try {
+      const url = await getBatchZipUrl(batchId);
+      window.location.href = url;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to download zip";
+      setError(message);
+      onMessage?.(message);
+    }
+  };
+
   return (
     <section className="library-page">
       <div className="welcome-card">
@@ -161,6 +172,14 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                   <Link to={`/batches/${batch.id}`} className="secondary-button">
                     Open batch
                   </Link>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={batch.jobCounts.completed === 0}
+                    onClick={() => void handleDownloadZip(batch.id)}
+                  >
+                    Download zip
+                  </button>
                   <button type="button" className="danger-button" onClick={() => setDeletingBatch(batch)}>
                     Delete
                   </button>

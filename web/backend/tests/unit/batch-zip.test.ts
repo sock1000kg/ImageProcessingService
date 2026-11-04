@@ -446,9 +446,9 @@ describe("Batch Zip Download Unit Tests (Task 37)", () => {
 
       const handlerPromise = downloadBatchZipHandler(req as any, res as any, next);
 
-      // Simulate client abort while stream is active
+      // Simulate client abort while stream is active: the response closes before it has ended
       setTimeout(() => {
-        req.emit("close");
+        res.emit("close");
       }, 10);
 
       await handlerPromise;

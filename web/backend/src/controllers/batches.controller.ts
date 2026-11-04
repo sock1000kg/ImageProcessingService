@@ -305,7 +305,9 @@ export async function downloadBatchZipHandler(request: Request, response: Respon
     let clientAborted = false;
     let abortReject: ((err?: unknown) => void) | null = null;
 
-    request.on("close", () => {
+    // The response's "close" means the client went away (or we finished); the request's "close" can fire as soon as
+    // its (empty) body is read, so it is not a disconnect signal.
+    response.on("close", () => {
       if (!response.writableEnded) {
         clientAborted = true;
         archive.abort();
@@ -366,6 +368,12 @@ export async function downloadBatchZipHandler(request: Request, response: Respon
       await archive.finalize();
     }
   } catch (error) {
+    // Once zip bytes are on the wire a JSON error can't be sent; cut the connection so the download shows as failed.
+    if (response.headersSent) {
+      console.error(`Zip download failed for batch ${request.params.id}`, error);
+      response.destroy(error as Error);
+      return;
+    }
     next(error);
   }
 }

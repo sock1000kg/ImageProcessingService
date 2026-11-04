@@ -60,6 +60,20 @@ export function tooManyRequests(message: string, code = "RATE_LIMITED"): AppErro
   return new AppError(429, code, message);
 }
 
+/**
+ * One readable sentence for the UI, which shows `error.message` as is. Schemas that face users set their own messages
+ * ("Password must be at least 8 characters"); for the rest, Zod's generic text gets the field name in front.
+ */
+function validationMessage(error: ZodError): string {
+  const parts = error.issues.map((issue) => {
+    const field = issue.path.join(".");
+    return field && !issue.message.toLowerCase().includes(field.toLowerCase())
+      ? `${field}: ${issue.message}`
+      : issue.message;
+  });
+  return [...new Set(parts)].join(". ") || "Invalid request";
+}
+
 export function toErrorResponse(error: unknown): { status: number; body: ErrorDTO } {
   if (error instanceof AppError) {
     return {
@@ -80,7 +94,7 @@ export function toErrorResponse(error: unknown): { status: number; body: ErrorDT
       body: {
         error: {
           code: "VALIDATION_ERROR",
-          message: "Validation failed",
+          message: validationMessage(error),
           details: error.issues,
         },
       },

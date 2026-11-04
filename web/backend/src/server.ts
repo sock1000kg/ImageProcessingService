@@ -3,7 +3,7 @@
  */
 import { createApp } from "./app";
 import { config } from "./config";
-import { closeDatabase } from "./db";
+import { closeDatabase, verifyDatabase } from "./db";
 import { closeMessaging, connectMessaging } from "./messaging";
 import { verifyBuckets } from "./storage";
 import { cleanupExpiredBatches } from "./services/batch.service";
@@ -25,12 +25,43 @@ function stopCleanupTimer(): void {
   }
 }
 
+/** Where a dependency lives, without credentials, for the startup log. */
+function describeDatabase(): string {
+  try {
+    const url = new URL(config.DATABASE_URL);
+    return `${url.hostname}:${url.port || 5432}${url.pathname}`;
+  } catch {
+    return "DATABASE_URL";
+  }
+}
+
+/**
+ * Logs whether PostgreSQL and MinIO answer, so a failed start says which one is down. MinIO stays fatal (uploads
+ * cannot work without the buckets); a PostgreSQL failure is logged and requests fail until it comes back.
+ */
+async function checkDependencies(): Promise<void> {
+  const minio = `${config.MINIO_ENDPOINT}:${config.MINIO_PORT}`;
+  try {
+    await verifyDatabase();
+    console.log(`PostgreSQL OK (${describeDatabase()})`);
+  } catch (error) {
+    console.error(`PostgreSQL unreachable (${describeDatabase()}): ${(error as Error).message}`);
+  }
+  try {
+    await verifyBuckets();
+    console.log(`MinIO OK (${minio}, buckets present)`);
+  } catch (error) {
+    console.error(`MinIO unreachable or buckets missing (${minio}): ${(error as Error).message}`);
+    throw error;
+  }
+}
+
 async function start(): Promise<void> {
   // Every API route needs a signed access token, so without a secret the app would only answer 500s.
   if (!config.JWT_SECRET) {
     throw new Error("JWT_SECRET is not set (at least 32 characters); see web/.env.example");
   }
-  await verifyBuckets();
+  await checkDependencies();
   await connectMessaging();
   startCleanupTimer();
 

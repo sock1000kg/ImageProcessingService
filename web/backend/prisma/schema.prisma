@@ -69,6 +69,8 @@ model Job {
   originalFilename String    @map("original_filename")
   inputKey         String    @map("input_key")
   outputKey        String    @map("output_key")
+  inputBytes       Int?      @map("input_bytes")
+  resultBytes      Int?      @map("result_bytes")
   status           JobStatus @default(PENDING)
   progress         Int       @default(0)
   stage            String?

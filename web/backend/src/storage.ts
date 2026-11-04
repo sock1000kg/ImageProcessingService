@@ -98,6 +98,15 @@ export async function objectExists(bucket: string, key: string): Promise<boolean
   }
 }
 
+export async function statObject(bucket: string, key: string): Promise<number | null> {
+  try {
+    const response = await s3Client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    return typeof response.ContentLength === "number" ? response.ContentLength : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function deletePrefix(bucket: string, prefix: string): Promise<void> {
   let continuationToken: string | undefined = undefined;
   let isTruncated: boolean | undefined = true;
@@ -151,6 +160,7 @@ export const storage = {
   putObject,
   getObjectStream,
   objectExists,
+  statObject,
   deleteObject,
   deletePrefix,
   verifyBuckets,

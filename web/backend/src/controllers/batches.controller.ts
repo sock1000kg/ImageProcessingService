@@ -8,11 +8,23 @@ import {
   deleteBatchById,
   getBatchById,
   getBatchReportById,
+  listBatches,
   renameBatch,
   startBatch,
 } from "../services/batch.service";
 import { notFound } from "../errors";
-import { patchBatchBodySchema, validateIdParam } from "../dto";
+import { listBatchesQuerySchema, patchBatchBodySchema, validateIdParam } from "../dto";
+
+export async function listBatchesHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const query = listBatchesQuerySchema.parse(request.query);
+    const userId = request.authUser!.id;
+    const result = await listBatches(userId, query);
+    response.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
 
 export async function createBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {

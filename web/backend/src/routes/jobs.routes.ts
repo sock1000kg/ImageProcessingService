@@ -2,7 +2,12 @@
  * Express router defining endpoints for individual image jobs, downloads, and retries.
  */
 import { Router } from "express";
-import { getJobHandler, getJobOriginalHandler, retryJobHandler } from "../controllers/jobs.controller";
+import {
+  deleteJobHandler,
+  getJobHandler,
+  getJobOriginalHandler,
+  retryJobHandler,
+} from "../controllers/jobs.controller";
 import { requireAuth } from "../middleware/auth.middleware";
 import { validateIdParam } from "../dto";
 import { NextFunction, Request, Response } from "express";
@@ -40,3 +45,11 @@ jobsRouter.get("/:id/original", requireAuth, validateId, getJobOriginalHandler);
  * Errors: 400 INVALID_UUID / NOT_FAILED, 404 NOT_FOUND, 503 SERVICE_UNAVAILABLE
  */
 jobsRouter.post("/:id/retry", requireAuth, validateId, retryJobHandler);
+
+/**
+ * DELETE /api/jobs/:id
+ * Request: None
+ * Response: 204 No Content
+ * Errors: 400 INVALID_UUID, 404 NOT_FOUND, 409 JOB_ACTIVE
+ */
+jobsRouter.delete("/:id", requireAuth, validateId, deleteJobHandler);

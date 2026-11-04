@@ -3,6 +3,7 @@
  */
 import { useEffect, useState } from "react";
 import { getFileIdentity, getFilePath } from "./file-selection";
+import { formatBytes } from "../utils/format";
 
 export interface FilePreviewListProps {
   files: File[];
@@ -20,8 +21,7 @@ export interface FilePreviewListProps {
   onClear?: () => void;
 }
 
-const formatSize = (bytes: number) =>
-  bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+const formatSize = formatBytes;
 
 function FileThumbnail({ file }: { file: File }) {
   const [url, setUrl] = useState<string | null>(null);

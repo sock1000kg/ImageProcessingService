@@ -14,12 +14,15 @@ import {
 import { badRequest } from "../errors";
 
 const credentialsSchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(320),
-  password: z.string().min(8).max(200),
+  email: z.string().trim().toLowerCase().email("Enter a valid email address").max(320, "Email is too long"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(200, "Password must be at most 200 characters"),
 });
 
 const registerSchema = credentialsSchema.extend({
-  registerKey: z.string().min(1),
+  registerKey: z.string().min(1, "Registration key is required"),
 });
 
 function publicUser(user: { id: string; email: string }) {

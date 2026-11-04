@@ -158,7 +158,7 @@ describe("DTO Validation and Schemas (Task 26)", () => {
         expect(res.status).toBe(400);
         const body = (await res.json()) as { error: { code: string; message: string; details: unknown } };
         expect(body.error.code).toBe("VALIDATION_ERROR");
-        expect(body.error.message).toBe("Validation failed");
+        expect(body.error.message).not.toBe("Validation failed");
         expect(Array.isArray(body.error.details)).toBe(true);
       } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()));

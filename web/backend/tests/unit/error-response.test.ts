@@ -65,6 +65,13 @@ describe("toErrorResponse Unit Tests", () => {
     });
   });
 
+  it("uses a schema's own message as is, without repeating the field name", () => {
+    const schema = z.object({ password: z.string().min(8, "Password must be at least 8 characters") });
+    const result = schema.safeParse({ password: "short" });
+    const response = toErrorResponse(result.error);
+    expect(response.body.error.message).toBe("Password must be at least 8 characters");
+  });
+
   it("maps ZodError to 400 VALIDATION_ERROR with issues in details", () => {
     const schema = z.object({
       name: z.string().min(3),
@@ -83,7 +90,7 @@ describe("toErrorResponse Unit Tests", () => {
 
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe("VALIDATION_ERROR");
-    expect(response.body.error.message).toBe("Validation failed");
+    expect(response.body.error.message).toMatch(/^name: .+\. age: .+$/);
     expect(Array.isArray(response.body.error.details)).toBe(true);
     expect((response.body.error.details as any[]).length).toBe(2);
   });

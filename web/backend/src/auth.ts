@@ -61,35 +61,80 @@ function signJwt(payload: Record<string, string | number>): string {
   return `${input}.${signature}`;
 }
 
+/** General JWT token verifier: verifies HS256 signature, structure, and expiration. */
+export function verifyJwt<T extends Record<string, unknown>>(
+  token: string,
+  errorMessage = "Invalid token",
+  errorCode = "INVALID_TOKEN",
+): T {
+  const parts = token.split(".");
+  if (parts.length !== 3) throw unauthorized(errorMessage, errorCode);
+  const input = `${parts[0]}.${parts[1]}`;
+  const expected = createHmac("sha256", requireJwtSecret()).update(input).digest();
+  const received = Buffer.from(parts[2], "base64url");
+  if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+    throw unauthorized(errorMessage, errorCode);
+  }
+  let payload: T;
+  try {
+    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as T;
+  } catch {
+    throw unauthorized(errorMessage, errorCode);
+  }
+  if (
+    typeof (payload as { exp?: unknown }).exp !== "number" ||
+    (payload as unknown as { exp: number }).exp <= Math.floor(Date.now() / 1000)
+  ) {
+    throw unauthorized("Token expired or invalid", errorCode);
+  }
+  return payload;
+}
+
 export function createAccessToken(user: AuthUser): string {
   const now = Math.floor(Date.now() / 1000);
   return signJwt({ sub: user.id, email: user.email, iat: now, exp: now + config.JWT_ACCESS_TTL });
 }
 
 export function verifyAccessToken(token: string): AuthUser {
-  const parts = token.split(".");
-  if (parts.length !== 3) throw unauthorized("Invalid access token", "INVALID_TOKEN");
-  const input = `${parts[0]}.${parts[1]}`;
-  const expected = createHmac("sha256", requireJwtSecret()).update(input).digest();
-  const received = Buffer.from(parts[2], "base64url");
-  if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
-    throw unauthorized("Invalid access token", "INVALID_TOKEN");
-  }
-  let payload: { sub?: unknown; email?: unknown; exp?: unknown };
-  try {
-    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as typeof payload;
-  } catch {
-    throw unauthorized("Invalid access token", "INVALID_TOKEN");
-  }
-  if (
-    typeof payload.sub !== "string" ||
-    typeof payload.email !== "string" ||
-    typeof payload.exp !== "number" ||
-    payload.exp <= Math.floor(Date.now() / 1000)
-  ) {
+  const payload = verifyJwt<{ sub?: unknown; email?: unknown }>(token, "Invalid access token", "INVALID_TOKEN");
+  if (typeof payload.sub !== "string" || typeof payload.email !== "string") {
     throw unauthorized("Access token expired or invalid", "INVALID_TOKEN");
   }
   return { id: payload.sub, email: payload.email };
+}
+
+/**
+ * Creates a short-lived (60 s) signed token bound to batchId + userId + purpose "zip".
+ */
+export function createBatchDownloadToken(userId: string, batchId: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  return signJwt({
+    sub: userId,
+    batchId,
+    purpose: "zip",
+    iat: now,
+    exp: now + 60,
+  });
+}
+
+/**
+ * Verifies a batch download token. Rejects expired tokens, tokens for another batch/user,
+ * or regular access tokens without the "zip" purpose.
+ */
+export function verifyBatchDownloadToken(token: string, expectedBatchId: string): { userId: string; batchId: string } {
+  if (!token || typeof token !== "string") {
+    throw unauthorized("Invalid download token", "INVALID_DOWNLOAD_TOKEN");
+  }
+  const payload = verifyJwt<Record<string, unknown>>(token, "Invalid download token", "INVALID_DOWNLOAD_TOKEN");
+  if (
+    payload.purpose !== "zip" ||
+    typeof payload.sub !== "string" ||
+    typeof payload.batchId !== "string" ||
+    payload.batchId !== expectedBatchId
+  ) {
+    throw unauthorized("Invalid download token", "INVALID_DOWNLOAD_TOKEN");
+  }
+  return { userId: payload.sub, batchId: payload.batchId };
 }
 
 export function hashRefreshToken(token: string): string {

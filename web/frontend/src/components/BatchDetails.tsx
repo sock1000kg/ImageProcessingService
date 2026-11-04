@@ -10,18 +10,6 @@ import { BatchReport } from "./BatchReport";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { ImageResultViewer } from "./ImageResultViewer";
 
-const BATCH_TTL_MS = 24 * 60 * 60 * 1000;
-
-function getExpiryLabel(createdAt: string): string {
-  const created = new Date(createdAt);
-  if (Number.isNaN(created.getTime())) return "Automatic deletion time is unavailable.";
-  const expiresAt = new Date(created.getTime() + BATCH_TTL_MS);
-  if (expiresAt.getTime() <= Date.now()) {
-    return `Data expired on ${expiresAt.toLocaleString()}.`;
-  }
-  return `Data will be automatically deleted on ${expiresAt.toLocaleString()}.`;
-}
-
 export interface BatchDetailsProps {
   batch: Batch;
   onRefresh: () => Promise<void>;
@@ -106,8 +94,9 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
             report={report?.images ?? []}
             selected={selected?.id ?? null}
             onSelect={(job) => setSelectedId(job.id)}
+            onJobDeleted={() => void onRefresh()}
+            onError={onMessage}
           />
-          <div className="ttl-note">{getExpiryLabel(batch.createdAt)}</div>
         </div>
 
         <div>

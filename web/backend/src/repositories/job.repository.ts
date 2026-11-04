@@ -44,6 +44,7 @@ export async function addJobToBatchWithLock(
     originalFilename: string;
     inputKey: string;
     outputKey: string;
+    inputBytes?: number;
   },
 ) {
   return prisma.$transaction(async (tx) => {
@@ -73,6 +74,7 @@ export async function addJobToBatchWithLock(
         originalFilename: jobData.originalFilename,
         inputKey: jobData.inputKey,
         outputKey: jobData.outputKey,
+        inputBytes: jobData.inputBytes ?? null,
         status: JobStatus.PENDING,
       },
     });
@@ -181,6 +183,7 @@ export async function insertRetryJob(job: {
   originalFilename: string;
   inputKey: string;
   outputKey: string;
+  inputBytes?: number | null;
 }) {
   return prisma.job.create({
     data: {
@@ -189,6 +192,7 @@ export async function insertRetryJob(job: {
       originalFilename: job.originalFilename,
       inputKey: job.inputKey,
       outputKey: job.outputKey,
+      inputBytes: job.inputBytes ?? null,
       status: JobStatus.PENDING,
     },
   });
@@ -234,6 +238,60 @@ export async function updateBatchName(id: string, name: string) {
   });
 }
 
+export async function countJobsByBatchId(batchId: string): Promise<number> {
+  return prisma.job.count({
+    where: { batchId },
+  });
+}
+
+export async function listBatchesByUserId(userId: string, options: { limit: number; cursor?: string }) {
+  const query = {
+    where: { userId },
+    orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
+    take: options.limit + 1,
+    include: {
+      jobs: {
+        select: {
+          id: true,
+          status: true,
+          inputBytes: true,
+          resultBytes: true,
+          resultUrl: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "asc" as const },
+      },
+    },
+    ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+  };
+  try {
+    return await prisma.batch.findMany(query);
+  } catch (err: unknown) {
+    if ((err as { code?: string })?.code === "P2025") {
+      return [];
+    }
+    throw err;
+  }
+}
+
+export async function getAccountUsage(userId: string): Promise<{ bytes: number; batches: number; jobs: number }> {
+  const rows = await prisma.$queryRaw<Array<{ batches: number; jobs: number; bytes: bigint | number }>>`
+    SELECT
+      COUNT(DISTINCT b.id)::int AS batches,
+      COUNT(j.id)::int AS jobs,
+      COALESCE(SUM(COALESCE(j.input_bytes, 0) + COALESCE(j.result_bytes, 0)), 0)::bigint AS bytes
+    FROM batches b
+    LEFT JOIN jobs j ON j.batch_id = b.id
+    WHERE b.user_id = ${userId}::uuid
+  `;
+  const row = rows[0];
+  return {
+    batches: Number(row?.batches ?? 0),
+    jobs: Number(row?.jobs ?? 0),
+    bytes: Number(row?.bytes ?? 0),
+  };
+}
+
 export async function updateJobState(
   jobId: string,
   state: {
@@ -243,6 +301,7 @@ export async function updateJobState(
     resultUrl: string | null;
     resultSummary: Record<string, unknown> | null;
     error: { code: string; message: string } | null;
+    resultBytes?: number | null;
   },
 ): Promise<void> {
   await prisma.job.updateMany({
@@ -258,6 +317,7 @@ export async function updateJobState(
       // Prisma InputJsonValue requires casting for structured JSON fields
       resultSummary: state.resultSummary ? (state.resultSummary as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       error: state.error ? (state.error as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+      ...(state.resultBytes !== undefined ? { resultBytes: state.resultBytes } : {}),
     },
   });
 }
@@ -283,20 +343,18 @@ export async function markBatchWhitelistDeleted(batchId: string): Promise<void> 
   });
 }
 
-export async function cleanupExpiredBatches(): Promise<number> {
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const result = await prisma.batch.deleteMany({
-    where: {
-      createdAt: { lt: cutoff },
-    },
-  });
-  return result.count;
-}
-
-export async function getExpiredBatches() {
+export async function getExpiredBatches(retentionDays?: number) {
+  const days = retentionDays !== undefined ? retentionDays : config.RETENTION_DAYS;
+  if (days !== undefined) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    return prisma.batch.findMany({
+      where: { createdAt: { lt: cutoff } },
+      select: { id: true },
+    });
+  }
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return prisma.batch.findMany({
-    where: { createdAt: { lt: cutoff } },
+    where: { startedAt: null, createdAt: { lt: cutoff } },
     select: { id: true },
   });
 }

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { CreateBatchPage } from "./pages/CreateBatchPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { LibraryPage } from "./pages/LibraryPage";
 import { BatchPage } from "./pages/BatchPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { Banner } from "./components/ui/Banner";
@@ -23,6 +24,7 @@ function Topbar({ onRefresh }: TopbarProps) {
   const { user, signOut } = useAuth();
   const location = useLocation();
   const isCreate = location.pathname === "/batches/new";
+  const isLibrary = location.pathname === "/library";
 
   return (
     <header className="topbar">
@@ -30,11 +32,13 @@ function Topbar({ onRefresh }: TopbarProps) {
         <p className="eyebrow">
           Cloud-native privacy service <span className="eyebrow-dot" />
         </p>
-        <h1>{isCreate ? "Create a secure batch" : "Your privacy workspace"}</h1>
+        <h1>{isCreate ? "Create a secure batch" : isLibrary ? "Media library" : "Your privacy workspace"}</h1>
         <p className="subtitle">
           {isCreate
             ? "Configure redaction once. Workers handle the rest asynchronously."
-            : "Monitor processing and review protected media in one place."}
+            : isLibrary
+              ? "Manage stored originals, completed results, and account storage."
+              : "Monitor processing and review protected media in one place."}
         </p>
       </div>
       <div className="topbar-actions">
@@ -96,6 +100,9 @@ function AuthenticatedApp() {
           <NavLink to="/" end className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
             ⌂ <span>Overview</span>
           </NavLink>
+          <NavLink to="/library" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
+            🗂 <span>Library</span>
+          </NavLink>
           <NavLink to="/batches/new" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
             ＋ <span>New batch</span>
           </NavLink>
@@ -128,6 +135,14 @@ function AuthenticatedApp() {
             element={
               <ProtectedRoute>
                 <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/library"
+            element={
+              <ProtectedRoute>
+                <LibraryPage onMessage={setMessage} />
               </ProtectedRoute>
             }
           />

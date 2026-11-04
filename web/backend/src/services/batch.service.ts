@@ -6,10 +6,12 @@ import path from "node:path";
 import { config } from "../config";
 import {
   addJobToBatchWithLock,
+  countJobsByBatchId,
   createDraftBatch as createDraftBatchRepository,
   deleteJob,
   deleteBatchRow,
   deleteBatchRowOwnedByUser,
+  getAccountUsage,
   getActiveRetryJob,
   getBatch,
   getBatchOwnedByUser,
@@ -20,6 +22,7 @@ import {
   getPendingJobsByBatchId,
   insertBatchAndJobs,
   insertRetryJob,
+  listBatchesByUserId,
   markBatchWhitelistDeleted,
   setBatchStarted,
   updateBatchName,
@@ -30,10 +33,18 @@ import { publishJob } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
 import { BatchConfig } from "../types";
 import { JobStatus } from "../generated/prisma/client";
-import { buildImageRedactCommand, calculateNextJobState, JobState, resolveOutputExtension } from "../domain";
+import {
+  buildImageRedactCommand,
+  calculateNextJobState,
+  deriveBatchStatus,
+  JobState,
+  resolveOutputExtension,
+} from "../domain";
 import {
   batchNameSchema,
+  BatchListResponseDTO,
   BatchResponseDTO,
+  BatchSummaryItemDTO,
   JobResponseDTO,
   parseBatchConfig,
   parseBatchConfigJson,
@@ -127,6 +138,7 @@ export async function addBatchFile(
       originalFilename: validFile.originalname,
       inputKey,
       outputKey,
+      inputBytes: validFile.size,
     });
     return toJobResponse(job);
   } catch (error) {
@@ -224,6 +236,79 @@ export async function deleteBatchById(id: string, userId?: string): Promise<bool
   return userId ? deleteBatchRowOwnedByUser(id, userId) : deleteBatchRow(id);
 }
 
+export async function listBatches(
+  userId: string,
+  options: { limit: number; cursor?: string },
+): Promise<BatchListResponseDTO> {
+  const batches = await listBatchesByUserId(userId, options);
+  const hasMore = batches.length > options.limit;
+  const pageBatches = hasMore ? batches.slice(0, options.limit) : batches;
+  const nextCursor = hasMore ? pageBatches[pageBatches.length - 1].id : null;
+
+  const items: BatchSummaryItemDTO[] = pageBatches.map((batch) => {
+    const jobs = batch.jobs;
+    const total = jobs.length;
+    const completed = jobs.filter((j) => j.status === JobStatus.COMPLETED).length;
+    const failed = jobs.filter((j) => j.status === JobStatus.FAILED).length;
+    const status = deriveBatchStatus(
+      jobs.map((j) => j.status),
+      batch.startedAt,
+    );
+    const firstCompleted = jobs.find((j) => j.status === JobStatus.COMPLETED && j.resultUrl);
+    const thumbnailUrl = firstCompleted ? firstCompleted.resultUrl : null;
+    const bytes = jobs.reduce((sum, j) => sum + (j.inputBytes ?? 0) + (j.resultBytes ?? 0), 0);
+
+    return {
+      id: batch.id,
+      name: batch.name,
+      createdAt: batch.createdAt.toISOString(),
+      status,
+      jobCounts: { total, completed, failed },
+      thumbnailUrl,
+      bytes,
+    };
+  });
+
+  const usage = await getAccountUsage(userId);
+
+  return {
+    batches: items,
+    nextCursor,
+    usage,
+  };
+}
+
+export async function deleteJobById(id: string, userId: string): Promise<void> {
+  const job = await getJobOwnedByUser(id, userId);
+  if (!job) {
+    throw notFound("Job not found");
+  }
+
+  if (job.status === JobStatus.QUEUED || job.status === JobStatus.PROCESSING) {
+    throw conflict("Cannot delete an active job", "JOB_ACTIVE");
+  }
+
+  try {
+    await storage.deleteObject(UPLOADS_BUCKET, job.inputKey);
+  } catch (err) {
+    console.error(`Failed to delete input object ${job.inputKey}`, err);
+  }
+
+  try {
+    await storage.deleteObject(RESULTS_BUCKET, job.outputKey);
+  } catch (err) {
+    console.error(`Failed to delete result object ${job.outputKey}`, err);
+  }
+
+  const totalJobs = await countJobsByBatchId(job.batchId);
+  if (totalJobs <= 1) {
+    await deleteBatchById(job.batchId, userId);
+  } else {
+    await deleteJob(job.id);
+    await checkAndCleanBatchWhitelist(job.batchId);
+  }
+}
+
 export async function getJobById(id: string, userId?: string): Promise<JobResponseDTO | null> {
   const job = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
   return toJobResponse(job);
@@ -240,9 +325,6 @@ export async function retryFailedJob(id: string, userId?: string): Promise<JobRe
 
   const batch = await getBatch(failedJob.batchId);
   if (!batch) {
-    throw gone("Batch has expired", "BATCH_EXPIRED");
-  }
-  if (batch.createdAt.getTime() < Date.now() - 24 * 60 * 60 * 1000) {
     throw gone("Batch has expired", "BATCH_EXPIRED");
   }
   if (batch.whitelistKeys.length > 0 && batch.whitelistDeletedAt !== null) {
@@ -273,6 +355,7 @@ export async function retryFailedJob(id: string, userId?: string): Promise<JobRe
       batchConfig.format,
       failedJob.originalFilename,
     )}`,
+    inputBytes: failedJob.inputBytes,
   };
   await insertRetryJob(retryJob);
 
@@ -326,6 +409,11 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
 
   const nextState = calculateNextJobState(currentState, event, config.PUBLIC_RESULTS_BASE_URL);
 
+  let resultBytes: number | null | undefined = undefined;
+  if (nextState.status === JobStatus.COMPLETED) {
+    resultBytes = await storage.statObject(RESULTS_BUCKET, current.outputKey);
+  }
+
   await updateJobState(event.jobId, {
     status: nextState.status,
     progress: nextState.progress,
@@ -333,6 +421,7 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
     resultUrl: nextState.resultUrl,
     resultSummary: nextState.resultSummary,
     error: nextState.error,
+    resultBytes,
   });
 }
 

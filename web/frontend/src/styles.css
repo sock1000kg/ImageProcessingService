@@ -1400,3 +1400,104 @@ output {
   color: var(--muted);
   font-size: 0.72rem;
 }
+
+/* Media Library styles (Task 36) */
+.library-page {
+  display: grid;
+  gap: 20px;
+}
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 8px;
+}
+.library-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 14px #263a5b08;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.library-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px #263a5b12;
+}
+.library-card-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.library-thumbnail {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: #f0f3f8;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.library-thumbnail.placeholder {
+  font-size: 1.8rem;
+  color: var(--muted);
+}
+.library-card-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.library-card-body h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+  word-break: break-word;
+}
+.library-card-status {
+  margin-top: 2px;
+}
+.library-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: auto;
+}
+.library-card-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.load-more-row {
+  display: flex;
+  justify-content: center;
+  margin: 24px 0;
+}
+.delete-item-button {
+  background: none;
+  border: none;
+  color: #b33450;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  opacity: 0.7;
+  font-size: 0.9rem;
+  margin-left: auto;
+  line-height: 1;
+}
+.delete-item-button:hover:not(:disabled) {
+  opacity: 1;
+  background: #fae8eb;
+}

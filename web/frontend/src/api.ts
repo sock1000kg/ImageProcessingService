@@ -1,7 +1,7 @@
 /**
  * HTTP client API layer communicating with the backend REST endpoints.
  */
-import { Batch, BatchReport, Job } from "./types";
+import { Batch, BatchListResponse, BatchReport, Job } from "./types";
 import { getAccessToken, refreshAccessToken } from "./auth";
 
 /**
@@ -184,6 +184,24 @@ export function getBatchReport(id: string): Promise<{ report: BatchReport }> {
  */
 export function retryJob(id: string): Promise<{ job: Job }> {
   return request(`/api/jobs/${id}/retry`, { method: "POST" });
+}
+
+/**
+ * Lists user batches with pagination and whole-account usage statistics.
+ */
+export function listBatches(params?: { limit?: number; cursor?: string }): Promise<BatchListResponse> {
+  const search = new URLSearchParams();
+  if (params?.limit) search.set("limit", String(params.limit));
+  if (params?.cursor) search.set("cursor", params.cursor);
+  const query = search.toString();
+  return request(`/api/batches${query ? `?${query}` : ""}`);
+}
+
+/**
+ * Permanently deletes an individual image job and its associated storage objects.
+ */
+export function deleteJob(id: string): Promise<void> {
+  return request(`/api/jobs/${id}`, { method: "DELETE" });
 }
 
 /**

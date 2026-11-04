@@ -8,6 +8,7 @@
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import { BatchDetails } from "../src/components/BatchDetails";
 import { BatchReport } from "../src/components/BatchReport";
 import { DetectionList, formatDetectionLabel, formatDetectionStatus } from "../src/components/DetectionList";
@@ -366,7 +367,9 @@ describe("Step 5: BatchDetails layout and BatchReport selection", () => {
 
   it("verifies report card is outside the right column in BatchDetails layout", () => {
     const { container } = render(
-      <BatchDetails batch={sampleBatch} onRefresh={async () => {}} onDelete={() => {}} onMessage={() => {}} />,
+      <MemoryRouter>
+        <BatchDetails batch={sampleBatch} onRefresh={async () => {}} onDelete={() => {}} onMessage={() => {}} />
+      </MemoryRouter>,
     );
 
     const layout = container.querySelector(".details-layout");

@@ -119,6 +119,7 @@ PUBLIC_RESULTS_BASE_URL=/results
 UPLOAD_MAX_BYTES=52428800
 BATCH_MAX_FILES=100
 CLEANUP_INTERVAL_MS=600000
+RETENTION_DAYS=
 JWT_SECRET=replace-with-at-least-32-random-characters
 JWT_ACCESS_TTL=900
 JWT_REFRESH_TTL=604800
@@ -227,6 +228,7 @@ The Engine must have its Python environment, model weights, and configuration re
 
 | Method   | Path                      | Description                                                                                                      |
 | -------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/batches`            | List authed user's batches (`?limit`, `?cursor`): items with thumbnail, status, size, and total account storage  |
 | `POST`   | `/api/batches`            | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`) |
 | `POST`   | `/api/batches/:id/files`  | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`)                                   |
 | `POST`   | `/api/batches/:id/start`  | Start batch processing for pending jobs. Returns 202 `{ batch }`                                                 |
@@ -235,6 +237,7 @@ The Engine must have its Python environment, model weights, and configuration re
 | `GET`    | `/api/batches/:id/report` | Batch report with totals, review images/reasons, `batchName`, and detections when provided by Engine             |
 | `DELETE` | `/api/batches/:id`        | Delete the batch and its `uploads`/`results` objects                                                             |
 | `GET`    | `/api/jobs/:id`           | Job status and details                                                                                           |
+| `DELETE` | `/api/jobs/:id`           | Delete single image job and its storage objects (deletes batch if last job; 409 if active)                       |
 | `POST`   | `/api/jobs/:id/retry`     | Retry a `FAILED` job with a new job ID and output key                                                            |
 | `GET`    | `/api/jobs/:id/original`  | Stream the private original image                                                                                |
 | `GET`    | `/api/system/stats`       | Job counts grouped by status                                                                                     |
@@ -292,7 +295,7 @@ Batch creation and image processing use a three-step flow:
 
 Every batch response (`BatchResponseDTO`) includes `name: string`. The batch report (`ReportResponseDTO` from `GET /api/batches/:id/report`) includes `batchName: string`.
 
-`BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 100). Draft batches older than 24h are deleted by the periodic cleanup task. Whitelist reference images for draft batches are never removed prior to batch completion.
+`BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 100). In Phase 2, originals and results are kept until the user deletes them, unless `RETENTION_DAYS` is set (when unset, only draft batches older than 24h are deleted by the periodic cleanup task). Whitelist reference portraits are deleted immediately once all jobs in a batch reach a terminal state.
 
 The Create Batch page also supports selecting a folder (including nested folders) in browsers that expose `webkitdirectory`. Files are validated locally before submission: only JPG/JPEG, PNG, and WEBP are accepted, each file is limited to 50 MB, and a batch is limited to 100 files. Invalid or excess files are reported and are never added to `FormData`; choosing a folder does not upload until **Create secure batch** is pressed. Folder selection is a UI convenience only—uploads are now sent as one file per request (`POST /api/batches/:id/files`).
 
@@ -317,7 +320,7 @@ The report keeps Engine-provided review signals authoritative. An image is marke
      `reviewImages`, `lowConfidenceDetections`, and `reviewDetections` follow the same sorted image order.
 - **Batch-level extras**: Exposes `models: string[]` (unique non-null models across latest completed attempts) and `processingTimeMs: { total, mean, max } | null` over the latest completed attempts.
 
-The batch page shows the automatic deletion time as 24 hours after `createdAt`, using the browser's locale. It also provides **Download all results**, which starts one download per completed job with a `resultUrl`; ZIP export is not implemented in Phase 1. The local PreviewCanvas draws on a bundled street photo (`frontend/public/preview-sample.jpg`: Jorge Láscar, CC BY 2.0, cropped; credited under the preview) with hand-marked face and plate boxes. It is never uploaded.
+The batch page provides **Download all results**, which starts one download per completed job with a `resultUrl`; ZIP export is not implemented in Phase 1. The local PreviewCanvas draws on a bundled street photo (`frontend/public/preview-sample.jpg`: Jorge Láscar, CC BY 2.0, cropped; credited under the preview) with hand-marked face and plate boxes. It is never uploaded.
 
 ## Error response format
 

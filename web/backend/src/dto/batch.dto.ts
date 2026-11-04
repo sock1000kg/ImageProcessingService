@@ -70,6 +70,37 @@ export interface BatchResponseDTO {
   jobs: JobResponseDTO[];
 }
 
+export interface BatchSummaryItemDTO {
+  id: string;
+  name: string;
+  createdAt: string;
+  status: string;
+  jobCounts: {
+    total: number;
+    completed: number;
+    failed: number;
+  };
+  thumbnailUrl: string | null;
+  bytes: number;
+}
+
+export interface AccountUsageDTO {
+  bytes: number;
+  batches: number;
+  jobs: number;
+}
+
+export interface BatchListResponseDTO {
+  batches: BatchSummaryItemDTO[];
+  nextCursor: string | null;
+  usage: AccountUsageDTO;
+}
+
+export const listBatchesQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(50).default(20),
+  cursor: z.string().uuid().optional(),
+});
+
 export interface ReportImageDTO {
   jobId: string;
   originalFilename: string;

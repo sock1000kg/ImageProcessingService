@@ -29,6 +29,10 @@ const configSchema = z.object({
     .int()
     .positive()
     .default(10 * 60 * 1000),
+  RETENTION_DAYS: z.preprocess(
+    (val) => (val === "" || val === undefined || val === null ? undefined : val),
+    z.coerce.number().int().positive().optional(),
+  ),
   JWT_SECRET: z.string().min(32).optional(),
   JWT_ACCESS_TTL: z.coerce
     .number()

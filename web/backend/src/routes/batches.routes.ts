@@ -14,6 +14,7 @@ import {
   deleteBatchHandler,
   getBatchHandler,
   getBatchReportHandler,
+  listBatchesHandler,
   startBatchHandler,
   updateBatchHandler,
 } from "../controllers/batches.controller";
@@ -49,6 +50,14 @@ function validateCreateRequest(request: Request, _response: Response, next: Next
     next(error);
   }
 }
+
+/**
+ * GET /api/batches
+ * Request: Query { limit?: number, cursor?: string }
+ * Response: 200 { batches: BatchSummaryItemDTO[], nextCursor: string | null, usage: AccountUsageDTO }
+ * Errors: 400 VALIDATION_ERROR, 401 UNAUTHORIZED
+ */
+batchesRouter.get("/", requireAuth, listBatchesHandler);
 
 /**
  * POST /api/batches

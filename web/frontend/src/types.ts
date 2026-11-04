@@ -132,6 +132,32 @@ export type BatchReport = {
  */
 export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL";
 
+export type BatchSummaryItem = {
+  id: string;
+  name: string;
+  createdAt: string;
+  status: BatchStatus;
+  jobCounts: {
+    total: number;
+    completed: number;
+    failed: number;
+  };
+  thumbnailUrl: string | null;
+  bytes: number;
+};
+
+export type AccountUsage = {
+  bytes: number;
+  batches: number;
+  jobs: number;
+};
+
+export type BatchListResponse = {
+  batches: BatchSummaryItem[];
+  nextCursor: string | null;
+  usage: AccountUsage;
+};
+
 /**
  * Processing batch model representing a grouping of image jobs.
  */

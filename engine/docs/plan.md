@@ -77,6 +77,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 - [ ] **[Could]** **[Đổi contract]** **[Cần Web]** Job chỉ render (`image-render`): nhận danh sách box cuối cùng + style, che rồi xuất ảnh, không chạy model. Dùng cho nút "Sửa ảnh" của Web.
 - [ ] **[Could]** Build arg `TORCH=cpu|cuda` cho `engine/Dockerfile`: bản `cpu` nhỏ hơn nhiều cho lab (không GPU), bản `cuda` giữ khả năng chạy GPU. Ultralytics tự chọn GPU nếu torch thấy GPU, không cần đổi code.
 - [ ] **[Could]** Benchmark xử lý video monolith (một process xử lý cả video) vs phân tán (chia đoạn video ra nhiều job). **[Cần Infra]** để đưa vào phần đo đạc của báo cáo.
+- [ ] **[Could, sau khi xong các tính năng chính]** **[Đổi contract]** **[Cần Web]** Chọn model theo job: `params.detection.model` (`lightweight` | `standard`) map sang trọng số + `imgsz` qua env (ví dụ `MODEL_LIGHTWEIGHT=yolo11n-face-plate-1280.pt@1280`, `MODEL_STANDARD=<yolo11s>@960`). Nạp mỗi model một lần rồi giữ trong worker; thiếu field thì dùng `lightweight`. `resultSummary.model` ghi model thật đã chạy. Kiểm tra memory limit của image-worker khi nạp cả hai. Trọng số và số liệu: `engine/training/` (`weights/`, `accuracy.md`), `infra/bench/results/comparison.md`.
 
 ---
 

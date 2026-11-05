@@ -241,5 +241,8 @@ describe("App Routing and Page Headings", () => {
     await waitFor(() => {
       expect(screen.getByText("Delete failed")).toBeDefined();
     });
-  });
+
+    // The top notice is a confirmation, not state: it hides itself after about 3 seconds.
+    await waitFor(() => expect(screen.queryByText("Delete failed")).toBeNull(), { timeout: 4000 });
+  }, 10_000);
 });

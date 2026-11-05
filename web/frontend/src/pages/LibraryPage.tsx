@@ -128,9 +128,6 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
           <span>✦</span>
           <h3>No batches in library</h3>
           <p>Create a batch to start protecting your media.</p>
-          <Link to="/batches/new" className="primary-button">
-            Create new batch <span>→</span>
-          </Link>
         </div>
       )}
 

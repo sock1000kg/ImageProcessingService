@@ -31,7 +31,7 @@ export function Dashboard({ stats, batch, onCreate }: DashboardProps) {
       </div>
 
       <div className="stats-grid compact-stats">
-        <StatTile label="Jobs processed" value={total} />
+        <StatTile label="Your jobs" value={total} />
         <StatTile label="In progress" value={(stats.PROCESSING ?? 0) + (stats.QUEUED ?? 0)} />
         <StatTile label="Completed" value={stats.COMPLETED ?? 0} />
         <StatTile label="Needs attention" value={stats.FAILED ?? 0} />

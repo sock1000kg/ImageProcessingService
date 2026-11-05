@@ -12,6 +12,7 @@ import {
   getBatchReportById,
   listBatches,
   renameBatch,
+  rerunBatch,
   startBatch,
 } from "../services/batch.service";
 import { notFound, unauthorized } from "../errors";
@@ -38,9 +39,14 @@ export async function createBatchHandler(request: Request, response: Response, n
     const files = filesMap?.files ?? [];
     const whitelist = filesMap?.whitelist ?? [];
     const filesPresent = files.length > 0 || request.body?.files !== undefined;
+    const faceListId =
+      typeof request.body?.faceListId === "string" && request.body.faceListId.trim().length > 0
+        ? request.body.faceListId.trim()
+        : undefined;
 
     const batch = await createDraftBatch({
       whitelist,
+      faceListId,
       rawConfig: request.body.config,
       filesPresent,
       name: request.body.name,
@@ -68,6 +74,36 @@ export async function startBatchHandler(request: Request, response: Response, ne
     const id = validateIdParam(request.params);
     const batch = await startBatch(id, request.authUser?.id);
     response.status(202).json({ batch });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Re-runs an existing batch with new redaction settings and optional whitelist faces.
+ *
+ * Why server-side duplication: Enables batch reprocessing without client re-uploading large image
+ * sets, preserving contract §5 namespaces and ensuring new batches operate independently.
+ */
+export async function rerunBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = validateIdParam(request.params);
+    const filesMap = request.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    const whitelist = filesMap?.whitelist ?? [];
+    const faceListId =
+      typeof request.body?.faceListId === "string" && request.body.faceListId.trim().length > 0
+        ? request.body.faceListId.trim()
+        : undefined;
+
+    const result = await rerunBatch(id, {
+      whitelist,
+      faceListId,
+      rawConfig: request.body.config,
+      name: request.body.name,
+      userId: request.authUser!.id,
+    });
+
+    response.status(201).json(result);
   } catch (error) {
     next(error);
   }

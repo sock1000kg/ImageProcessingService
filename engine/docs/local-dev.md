@@ -12,7 +12,7 @@
 | :--- | :--- | :--- |
 | **1. Bật Hạ tầng** | `docker compose -f infra/docker-compose.yaml up -d` | Dựng NATS JetStream, MinIO, Postgres |
 | **2. Chạy Unit Test** | `python tests/test_processors.py` *(trong thư mục `engine/`)* | Test logic che, padding, EXIF (không cần Docker) |
-| **3. Bật Worker** | `python src/main.py` *(trong thư mục `engine/`)* | Khởi động Worker chờ nhận job từ NATS |
+| **3. Bật Worker** | `python -m src.main` *(trong thư mục `engine/`)* | Khởi động Worker chờ nhận job từ NATS |
 | **4. Bắn Job Test** | `python tests/mock_backend.py image-redact [duong_dan_anh]` | Giả lập Backend gửi job, nhận kết quả vào `output/` |
 
 ---
@@ -33,7 +33,7 @@ docker compose -f infra/docker-compose.yaml up -d
 ### Các dịch vụ được kích hoạt:
 * **NATS JetStream:** Cổng `4222` (client), cổng `8222` (dashboard kiểm tra `http://localhost:8222`).
   * Tự động tạo stream `IMAGE_JOBS` (consumer `image-workers`) và `JOB_EVENTS`.
-* **MinIO Storage:** Cổng `9000` (S3 API), cổng `9001` (Web Console `http://localhost:9001`, user: `minioadmin`, pass: `minioadmin`).
+* **MinIO Storage:** Cổng `9000` (S3 API), cổng `9001` (Web Console `http://localhost:9001`, đăng nhập bằng `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` trong `infra/.env`).
   * Tự động tạo 2 bucket: `uploads` (private) và `results` (public read).
 
 > 💡 *Mẹo:* Nếu xóa volume Docker hoặc NATS báo thiếu stream/consumer, chạy lại lệnh cấu hình độc lập:
@@ -78,12 +78,12 @@ $env:NATS_STREAM_NAME = "IMAGE_JOBS"
 $env:NATS_CONSUMER_NAME = "image-workers"
 $env:NATS_SUBJECTS = "jobs.image"
 $env:MINIO_ENDPOINT = "localhost:9000"
-$env:MINIO_ACCESS_KEY = "minioadmin"
-$env:MINIO_SECRET_KEY = "minioadmin"
+$env:MINIO_ACCESS_KEY = "<MINIO_ROOT_USER trong infra/.env>"
+$env:MINIO_SECRET_KEY = "<MINIO_ROOT_PASSWORD trong infra/.env>"
 $env:YOLO_MODEL_NAME = "yolov8n-oiv7.pt"
 
 # Khởi động worker
-python src/main.py
+python -m src.main  # chạy dạng module vì main.py dùng import tương đối (Docker cũng chạy như vậy)
 ```
 
 ### Dấu hiệu Worker khởi động thành công:

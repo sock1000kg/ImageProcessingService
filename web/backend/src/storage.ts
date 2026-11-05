@@ -10,6 +10,7 @@ import {
   ListObjectsV2Command,
   DeleteObjectsCommand,
   DeleteObjectCommand,
+  CopyObjectCommand,
 } from "@aws-sdk/client-s3";
 
 import { config } from "./config";
@@ -147,6 +148,24 @@ export async function deleteObject(bucket: string, key: string): Promise<void> {
   );
 }
 
+/**
+ * Copies an existing object within a bucket without streaming bytes through the Node server.
+ *
+ * Why server-side copy: S3 CopyObject delegates duplication directly to storage, preserving
+ * network bandwidth and avoiding memory pressure when re-running batches from stored originals.
+ */
+export async function copyObject(bucket: string, sourceKey: string, destKey: string): Promise<void> {
+  const cleanSourceKey = sourceKey.startsWith("/") ? sourceKey.slice(1) : sourceKey;
+  const cleanDestKey = destKey.startsWith("/") ? destKey.slice(1) : destKey;
+  await s3Client.send(
+    new CopyObjectCommand({
+      Bucket: bucket,
+      CopySource: encodeURI(`${bucket}/${cleanSourceKey}`),
+      Key: cleanDestKey,
+    }),
+  );
+}
+
 export async function verifyBuckets(): Promise<void> {
   for (const bucket of [UPLOADS_BUCKET, RESULTS_BUCKET]) {
     if (!(await bucketExists(bucket))) {
@@ -162,6 +181,7 @@ export const storage = {
   objectExists,
   statObject,
   deleteObject,
+  copyObject,
   deletePrefix,
   verifyBuckets,
 };

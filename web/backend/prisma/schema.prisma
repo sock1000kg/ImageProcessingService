@@ -44,8 +44,22 @@ model User {
 
   batches       Batch[]
   refreshTokens RefreshToken[]
+  faceLists     FaceList[]
 
   @@map("users")
+}
+
+model FaceList {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  name      String   @db.VarChar(100)
+  keys      String[] @default([])
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)], map: "idx_face_lists_user_created_at")
+  @@map("face_lists")
 }
 
 model RefreshToken {

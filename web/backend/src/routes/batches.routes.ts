@@ -17,6 +17,7 @@ import {
   getBatchHandler,
   getBatchReportHandler,
   listBatchesHandler,
+  rerunBatchHandler,
   startBatchHandler,
   updateBatchHandler,
 } from "../controllers/batches.controller";
@@ -29,8 +30,8 @@ const upload = multer({
 export const batchesRouter = Router();
 // Moderate, per account: a 100-image batch uploads one file per request, so this leaves room for a few batches a
 // minute while capping a runaway client.
-const createBatchLimit = rateLimit(60_000, 20, userKey);
-const uploadLimit = rateLimit(60_000, 300, userKey);
+const createBatchLimit = rateLimit(60_000, config.RATE_LIMIT_BATCHES_PER_MINUTE, userKey);
+const uploadLimit = rateLimit(60_000, config.RATE_LIMIT_UPLOADS_PER_MINUTE, userKey);
 const downloadTokenLimit = rateLimit(60_000, 30, userKey);
 function validateId(request: Request, _response: Response, next: NextFunction): void {
   try {
@@ -44,9 +45,14 @@ function validateId(request: Request, _response: Response, next: NextFunction): 
 function validateCreateRequest(request: Request, _response: Response, next: NextFunction): void {
   try {
     const filesMap = request.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    const faceListId =
+      typeof request.body?.faceListId === "string" && request.body.faceListId.trim().length > 0
+        ? request.body.faceListId.trim()
+        : undefined;
     validateBatchCreation({
       filesPresent: (filesMap?.files?.length ?? 0) > 0 || request.body?.files !== undefined,
       whitelist: filesMap?.whitelist ?? [],
+      faceListId,
     });
     next();
   } catch (error) {
@@ -96,6 +102,21 @@ batchesRouter.post("/:id/files", requireAuth, uploadLimit, validateId, upload.si
  * Errors: 400 INVALID_UUID / BATCH_EMPTY, 404 NOT_FOUND, 503 SERVICE_UNAVAILABLE
  */
 batchesRouter.post("/:id/start", requireAuth, validateId, startBatchHandler);
+
+/**
+ * POST /api/batches/:id/rerun
+ * Request: multipart/form-data with optional whitelist (max 5), config JSON, name
+ * Response: 201 { batch: BatchResponseDTO, skipped: number }
+ * Errors: 400 VALIDATION_ERROR / INVALID_UUID, 404 NOT_FOUND, 409 BATCH_NOT_STARTED, 410 NO_ORIGINALS, 503 SERVICE_UNAVAILABLE
+ */
+batchesRouter.post(
+  "/:id/rerun",
+  requireAuth,
+  createBatchLimit,
+  validateId,
+  upload.fields([{ name: "whitelist", maxCount: 5 }]),
+  rerunBatchHandler,
+);
 
 /**
  * GET /api/batches/:id

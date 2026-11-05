@@ -1,11 +1,11 @@
 /**
  * Primary batch creation form managing file dropzones, redaction configuration, and chunked upload retries.
  */
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { FileDropzone } from "./FileDropzone";
 import { FilePreviewList } from "./FilePreviewList";
 import { PreviewCanvas } from "./PreviewCanvas";
-import { RedactionConfigForm, FormConfig } from "./RedactionConfigForm";
+import { RedactionConfigForm, FormConfig, DEFAULT_FORM_CONFIG } from "./RedactionConfigForm";
 import { RejectedFilesNotice } from "./RejectedFilesNotice";
 import { WhitelistUploader } from "./WhitelistUploader";
 import { Banner } from "./ui/Banner";
@@ -28,24 +28,41 @@ import { UploadProgress } from "../api";
 export interface BatchCreateFormProps {
   busy: boolean;
   error: string;
-  onSubmit: (
+  onSubmit?: (
     files: File[],
     whitelist: File[],
     config: FormConfig,
     onProgress?: (progress: UploadProgress) => void,
     existingBatchId?: string,
     name?: string,
+    faceListId?: string,
   ) => Promise<{ batch: Batch; failed: File[] } | void>;
   onStartWithoutFailed?: (batchId: string) => Promise<void>;
+  rerunSource?: {
+    batchId: string;
+    batchName: string;
+    imageCount: number;
+    initialConfig: FormConfig;
+    initialName: string;
+  };
+  onRerunSubmit?: (whitelist: File[], config: FormConfig, name?: string, faceListId?: string) => Promise<void>;
 }
 
 /**
  * Handles batch creation, optional batch renaming, file validation, and failure recovery.
  */
-export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }: BatchCreateFormProps) {
+export function BatchCreateForm({
+  busy,
+  error,
+  onSubmit,
+  onStartWithoutFailed,
+  rerunSource,
+  onRerunSubmit,
+}: BatchCreateFormProps) {
   const [files, setFiles] = useState<File[]>([]);
   const [whitelist, setWhitelist] = useState<File[]>([]);
-  const [batchName, setBatchName] = useState("");
+  const [faceListId, setFaceListId] = useState<string | null>(null);
+  const [batchName, setBatchName] = useState(rerunSource?.initialName ?? "");
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
   const [rejectedFiles, setRejectedFiles] = useState<FileSelectionIssue[]>([]);
   const [folderName, setFolderName] = useState<string | null>(null);
@@ -56,17 +73,18 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
     failedFiles: File[];
     totalOriginal: number;
   } | null>(null);
-  const [config, setConfig] = useState<FormConfig>({
-    targets: ["face", "plate"],
-    style: "blur",
-    strength: 25,
-    padding: 0.1,
-    quality: "high",
-    format: "original",
-    confidenceThreshold: 0.35,
-    reviewThreshold: 0.5,
-    similarityThreshold: 0.45,
-  });
+  const [config, setConfig] = useState<FormConfig>(rerunSource?.initialConfig ?? DEFAULT_FORM_CONFIG);
+
+  useEffect(() => {
+    if (rerunSource) {
+      if (rerunSource.initialConfig) {
+        setConfig(rerunSource.initialConfig);
+      }
+      if (rerunSource.initialName) {
+        setBatchName(rerunSource.initialName);
+      }
+    }
+  }, [rerunSource?.batchId]);
 
   const addFiles = (incoming: File[]) => {
     setFolderSummary(null);
@@ -148,7 +166,22 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!files.length || !config.targets.length || busy) return;
+    if (!config.targets.length || busy) return;
+
+    if (rerunSource) {
+      if (onRerunSubmit) {
+        const trimmed = batchName.trim();
+        await onRerunSubmit(
+          faceListId ? [] : whitelist,
+          config,
+          trimmed.length > 0 ? trimmed : undefined,
+          faceListId ?? undefined,
+        );
+      }
+      return;
+    }
+
+    if (!files.length || !onSubmit) return;
     setFailedState(null);
     setUploadProgress({ done: 0, total: files.length });
     const trimmed = batchName.trim();
@@ -163,11 +196,12 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
     }
     const result = await onSubmit(
       files,
-      whitelist,
+      faceListId ? [] : whitelist,
       config,
       (progress) => setUploadProgress({ done: progress.done, total: progress.total }),
       undefined,
       nameToSend,
+      faceListId ?? undefined,
     );
     if (result && result.failed.length > 0) {
       setFailedState({
@@ -181,7 +215,7 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
   };
 
   const handleRetryFailed = async () => {
-    if (!failedState || busy) return;
+    if (!failedState || busy || !onSubmit) return;
     setUploadProgress({ done: 0, total: failedState.failedFiles.length });
     const result = await onSubmit(
       failedState.failedFiles,
@@ -236,17 +270,35 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
             disabled={busy}
           />
         </div>
-        <FileDropzone files={files} errors={fileErrors} onFiles={addFiles} onFolderFiles={handleFolderFiles} />
-        {folderSummary && <p className="folder-selection">{folderSummary}</p>}
-        <RejectedFilesNotice issues={rejectedFiles} onDismiss={() => setRejectedFiles([])} />
-        <FilePreviewList
-          files={files}
-          errors={fileErrors}
-          onRemove={handleRemoveFile}
-          title={`${files.length} images selected`}
-          onClear={handleClearAll}
+        {rerunSource ? (
+          <div className="rerun-source-info">
+            <p>
+              {rerunSource.imageCount} images from {rerunSource.batchName}
+            </p>
+          </div>
+        ) : (
+          <>
+            <FileDropzone files={files} errors={fileErrors} onFiles={addFiles} onFolderFiles={handleFolderFiles} />
+            {folderSummary && <p className="folder-selection">{folderSummary}</p>}
+            <RejectedFilesNotice issues={rejectedFiles} onDismiss={() => setRejectedFiles([])} />
+            <FilePreviewList
+              files={files}
+              errors={fileErrors}
+              onRemove={handleRemoveFile}
+              title={`${files.length} images selected`}
+              onClear={handleClearAll}
+            />
+          </>
+        )}
+        <WhitelistUploader
+          files={whitelist}
+          onChange={(next) => {
+            setWhitelist(next);
+            if (next.length > 0) setFaceListId(null);
+          }}
+          selectedFaceListId={faceListId}
+          onFaceListIdChange={setFaceListId}
         />
-        <WhitelistUploader files={whitelist} onChange={setWhitelist} />
       </div>
       <aside className="config-card">
         <div className="section-kicker">REDACTION CONFIG</div>
@@ -256,13 +308,17 @@ export function BatchCreateForm({ busy, error, onSubmit, onStartWithoutFailed }:
         <button
           type="submit"
           className="primary-button submit-button"
-          disabled={busy || !files.length || !config.targets.length}
+          disabled={busy || (!rerunSource && !files.length) || !config.targets.length}
         >
-          {busy && uploadProgress
-            ? `Uploading ${uploadProgress.done}/${uploadProgress.total}`
-            : busy
-              ? "Uploading…"
-              : "Create secure batch"}
+          {rerunSource
+            ? busy
+              ? "Re-running…"
+              : "Re-run batch"
+            : busy && uploadProgress
+              ? `Uploading ${uploadProgress.done}/${uploadProgress.total}`
+              : busy
+                ? "Uploading…"
+                : "Create secure batch"}
         </button>
         {failedState && (
           <div className="upload-retry-area" role="alert">

@@ -3,7 +3,7 @@
  */
 import { createApp } from "./app";
 import { config } from "./config";
-import { closeDatabase, verifyDatabase } from "./db";
+import { closeDatabase, pendingMigrations, verifyDatabase } from "./db";
 import { closeMessaging, connectMessaging } from "./messaging";
 import { verifyBuckets } from "./storage";
 import { cleanupExpiredBatches } from "./services/batch.service";
@@ -46,6 +46,17 @@ async function checkDependencies(): Promise<void> {
     console.log(`PostgreSQL OK (${describeDatabase()})`);
   } catch (error) {
     console.error(`PostgreSQL unreachable (${describeDatabase()}): ${(error as Error).message}`);
+  }
+  try {
+    const pending = await pendingMigrations();
+    if (pending.length > 0) {
+      console.warn(
+        `PostgreSQL has ${pending.length} unapplied migration(s): ${pending.join(", ")}. Run npm run db:deploy`,
+      );
+    }
+  } catch (error) {
+    // Database down (already logged above), or no migrations table yet on a fresh database.
+    console.warn(`Could not check migrations: ${(error as Error).message}`);
   }
   try {
     await verifyBuckets();

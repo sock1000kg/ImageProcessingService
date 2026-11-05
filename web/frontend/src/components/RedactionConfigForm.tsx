@@ -15,6 +15,64 @@ export type FormConfig = {
   similarityThreshold: number;
 };
 
+export const DEFAULT_FORM_CONFIG: FormConfig = {
+  targets: ["face", "plate"],
+  style: "blur",
+  strength: 25,
+  padding: 0.1,
+  quality: "high",
+  format: "original",
+  confidenceThreshold: 0.35,
+  reviewThreshold: 0.5,
+  similarityThreshold: 0.45,
+};
+
+/**
+ * Maps a stored batch config object to form configuration fields with standard fallbacks.
+ *
+ * Why fallback defaults: Stored batches may lack optional fields or have older schemas;
+ * applying defaults ensures the re-run form remains completely interactive and valid.
+ */
+export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): FormConfig {
+  const c = raw ?? {};
+  const style =
+    c.style === "pixelate" || c.style === "blackout" || c.style === "blur" ? c.style : DEFAULT_FORM_CONFIG.style;
+  const defaultStrength = style === "pixelate" ? 12 : 25;
+  const strength = typeof c.strength === "number" && c.strength > 0 ? c.strength : defaultStrength;
+  const targets =
+    Array.isArray(c.targets) && c.targets.length > 0
+      ? (c.targets as string[]).filter((t) => t === "face" || t === "plate")
+      : DEFAULT_FORM_CONFIG.targets;
+  const padding =
+    typeof c.padding === "number" && c.padding >= 0 && c.padding <= 0.5 ? c.padding : DEFAULT_FORM_CONFIG.padding;
+  const quality =
+    c.quality === "standard" || c.quality === "high" || c.quality === "max" ? c.quality : DEFAULT_FORM_CONFIG.quality;
+  const format =
+    c.format === "jpg" || c.format === "jpeg"
+      ? "jpg"
+      : c.format === "png" || c.format === "webp" || c.format === "original"
+        ? c.format
+        : DEFAULT_FORM_CONFIG.format;
+  const confidenceThreshold =
+    typeof c.confidenceThreshold === "number" ? c.confidenceThreshold : DEFAULT_FORM_CONFIG.confidenceThreshold;
+  const reviewThreshold =
+    typeof c.reviewThreshold === "number" ? c.reviewThreshold : DEFAULT_FORM_CONFIG.reviewThreshold;
+  const similarityThreshold =
+    typeof c.similarityThreshold === "number" ? c.similarityThreshold : DEFAULT_FORM_CONFIG.similarityThreshold;
+
+  return {
+    targets: targets.length > 0 ? targets : [...DEFAULT_FORM_CONFIG.targets],
+    style,
+    strength,
+    padding,
+    quality,
+    format,
+    confidenceThreshold,
+    reviewThreshold,
+    similarityThreshold,
+  };
+}
+
 export interface RedactionConfigFormProps {
   config: FormConfig;
   setConfig: Dispatch<SetStateAction<FormConfig>>;

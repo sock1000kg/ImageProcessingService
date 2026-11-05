@@ -1,12 +1,13 @@
 /**
  * Main application shell hosting global navigation layout, topbar, and routed pages.
  */
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { CreateBatchPage } from "./pages/CreateBatchPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { BatchPage } from "./pages/BatchPage";
+import { RerunBatchPage } from "./pages/RerunBatchPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { Banner } from "./components/ui/Banner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -72,11 +73,23 @@ export function App() {
   );
 }
 
+const MESSAGE_TIMEOUT_MS = 3000;
+
 function AuthenticatedApp() {
   const { status } = useAuth();
   const location = useLocation();
-  const [message, setMessage] = useState<string>("");
+  // The id makes a repeated message ("Batch renamed" twice) restart the timer instead of being ignored.
+  const [message, setMessageState] = useState<{ text: string; id: number } | null>(null);
+  const setMessage = useCallback((text: string) => setMessageState(text ? { text, id: Date.now() } : null), []);
   const [refreshHandler, setRefreshHandler] = useState<(() => Promise<void> | void) | null>(null);
+
+  // Notices like "Batch renamed" are confirmations, not state: hide them after a few seconds.
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => setMessageState(null), MESSAGE_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [message]);
+
   if (status === "loading") return <div className="viewer-empty">Checking session…</div>;
 
   // Store function reference safely without triggering React's functional updater pattern
@@ -124,7 +137,7 @@ function AuthenticatedApp() {
         <Topbar onRefresh={refreshHandler} />
         {message && (
           <Banner variant="success" role="status">
-            {message}
+            {message.text}
           </Banner>
         )}
         <Routes>
@@ -151,6 +164,14 @@ function AuthenticatedApp() {
             element={
               <ProtectedRoute>
                 <CreateBatchPage onMessage={setMessage} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/batches/:id/rerun"
+            element={
+              <ProtectedRoute>
+                <RerunBatchPage onMessage={setMessage} />
               </ProtectedRoute>
             }
           />

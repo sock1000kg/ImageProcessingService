@@ -29,6 +29,7 @@ import {
   updateJobQueued,
   updateJobState,
 } from "../repositories/job.repository";
+import { getFaceListOwnedByUser } from "../repositories/face-list.repository";
 import { publishJob } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
 import { BatchConfig } from "../types";
@@ -53,6 +54,7 @@ import {
   toBatchResponse,
   toJobResponse,
   toReportResponse,
+  UUID_REGEX,
   validateBatchCreation,
   validateSingleUploadFile,
   validateUploadFiles,
@@ -60,16 +62,26 @@ import {
 } from "../dto";
 import { badRequest, conflict, gone, notFound, unavailable } from "../errors";
 
+/**
+ * Creates a new draft batch with optional whitelist faces or saved face list references.
+ *
+ * Why biometric server-side copy: When a batch references a saved face list, the list's objects are
+ * copied directly into the batch's isolated `uploads/<batchId>/whitelist/` path. This decouples the
+ * batch lifecycle from the saved list. When all jobs in the batch finish processing, the batch's
+ * whitelist copies are purged immediately without deleting the user's permanent list. Conversely,
+ * if the user deletes their saved face list, running batches continue processing safely without broken references.
+ */
 export async function createDraftBatch(options: {
   whitelist?: Express.Multer.File[];
+  faceListId?: string;
   rawConfig?: unknown;
   filesPresent?: boolean;
   name?: unknown;
   userId?: string;
 }): Promise<BatchResponseDTO> {
-  const { whitelist = [], rawConfig, filesPresent = false, name } = options;
+  const { whitelist = [], faceListId, rawConfig, filesPresent = false, name } = options;
 
-  validateBatchCreation({ filesPresent, whitelist });
+  validateBatchCreation({ filesPresent, whitelist, faceListId });
 
   const batchConfig: BatchConfig = parseBatchConfigJson(rawConfig);
   const validatedName = parseBatchName(name);
@@ -77,12 +89,30 @@ export async function createDraftBatch(options: {
 
   const whitelistKeys: string[] = [];
   try {
-    for (let i = 0; i < whitelist.length; i++) {
-      const file = whitelist[i]!;
-      const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
-      const key = `${batchId}/whitelist/face-${i + 1}${ext}`;
-      await storage.putObject(UPLOADS_BUCKET, key, file.buffer, file.mimetype);
-      whitelistKeys.push(key);
+    if (faceListId) {
+      if (!UUID_REGEX.test(faceListId) || !options.userId) {
+        throw notFound("Face list not found");
+      }
+      const faceList = await getFaceListOwnedByUser(faceListId, options.userId);
+      if (!faceList) {
+        throw notFound("Face list not found");
+      }
+
+      for (let i = 0; i < faceList.keys.length; i++) {
+        const sourceKey = faceList.keys[i]!;
+        const ext = path.extname(sourceKey).toLowerCase() || ".jpg";
+        const destKey = `${batchId}/whitelist/face-${i + 1}${ext}`;
+        await storage.copyObject(UPLOADS_BUCKET, sourceKey, destKey);
+        whitelistKeys.push(destKey);
+      }
+    } else {
+      for (let i = 0; i < whitelist.length; i++) {
+        const file = whitelist[i]!;
+        const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
+        const key = `${batchId}/whitelist/face-${i + 1}${ext}`;
+        await storage.putObject(UPLOADS_BUCKET, key, file.buffer, file.mimetype);
+        whitelistKeys.push(key);
+      }
     }
 
     const createdBatch = await createDraftBatchRepository({
@@ -234,6 +264,117 @@ export async function deleteBatchById(id: string, userId?: string): Promise<bool
   await storage.deletePrefix(UPLOADS_BUCKET, `${id}/`);
   await storage.deletePrefix(RESULTS_BUCKET, `${id}/`);
   return userId ? deleteBatchRowOwnedByUser(id, userId) : deleteBatchRow(id);
+}
+
+/**
+ * Creates and starts a new batch using original image inputs from a previous batch with fresh settings.
+ *
+ * Why server-side copy: Duplicating original inputs into the new batch's S3 namespace keeps contract §5
+ * path isolation intact so deleting either batch never affects the other, avoiding client re-upload overhead.
+ */
+export async function rerunBatch(
+  sourceId: string,
+  options: {
+    whitelist?: Express.Multer.File[];
+    faceListId?: string;
+    rawConfig?: unknown;
+    name?: unknown;
+    userId?: string;
+  },
+): Promise<{ batch: BatchResponseDTO; skipped: number }> {
+  const sourceBatch = options.userId ? await getBatchOwnedByUser(sourceId, options.userId) : await getBatch(sourceId);
+
+  if (!sourceBatch) {
+    throw notFound("Batch not found");
+  }
+
+  if (sourceBatch.startedAt === null) {
+    throw conflict("Source batch has not been started", "BATCH_NOT_STARTED");
+  }
+
+  const defaultName = `${sourceBatch.name} (re-run)`.slice(0, 100);
+  const targetName =
+    typeof options.name === "string" && options.name.trim().length > 0 ? options.name.trim() : defaultName;
+
+  const draftBatch = await createDraftBatch({
+    whitelist: options.whitelist,
+    faceListId: options.faceListId,
+    rawConfig: options.rawConfig,
+    filesPresent: false,
+    name: targetName,
+    userId: options.userId,
+  });
+
+  try {
+    const sourceJobs = await getJobsByBatchId(sourceId);
+    const seenInputKeys = new Set<string>();
+    const distinctJobs: typeof sourceJobs = [];
+    for (const job of sourceJobs) {
+      if (!seenInputKeys.has(job.inputKey)) {
+        seenInputKeys.add(job.inputKey);
+        distinctJobs.push(job);
+      }
+    }
+
+    let skipped = 0;
+    let copiedCount = 0;
+    const newBatchConfig = parseBatchConfig(draftBatch.config);
+
+    for (const sourceJob of distinctJobs) {
+      const exists = await storage.objectExists(UPLOADS_BUCKET, sourceJob.inputKey);
+      if (!exists) {
+        skipped++;
+        continue;
+      }
+
+      const newJobId = randomUUID();
+      const ext =
+        path.extname(sourceJob.originalFilename).toLowerCase() ||
+        path.extname(sourceJob.inputKey).toLowerCase() ||
+        ".jpg";
+      const destInputKey = `${draftBatch.id}/${newJobId}/input${ext}`;
+      const outExt = resolveOutputExtension(newBatchConfig.format, sourceJob.originalFilename);
+      const destOutputKey = `${draftBatch.id}/${newJobId}/result.${outExt}`;
+
+      try {
+        await storage.copyObject(UPLOADS_BUCKET, sourceJob.inputKey, destInputKey);
+      } catch (err: unknown) {
+        const s3Err = err as { $metadata?: { httpStatusCode?: number }; name?: string };
+        if (s3Err?.$metadata?.httpStatusCode === 404 || s3Err?.name === "NoSuchKey" || s3Err?.name === "NotFound") {
+          skipped++;
+          continue;
+        }
+        throw err;
+      }
+
+      await addJobToBatchWithLock(draftBatch.id, {
+        id: newJobId,
+        originalFilename: sourceJob.originalFilename,
+        inputKey: destInputKey,
+        outputKey: destOutputKey,
+        inputBytes: sourceJob.inputBytes ?? undefined,
+      });
+      copiedCount++;
+    }
+
+    if (copiedCount === 0) {
+      throw gone("No original images remain in storage for this batch", "NO_ORIGINALS");
+    }
+
+    const startedBatch = await startBatch(draftBatch.id, options.userId);
+
+    return {
+      batch: startedBatch,
+      skipped,
+    };
+  } catch (error) {
+    try {
+      await deleteBatchById(draftBatch.id, options.userId);
+    } catch (cleanupError) {
+      console.error(`Failed to clean up draft batch ${draftBatch.id} after rerun failure`, cleanupError);
+    }
+    throw error;
+  }
 }
 
 export async function listBatches(

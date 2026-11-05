@@ -1,7 +1,7 @@
 /**
  * HTTP client API layer communicating with the backend REST endpoints.
  */
-import { Batch, BatchListResponse, BatchReport, Job } from "./types";
+import { Batch, BatchListResponse, BatchReport, FaceListItem, Job } from "./types";
 import { getAccessToken, refreshAccessToken } from "./auth";
 
 /**
@@ -66,6 +66,7 @@ export async function createDraftBatch(
   whitelist: File[],
   config: Record<string, unknown>,
   name?: string,
+  faceListId?: string,
 ): Promise<{ batch: Batch }> {
   const form = new FormData();
   for (const file of whitelist) {
@@ -75,7 +76,37 @@ export async function createDraftBatch(
   if (name !== undefined && name !== null && name.trim() !== "") {
     form.append("name", name.trim());
   }
+  if (faceListId !== undefined && faceListId !== null && faceListId.trim() !== "") {
+    form.append("faceListId", faceListId.trim());
+  }
   return request("/api/batches", { method: "POST", body: form });
+}
+
+/**
+ * Re-runs an existing batch with new redaction settings from stored originals.
+ *
+ * Why multipart request: Accommodates both JSON configuration parameters and up to 5 optional
+ * face reference files in a single network round-trip.
+ */
+export async function rerunBatch(
+  id: string,
+  whitelist: File[],
+  config: Record<string, unknown>,
+  name?: string,
+  faceListId?: string,
+): Promise<{ batch: Batch; skipped: number }> {
+  const form = new FormData();
+  for (const file of whitelist) {
+    form.append("whitelist", file);
+  }
+  form.append("config", JSON.stringify(config));
+  if (name !== undefined && name !== null && name.trim() !== "") {
+    form.append("name", name.trim());
+  }
+  if (faceListId !== undefined && faceListId !== null && faceListId.trim() !== "") {
+    form.append("faceListId", faceListId.trim());
+  }
+  return request<{ batch: Batch; skipped: number }>(`/api/batches/${id}/rerun`, { method: "POST", body: form });
 }
 
 /**
@@ -104,12 +135,13 @@ export async function uploadBatch(
   onProgress?: (progress: UploadProgress) => void,
   existingBatchId?: string,
   name?: string,
+  faceListId?: string,
 ): Promise<{ batch: Batch; failed: File[] }> {
   let batchId = existingBatchId;
   let batch: Batch;
 
   if (!batchId) {
-    const created = await createDraftBatch(whitelist, config, name);
+    const created = await createDraftBatch(whitelist, config, name, faceListId);
     batch = created.batch;
     batchId = batch.id;
   } else {
@@ -233,4 +265,44 @@ export function getJob(id: string): Promise<{ job: Job }> {
  */
 export function getSystemStats(): Promise<{ jobs: Record<string, number> }> {
   return request("/api/system/stats");
+}
+
+/**
+ * Lists all saved face reference lists owned by the authenticated user.
+ */
+export function listFaceLists(): Promise<{ lists: FaceListItem[] }> {
+  return request("/api/face-lists");
+}
+
+/**
+ * Creates a new saved face list with a name and 1-5 reference face photos.
+ *
+ * Why opt-in: Reference faces are explicitly saved by the user and kept until deletion,
+ * unlike batch whitelists which are deleted automatically when jobs finish.
+ */
+export async function createFaceList(name: string, faces: File[]): Promise<{ list: FaceListItem }> {
+  const form = new FormData();
+  form.append("name", name);
+  for (const file of faces) {
+    form.append("faces", file);
+  }
+  return request("/api/face-lists", { method: "POST", body: form });
+}
+
+/**
+ * Fetches an individual face thumbnail blob for a saved face list.
+ */
+export async function fetchFaceListThumbnail(id: string, n: number, signal?: AbortSignal): Promise<Blob> {
+  const response = await authedFetch(`/api/face-lists/${id}/faces/${n}`, { signal });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+  return response.blob();
+}
+
+/**
+ * Permanently deletes a saved face list and purges its biometric references from storage.
+ */
+export function deleteFaceList(id: string): Promise<void> {
+  return request(`/api/face-lists/${id}`, { method: "DELETE" });
 }

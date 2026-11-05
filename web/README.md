@@ -238,6 +238,10 @@ The Engine must have its Python environment, model weights, and configuration re
 | `DELETE` | `/api/batches/:id`                | Delete the batch and its `uploads`/`results` objects                                                             |
 | `POST`   | `/api/batches/:id/download-token` | Issue short-lived (60 s) signed token for streaming batch zip (owner only)                                       |
 | `GET`    | `/api/batches/:id/download.zip`   | Stream all completed results as a zip archive using signed token                                                 |
+| `GET`    | `/api/face-lists`                 | List authenticated user's saved face lists: `{ lists: [{ id, name, faceCount, createdAt }] }`                    |
+| `POST`   | `/api/face-lists`                 | Create saved face list: multipart `name` (1..100) and 1..5 `faces` image files. Returns 201 `{ list }`           |
+| `GET`    | `/api/face-lists/:id/faces/:n`    | Stream individual face thumbnail with `Cache-Control: private, no-store`                                         |
+| `DELETE` | `/api/face-lists/:id`             | Permanently delete face list and immediately purge its MinIO objects (`lists/<userId>/<id>/`). Returns 204       |
 | `GET`    | `/api/jobs/:id`                   | Job status and details                                                                                           |
 | `DELETE` | `/api/jobs/:id`                   | Delete single image job and its storage objects (deletes batch if last job; 409 if active)                       |
 | `POST`   | `/api/jobs/:id/retry`             | Retry a `FAILED` job with a new job ID and output key                                                            |
@@ -260,9 +264,11 @@ Batch creation and image processing use a three-step flow:
      - `name`: optional batch name (1–100 characters after trimming, no control characters). When omitted or empty, the server sets a default name formatted as `Batch <YYYY-MM-DD HH:mm>` in UTC. Values exceeding 100 characters or containing control characters return `400 VALIDATION_ERROR`.
      - `config`: serialized JSON string with redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `confidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
      - `whitelist`: optional 0 to 5 face reference images (JPG, PNG, WEBP, up to `UPLOAD_MAX_BYTES`).
+     - `faceListId`: optional UUID of a saved face list. When provided, its reference face images are copied server-side into `uploads/<batchId>/whitelist/face-<n>.<ext>`, keeping running batches decoupled from the saved list.
+     - Note: sending both `faceListId` and `whitelist` files returns `400 VALIDATION_ERROR` ("Use either a saved list or uploaded faces"). Specifying an unknown or foreign `faceListId` returns `404 NOT_FOUND`.
      - Note: `files` field is **not allowed**; sending it returns `400 BAD_REQUEST` with a message pointing to `/api/batches/:id/files`.
    - **Response**: `201 Created` with `{ batch }` in status `"DRAFT"` (includes `name`).
-   - **Errors**: `400 BAD_REQUEST` / `VALIDATION_ERROR`, `413 FILE_TOO_LARGE`.
+   - **Errors**: `400 BAD_REQUEST` / `VALIDATION_ERROR`, `404 NOT_FOUND`, `413 FILE_TOO_LARGE`.
 
 2. **`POST /api/batches/:id/files`** (Upload individual file)
    - **Request**: Multipart form data with exactly one `file` field (JPG, PNG, or WEBP, up to `UPLOAD_MAX_BYTES`).
@@ -294,6 +300,21 @@ Batch creation and image processing use a three-step flow:
    - **Errors**:
      - `400 VALIDATION_ERROR`: missing `name`, name exceeding 100 characters, control characters present, or unknown keys in request body.
      - `404 NOT_FOUND`: batch does not exist.
+
+5. **`POST /api/batches/:id/rerun`** (Re-run batch with new settings)
+   - **Request**: Multipart form data with:
+     - `name`: optional batch name (1–100 characters after trimming). When omitted or empty, defaults to `<source name> (re-run)` (trimmed to 100 characters).
+     - `config`: serialized JSON string with updated redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `confidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
+     - `whitelist`: optional 0 to 5 fresh face reference images. The source batch's whitelist is never reused (it is purged when jobs finish).
+     - `faceListId`: optional UUID of a saved face list. When provided, its reference face images are copied into `uploads/<newBatchId>/whitelist/face-<n>.<ext>`. Sending both `faceListId` and `whitelist` files returns `400 VALIDATION_ERROR` ("Use either a saved list or uploaded faces"). Specifying an unknown or foreign `faceListId` returns `404 NOT_FOUND`.
+   - **Behavior**: Verifies the source batch belongs to the authenticated user and has been started. Server-side copies each distinct input object to the new batch's S3 namespace (`uploads/<newBatchId>/<newJobId>/input.<ext>`), resolves output extension from the new `format`, and queues processing via `startBatch`. Missing originals are skipped. If all originals are missing, returns `410 NO_ORIGINALS` and cleans up the draft.
+   - **Response**: `201 Created` with `{ batch: BatchResponseDTO, skipped: number }`.
+   - **Errors**:
+     - `400 VALIDATION_ERROR` / `INVALID_UUID`: invalid batch id, config JSON, or whitelist count (>5).
+     - `404 NOT_FOUND`: source batch does not exist or belongs to another user.
+     - `409 BATCH_NOT_STARTED`: source batch is still a draft (`startedAt` is null).
+     - `410 NO_ORIGINALS`: no original images remain in storage for the source batch.
+     - `503 SERVICE_UNAVAILABLE`: queue unavailable.
 
 Every batch response (`BatchResponseDTO`) includes `name: string`. The batch report (`ReportResponseDTO` from `GET /api/batches/:id/report`) includes `batchName: string`.
 

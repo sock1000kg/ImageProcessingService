@@ -24,6 +24,10 @@ const configSchema = z.object({
     .positive()
     .default(50 * 1024 * 1024),
   BATCH_MAX_FILES: z.coerce.number().int().positive().default(100),
+  // Per-account request limits per minute on batch creation and file uploads. The defaults cap a runaway client; the
+  // throughput benchmark's throwaway cluster raises them (it uploads thousands of images as fast as it can).
+  RATE_LIMIT_BATCHES_PER_MINUTE: z.coerce.number().int().positive().default(20),
+  RATE_LIMIT_UPLOADS_PER_MINUTE: z.coerce.number().int().positive().default(300),
   CLEANUP_INTERVAL_MS: z.coerce
     .number()
     .int()

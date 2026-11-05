@@ -29,8 +29,8 @@ const upload = multer({
 export const batchesRouter = Router();
 // Moderate, per account: a 100-image batch uploads one file per request, so this leaves room for a few batches a
 // minute while capping a runaway client.
-const createBatchLimit = rateLimit(60_000, 20, userKey);
-const uploadLimit = rateLimit(60_000, 300, userKey);
+const createBatchLimit = rateLimit(60_000, config.RATE_LIMIT_BATCHES_PER_MINUTE, userKey);
+const uploadLimit = rateLimit(60_000, config.RATE_LIMIT_UPLOADS_PER_MINUTE, userKey);
 const downloadTokenLimit = rateLimit(60_000, 30, userKey);
 function validateId(request: Request, _response: Response, next: NextFunction): void {
   try {

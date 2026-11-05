@@ -79,6 +79,29 @@ export async function createDraftBatch(
 }
 
 /**
+ * Re-runs an existing batch with new redaction settings from stored originals.
+ *
+ * Why multipart request: Accommodates both JSON configuration parameters and up to 5 optional
+ * face reference files in a single network round-trip.
+ */
+export async function rerunBatch(
+  id: string,
+  whitelist: File[],
+  config: Record<string, unknown>,
+  name?: string,
+): Promise<{ batch: Batch; skipped: number }> {
+  const form = new FormData();
+  for (const file of whitelist) {
+    form.append("whitelist", file);
+  }
+  form.append("config", JSON.stringify(config));
+  if (name !== undefined && name !== null && name.trim() !== "") {
+    form.append("name", name.trim());
+  }
+  return request<{ batch: Batch; skipped: number }>(`/api/batches/${id}/rerun`, { method: "POST", body: form });
+}
+
+/**
  * Uploads a single image file into an existing draft batch.
  */
 export async function uploadFileToBatch(batchId: string, file: File): Promise<{ job: Job }> {

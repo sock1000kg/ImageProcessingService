@@ -2,6 +2,7 @@
  * Comprehensive batch workspace view displaying header, image navigator, viewer, and report.
  */
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { getBatchReport, getBatchZipUrl, retryJob } from "../api";
 import { Batch, BatchReport as Report, Job } from "../types";
 import { BatchHeader } from "./BatchHeader";
@@ -21,9 +22,12 @@ export interface BatchDetailsProps {
  * Coordinates batch sub-views including report fetching, retry dispatching, and deletion confirmation.
  */
 export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDetailsProps) {
+  const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState(batch.jobs[0]?.id ?? null);
   const [report, setReport] = useState<Report | null>(null);
   const [confirm, setConfirm] = useState(false);
+
+  const isDraft = batch.status === "DRAFT" || !batch.startedAt;
 
   const selected = useMemo(
     () => batch.jobs.find((job) => job.id === selectedId) ?? batch.jobs[0],
@@ -114,6 +118,14 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
               onClick={() => void handleDownloadZip()}
             >
               Download zip ({completedJobs.length})
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={isDraft}
+              onClick={() => navigate(`/batches/${batch.id}/rerun`)}
+            >
+              Re-run with new settings
             </button>
           </div>
           <button type="button" className="secondary-button" onClick={handleDownloadReport} disabled={!report}>

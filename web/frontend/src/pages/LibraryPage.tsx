@@ -2,7 +2,7 @@
  * Media library page route listing user batches with thumbnails, storage analytics, inline renaming, and deletion.
  */
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { deleteBatch, getBatchZipUrl, listBatches, renameBatch } from "../api";
 import { DeleteBatchDialog } from "../components/DeleteBatchDialog";
 import { InlineRename } from "../components/InlineRename";
@@ -17,6 +17,7 @@ export interface LibraryPageProps {
 }
 
 export function LibraryPage({ onMessage }: LibraryPageProps) {
+  const navigate = useNavigate();
   const [batches, setBatches] = useState<BatchSummaryItem[]>([]);
   const [usage, setUsage] = useState<AccountUsage | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -169,6 +170,14 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                   <Link to={`/batches/${batch.id}`} className="secondary-button">
                     Open batch
                   </Link>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={batch.status === "DRAFT"}
+                    onClick={() => navigate(`/batches/${batch.id}/rerun`)}
+                  >
+                    Re-run with new settings
+                  </button>
                   <button
                     type="button"
                     className="secondary-button"

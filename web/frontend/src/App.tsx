@@ -7,6 +7,7 @@ import { CreateBatchPage } from "./pages/CreateBatchPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { BatchPage } from "./pages/BatchPage";
+import { RerunBatchPage } from "./pages/RerunBatchPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { Banner } from "./components/ui/Banner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -163,6 +164,14 @@ function AuthenticatedApp() {
             element={
               <ProtectedRoute>
                 <CreateBatchPage onMessage={setMessage} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/batches/:id/rerun"
+            element={
+              <ProtectedRoute>
+                <RerunBatchPage onMessage={setMessage} />
               </ProtectedRoute>
             }
           />

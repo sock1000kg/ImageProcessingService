@@ -177,3 +177,13 @@ export type User = {
   id: string;
   email: string;
 };
+
+/**
+ * User-saved biometric face reference list for batch redaction whitelists.
+ */
+export type FaceListItem = {
+  id: string;
+  name: string;
+  faceCount: number;
+  createdAt: string;
+};

@@ -26,11 +26,12 @@ export function useCreateBatch() {
     onProgress?: (progress: UploadProgress) => void,
     existingBatchId?: string,
     name?: string,
+    faceListId?: string,
   ) => {
     setBusy(true);
     setError("");
     try {
-      const result = await uploadBatch(files, whitelist, config, onProgress, existingBatchId, name);
+      const result = await uploadBatch(files, whitelist, config, onProgress, existingBatchId, name, faceListId);
       return result;
     } catch (reason) {
       const text = reason instanceof Error ? reason.message : "Upload failed";

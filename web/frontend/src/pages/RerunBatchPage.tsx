@@ -40,12 +40,12 @@ export function RerunBatchPage({ onMessage }: RerunBatchPageProps = {}) {
       });
   }, [id]);
 
-  const handleRerunSubmit = async (whitelist: File[], config: FormConfig, name?: string) => {
+  const handleRerunSubmit = async (whitelist: File[], config: FormConfig, name?: string, faceListId?: string) => {
     if (!id) return;
     setBusy(true);
     setError("");
     try {
-      const result = await rerunBatch(id, whitelist, config, name);
+      const result = await rerunBatch(id, whitelist, config, name, faceListId);
       if (result.skipped > 0) {
         onMessage?.(`Batch created successfully (${result.skipped} skipped)`);
       } else {

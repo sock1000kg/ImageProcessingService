@@ -3,14 +3,20 @@
  */
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { deleteBatch, getBatchZipUrl, listBatches, renameBatch } from "../api";
+import { deleteBatch, deleteFaceList, getBatchZipUrl, listBatches, listFaceLists, renameBatch } from "../api";
 import { DeleteBatchDialog } from "../components/DeleteBatchDialog";
 import { InlineRename } from "../components/InlineRename";
 import { Banner } from "../components/ui/Banner";
 import { StatTile } from "../components/ui/StatTile";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { AccountUsage, BatchSummaryItem } from "../types";
+import { AccountUsage, BatchSummaryItem, FaceListItem } from "../types";
 import { formatBytes } from "../utils/format";
+import { useFaceListThumbnail } from "../hooks/useFaceListThumbnail";
+
+function SavedFaceThumbnail({ listId, index }: { listId: string; index: number }) {
+  const url = useFaceListThumbnail(listId, index);
+  return <img src={url ?? undefined} alt={`Face ${index}`} />;
+}
 
 export interface LibraryPageProps {
   onMessage?: (message: string) => void;
@@ -25,6 +31,8 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingBatch, setDeletingBatch] = useState<BatchSummaryItem | null>(null);
+  const [faceLists, setFaceLists] = useState<FaceListItem[]>([]);
+  const [deletingFaceList, setDeletingFaceList] = useState<FaceListItem | null>(null);
 
   const fetchInitialBatches = async () => {
     setLoading(true);
@@ -41,8 +49,20 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
     }
   };
 
+  const fetchInitialFaceLists = async () => {
+    try {
+      const data = await listFaceLists();
+      if (data && Array.isArray(data.lists)) {
+        setFaceLists(data.lists);
+      }
+    } catch {
+      // Quiet fallback
+    }
+  };
+
   useEffect(() => {
     void fetchInitialBatches();
+    void fetchInitialFaceLists();
   }, []);
 
   const handleLoadMore = async () => {
@@ -96,6 +116,19 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
       const message = err instanceof Error ? err.message : "Failed to download zip";
       setError(message);
       onMessage?.(message);
+    }
+  };
+
+  const handleDeleteFaceListConfirm = async () => {
+    if (!deletingFaceList) return;
+    const target = deletingFaceList;
+    setDeletingFaceList(null);
+    try {
+      await deleteFaceList(target.id);
+      setFaceLists((prev) => prev.filter((item) => item.id !== target.id));
+      onMessage?.("Face list deleted");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete face list");
     }
   };
 
@@ -209,6 +242,53 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
         </>
       )}
 
+      <div className="saved-face-lists-section" style={{ marginTop: "2.5rem" }}>
+        <div className="section-header" style={{ marginBottom: "1rem" }}>
+          <span className="section-kicker">SAVED LISTS</span>
+          <h2>Saved face lists</h2>
+          <p>Reusable face whitelist profiles kept under your account until deleted.</p>
+        </div>
+
+        {(faceLists ?? []).length === 0 ? (
+          <div className="empty-dashboard" style={{ marginTop: "1rem", padding: "1.5rem" }}>
+            <span>👤</span>
+            <h3>No saved face lists</h3>
+            <p>Save reference faces when creating a batch to reuse them across multiple batches.</p>
+          </div>
+        ) : (
+          <div className="library-grid">
+            {(faceLists ?? []).map((list) => (
+              <div key={list.id} className="library-card">
+                <div className="library-card-header">
+                  <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap", maxWidth: "120px" }}>
+                    {Array.from({ length: Math.min(5, list.faceCount) }, (_, i) => i + 1).map((n) => (
+                      <div key={n} className="thumbnail-container" style={{ width: "36px", height: "36px" }}>
+                        <SavedFaceThumbnail listId={list.id} index={n} />
+                        <span className="thumbnail-badge">{`#${n}`}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="library-card-body">
+                    <h3>{list.name}</h3>
+                    <div className="library-card-meta" style={{ marginTop: "0.25rem" }}>
+                      <span>
+                        {list.faceCount} {list.faceCount === 1 ? "face" : "faces"}
+                      </span>
+                      <span>{new Date(list.createdAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="library-card-actions">
+                  <button type="button" className="danger-button" onClick={() => setDeletingFaceList(list)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <DeleteBatchDialog
         open={Boolean(deletingBatch)}
         title="Delete this batch?"
@@ -216,6 +296,15 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
         confirmLabel="Delete batch"
         onCancel={() => setDeletingBatch(null)}
         onConfirm={() => void handleDeleteConfirm()}
+      />
+
+      <DeleteBatchDialog
+        open={Boolean(deletingFaceList)}
+        title="Delete this face list?"
+        body="All saved reference faces in this list will be removed from storage immediately. This cannot be undone."
+        confirmLabel="Delete face list"
+        onCancel={() => setDeletingFaceList(null)}
+        onConfirm={() => void handleDeleteFaceListConfirm()}
       />
     </section>
   );

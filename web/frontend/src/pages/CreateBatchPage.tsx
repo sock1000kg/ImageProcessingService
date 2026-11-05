@@ -25,8 +25,9 @@ export function CreateBatchPage({ onMessage }: CreateBatchPageProps = {}) {
     onProgress?: (progress: UploadProgress) => void,
     existingBatchId?: string,
     name?: string,
+    faceListId?: string,
   ) => {
-    const result = await create(files, whitelist, config, onProgress, existingBatchId, name);
+    const result = await create(files, whitelist, config, onProgress, existingBatchId, name, faceListId);
     if (result && result.failed.length === 0) {
       onMessage?.("Batch created successfully");
       navigate(`/batches/${result.batch.id}`);

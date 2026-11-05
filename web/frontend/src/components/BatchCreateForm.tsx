@@ -35,6 +35,7 @@ export interface BatchCreateFormProps {
     onProgress?: (progress: UploadProgress) => void,
     existingBatchId?: string,
     name?: string,
+    faceListId?: string,
   ) => Promise<{ batch: Batch; failed: File[] } | void>;
   onStartWithoutFailed?: (batchId: string) => Promise<void>;
   rerunSource?: {
@@ -44,7 +45,7 @@ export interface BatchCreateFormProps {
     initialConfig: FormConfig;
     initialName: string;
   };
-  onRerunSubmit?: (whitelist: File[], config: FormConfig, name?: string) => Promise<void>;
+  onRerunSubmit?: (whitelist: File[], config: FormConfig, name?: string, faceListId?: string) => Promise<void>;
 }
 
 /**
@@ -60,6 +61,7 @@ export function BatchCreateForm({
 }: BatchCreateFormProps) {
   const [files, setFiles] = useState<File[]>([]);
   const [whitelist, setWhitelist] = useState<File[]>([]);
+  const [faceListId, setFaceListId] = useState<string | null>(null);
   const [batchName, setBatchName] = useState(rerunSource?.initialName ?? "");
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
   const [rejectedFiles, setRejectedFiles] = useState<FileSelectionIssue[]>([]);
@@ -169,7 +171,12 @@ export function BatchCreateForm({
     if (rerunSource) {
       if (onRerunSubmit) {
         const trimmed = batchName.trim();
-        await onRerunSubmit(whitelist, config, trimmed.length > 0 ? trimmed : undefined);
+        await onRerunSubmit(
+          faceListId ? [] : whitelist,
+          config,
+          trimmed.length > 0 ? trimmed : undefined,
+          faceListId ?? undefined,
+        );
       }
       return;
     }
@@ -189,11 +196,12 @@ export function BatchCreateForm({
     }
     const result = await onSubmit(
       files,
-      whitelist,
+      faceListId ? [] : whitelist,
       config,
       (progress) => setUploadProgress({ done: progress.done, total: progress.total }),
       undefined,
       nameToSend,
+      faceListId ?? undefined,
     );
     if (result && result.failed.length > 0) {
       setFailedState({
@@ -282,7 +290,15 @@ export function BatchCreateForm({
             />
           </>
         )}
-        <WhitelistUploader files={whitelist} onChange={setWhitelist} />
+        <WhitelistUploader
+          files={whitelist}
+          onChange={(next) => {
+            setWhitelist(next);
+            if (next.length > 0) setFaceListId(null);
+          }}
+          selectedFaceListId={faceListId}
+          onFaceListIdChange={setFaceListId}
+        />
       </div>
       <aside className="config-card">
         <div className="section-kicker">REDACTION CONFIG</div>

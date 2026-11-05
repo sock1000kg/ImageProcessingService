@@ -29,6 +29,7 @@ import {
   updateJobQueued,
   updateJobState,
 } from "../repositories/job.repository";
+import { getFaceListOwnedByUser } from "../repositories/face-list.repository";
 import { publishJob } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
 import { BatchConfig } from "../types";
@@ -53,6 +54,7 @@ import {
   toBatchResponse,
   toJobResponse,
   toReportResponse,
+  UUID_REGEX,
   validateBatchCreation,
   validateSingleUploadFile,
   validateUploadFiles,
@@ -60,16 +62,26 @@ import {
 } from "../dto";
 import { badRequest, conflict, gone, notFound, unavailable } from "../errors";
 
+/**
+ * Creates a new draft batch with optional whitelist faces or saved face list references.
+ *
+ * Why biometric server-side copy: When a batch references a saved face list, the list's objects are
+ * copied directly into the batch's isolated `uploads/<batchId>/whitelist/` path. This decouples the
+ * batch lifecycle from the saved list. When all jobs in the batch finish processing, the batch's
+ * whitelist copies are purged immediately without deleting the user's permanent list. Conversely,
+ * if the user deletes their saved face list, running batches continue processing safely without broken references.
+ */
 export async function createDraftBatch(options: {
   whitelist?: Express.Multer.File[];
+  faceListId?: string;
   rawConfig?: unknown;
   filesPresent?: boolean;
   name?: unknown;
   userId?: string;
 }): Promise<BatchResponseDTO> {
-  const { whitelist = [], rawConfig, filesPresent = false, name } = options;
+  const { whitelist = [], faceListId, rawConfig, filesPresent = false, name } = options;
 
-  validateBatchCreation({ filesPresent, whitelist });
+  validateBatchCreation({ filesPresent, whitelist, faceListId });
 
   const batchConfig: BatchConfig = parseBatchConfigJson(rawConfig);
   const validatedName = parseBatchName(name);
@@ -77,12 +89,30 @@ export async function createDraftBatch(options: {
 
   const whitelistKeys: string[] = [];
   try {
-    for (let i = 0; i < whitelist.length; i++) {
-      const file = whitelist[i]!;
-      const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
-      const key = `${batchId}/whitelist/face-${i + 1}${ext}`;
-      await storage.putObject(UPLOADS_BUCKET, key, file.buffer, file.mimetype);
-      whitelistKeys.push(key);
+    if (faceListId) {
+      if (!UUID_REGEX.test(faceListId) || !options.userId) {
+        throw notFound("Face list not found");
+      }
+      const faceList = await getFaceListOwnedByUser(faceListId, options.userId);
+      if (!faceList) {
+        throw notFound("Face list not found");
+      }
+
+      for (let i = 0; i < faceList.keys.length; i++) {
+        const sourceKey = faceList.keys[i]!;
+        const ext = path.extname(sourceKey).toLowerCase() || ".jpg";
+        const destKey = `${batchId}/whitelist/face-${i + 1}${ext}`;
+        await storage.copyObject(UPLOADS_BUCKET, sourceKey, destKey);
+        whitelistKeys.push(destKey);
+      }
+    } else {
+      for (let i = 0; i < whitelist.length; i++) {
+        const file = whitelist[i]!;
+        const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
+        const key = `${batchId}/whitelist/face-${i + 1}${ext}`;
+        await storage.putObject(UPLOADS_BUCKET, key, file.buffer, file.mimetype);
+        whitelistKeys.push(key);
+      }
     }
 
     const createdBatch = await createDraftBatchRepository({
@@ -246,6 +276,7 @@ export async function rerunBatch(
   sourceId: string,
   options: {
     whitelist?: Express.Multer.File[];
+    faceListId?: string;
     rawConfig?: unknown;
     name?: unknown;
     userId?: string;
@@ -267,6 +298,7 @@ export async function rerunBatch(
 
   const draftBatch = await createDraftBatch({
     whitelist: options.whitelist,
+    faceListId: options.faceListId,
     rawConfig: options.rawConfig,
     filesPresent: false,
     name: targetName,

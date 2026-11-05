@@ -45,9 +45,14 @@ function validateId(request: Request, _response: Response, next: NextFunction): 
 function validateCreateRequest(request: Request, _response: Response, next: NextFunction): void {
   try {
     const filesMap = request.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    const faceListId =
+      typeof request.body?.faceListId === "string" && request.body.faceListId.trim().length > 0
+        ? request.body.faceListId.trim()
+        : undefined;
     validateBatchCreation({
       filesPresent: (filesMap?.files?.length ?? 0) > 0 || request.body?.files !== undefined,
       whitelist: filesMap?.whitelist ?? [],
+      faceListId,
     });
     next();
   } catch (error) {

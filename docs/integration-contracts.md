@@ -251,7 +251,8 @@ Không dùng file compose riêng của từng team cho NATS/MinIO, vì chúng kh
 
 - Job trong batch: input `uploads/<batchId>/<jobId>/input.<ext>`, kết quả `results/<batchId>/<jobId>/result.<ext>`.
 - Job lẻ (không có batch): `uploads/<jobId>/input.<ext>`, `results/<jobId>/result.<ext>`.
-- Ảnh mẫu whitelist: `uploads/<batchId>/whitelist/face-<n>.<ext>` (private, không bao giờ public).
+- Ảnh mẫu whitelist theo batch: `uploads/<batchId>/whitelist/face-<n>.<ext>` (private, không bao giờ public).
+- Danh sách khuôn mặt đã lưu: `uploads/lists/<userId>/<listId>/face-<n>.<ext>` (private, không bao giờ public).
 - URL public của kết quả: `/results/<key trong bucket results>`. `batchId`/`jobId` là UUID v4, khó đoán, và đó là cơ chế bảo vệ link public duy nhất ở Phase 1.
 - Ảnh gốc ở `uploads` là private. UI cần hiển thị ảnh gốc (thanh trượt before/after) thì Backend cung cấp qua API (stream hoặc presigned URL ngắn hạn).
 - Thời gian giữ object: xem "Xoá dữ liệu" bên dưới.
@@ -261,7 +262,7 @@ Không dùng file compose riêng của từng team cho NATS/MinIO, vì chúng kh
     - Phase 1 (chưa có tài khoản, không có chỗ tìm lại batch cũ): MinIO lifecycle xoá mọi object sau 24h. Backend xoá (hoặc đánh dấu `EXPIRED`) batch/job quá 24h trong PostgreSQL, để UI không trỏ tới object đã mất.
     - Từ Phase 2 (có thư viện media): ảnh gốc và kết quả **giữ tới khi người dùng xoá**. Infra bỏ lifecycle của cả hai bucket. Người quản trị instance có thể đặt env `RETENTION_DAYS` để Backend dọn batch cũ hơn N ngày (cả MinIO và PG); để trống = giữ mãi. Giữ ảnh gốc để người dùng sửa ảnh, thử lại ảnh lỗi, chạy lại batch với cấu hình khác mà không phải tải lên lại.
 - **Khi người dùng yêu cầu:** Backend xoá prefix `uploads/<batchId>/` và `results/<batchId>/` trên MinIO, rồi xoá dòng PG. Phase 1 không có tài khoản, nên ai có link batch (UUID) thì được xoá.
-- **Ảnh mẫu whitelist** là dữ liệu sinh trắc: Backend xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch đã kết thúc, không đợi 24h. Sau đó thử lại ảnh lỗi của batch có whitelist trả 410 (không được chạy lại mà thiếu whitelist, vì sẽ che cả người quen). Người dùng tạo batch mới. Ngoại lệ duy nhất (Phase 2, chưa chốt): danh sách khuôn mặt người dùng **chủ động** bấm lưu, giữ tới khi người dùng xoá danh sách.
+- **Ảnh mẫu whitelist** là dữ liệu sinh trắc: Backend xoá `uploads/<batchId>/whitelist/` ngay khi mọi job trong batch đã kết thúc, không đợi 24h. Sau đó thử lại ảnh lỗi của batch có whitelist trả 410 (không được chạy lại mà thiếu whitelist, vì sẽ che cả người quen). Người dùng tạo batch mới. Danh sách khuôn mặt đã lưu được lưu chỉ khi người dùng **chủ động** bấm lưu, giữ tới khi người dùng xoá danh sách (xoá khỏi MinIO ngay lập tức); một batch sử dụng danh sách đã lưu sẽ nhận bản sao riêng dưới `<batchId>/whitelist/`, tuân theo đúng quy tắc whitelist batch thông thường. Lưu ý rằng worker command hoàn toàn không thay đổi.
 
 ---
 

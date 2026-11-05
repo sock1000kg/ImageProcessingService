@@ -3,7 +3,9 @@
  */
 import { z } from "zod";
 import { config } from "../config";
-import { badRequest, payloadTooLarge } from "../errors";
+import { badRequest, notFound, payloadTooLarge } from "../errors";
+
+export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const idParamSchema = z.object({
   id: z.string().uuid(),
@@ -61,14 +63,28 @@ export const patchBatchBodySchema = z
 
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
-export function validateBatchCreation(options: { filesPresent?: boolean; whitelist?: Express.Multer.File[] }): void {
-  const { filesPresent = false, whitelist = [] } = options;
+export function validateBatchCreation(options: {
+  filesPresent?: boolean;
+  whitelist?: Express.Multer.File[];
+  faceListId?: string;
+}): void {
+  const { filesPresent = false, whitelist = [], faceListId } = options;
 
   if (filesPresent) {
     throw badRequest(
       "Field 'files' is not allowed on batch creation. Upload images individually to POST /api/batches/:id/files",
       "INVALID_FIELD",
     );
+  }
+
+  if (faceListId !== undefined && faceListId !== null) {
+    if (typeof faceListId !== "string" || !UUID_REGEX.test(faceListId)) {
+      throw notFound("Face list not found");
+    }
+  }
+
+  if (faceListId && whitelist.length > 0) {
+    throw badRequest("Use either a saved list or uploaded faces", "VALIDATION_ERROR");
   }
 
   if (whitelist.length > 5) {

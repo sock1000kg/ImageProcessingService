@@ -39,9 +39,14 @@ export async function createBatchHandler(request: Request, response: Response, n
     const files = filesMap?.files ?? [];
     const whitelist = filesMap?.whitelist ?? [];
     const filesPresent = files.length > 0 || request.body?.files !== undefined;
+    const faceListId =
+      typeof request.body?.faceListId === "string" && request.body.faceListId.trim().length > 0
+        ? request.body.faceListId.trim()
+        : undefined;
 
     const batch = await createDraftBatch({
       whitelist,
+      faceListId,
       rawConfig: request.body.config,
       filesPresent,
       name: request.body.name,
@@ -85,9 +90,14 @@ export async function rerunBatchHandler(request: Request, response: Response, ne
     const id = validateIdParam(request.params);
     const filesMap = request.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     const whitelist = filesMap?.whitelist ?? [];
+    const faceListId =
+      typeof request.body?.faceListId === "string" && request.body.faceListId.trim().length > 0
+        ? request.body.faceListId.trim()
+        : undefined;
 
     const result = await rerunBatch(id, {
       whitelist,
+      faceListId,
       rawConfig: request.body.config,
       name: request.body.name,
       userId: request.authUser!.id,

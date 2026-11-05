@@ -77,7 +77,15 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 - [ ] **[Could]** **[Đổi contract]** **[Cần Web]** Job chỉ render (`image-render`): nhận danh sách box cuối cùng + style, che rồi xuất ảnh, không chạy model. Dùng cho nút "Sửa ảnh" của Web.
 - [ ] **[Could]** Build arg `TORCH=cpu|cuda` cho `engine/Dockerfile`: bản `cpu` nhỏ hơn nhiều cho lab (không GPU), bản `cuda` giữ khả năng chạy GPU. Ultralytics tự chọn GPU nếu torch thấy GPU, không cần đổi code.
 - [ ] **[Could]** Benchmark xử lý video monolith (một process xử lý cả video) vs phân tán (chia đoạn video ra nhiều job). **[Cần Infra]** để đưa vào phần đo đạc của báo cáo.
-- [ ] **[Could, sau khi xong các tính năng chính]** **[Đổi contract]** **[Cần Web]** Chọn chế độ theo job: `params.detection.mode` (`fast` | `accurate` | `max_privacy`) map sang model + `imgsz` + ngưỡng qua env (ví dụ `MODE_FAST=yolo26n-1280-e20-crowd.pt@1280:0.15`; `max_privacy` = ngưỡng thấp, có thể padding lớn hơn). Model cho từng chế độ chưa chốt (chờ kết quả train và quyết định của nhóm). Nạp mỗi model một lần rồi giữ trong worker; thiếu field thì dùng `fast`. `resultSummary.model` ghi model và ngưỡng thật đã chạy. Kiểm tra memory limit của image-worker khi nạp nhiều model. Model: `engine/models/`; số liệu: `engine/training/bench/comparison.md`, `infra/bench/results/comparison.md`.
+- [ ] **[Should, sau khi xong các tính năng chính]** **[Đổi contract]** **[Cần Web]** Chọn chế độ theo job: `params.detection.mode` (`fast` | `accurate` | `max_privacy`, thiếu thì `fast`) map sang model + `imgsz` + **ngưỡng riêng cho từng class** qua env (ví dụ `MODE_FAST=yolo26n-1280-e20-crowd.pt@1280:face=0.17,plate=0.11`). Model đã chọn (`engine/models/`, đề xuất ngưỡng từ `engine/training/bench/`):
+
+  | Chế độ | Model | Ngưỡng mặt | Ngưỡng biển số |
+  | --- | --- | --- | --- |
+  | `fast` | `yolo26n-1280-e20-crowd.pt` | 0.17 | 0.11 |
+  | `accurate` | `yolo26s-1280-e5-plates-frozen-x3.pt` | 0.13 | 0.09 |
+  | `max_privacy` | `yolo26s-1280-e5-plates-frozen-x3.pt` | 0.06 | 0.05 |
+
+  Ngưỡng theo class trong `processors/image_redact.py`: `model.predict(conf=` ngưỡng thấp nhất `)`, rồi lọc từng box theo ngưỡng của class đó (label đã có trong vòng lặp). `confidenceThreshold` của batch (nếu gửi) ghi đè cả hai. Worker chỉ nạp model mà job cần, lúc dùng lần đầu (`accurate` và `max_privacy` dùng chung một model), giữ một model và đổi khi job sau dùng chế độ khác (nạp lại ~1-2 s); giữ cả hai thì phải nâng memory limit (một model ở 1280 đã dùng ~1.2 GB / 1.5 GB), chốt sau khi đo. `resultSummary.model` ghi model và ngưỡng thật đã chạy. Image engine cần Ultralytics >= 8.4 (YOLO26).
 
 ---
 

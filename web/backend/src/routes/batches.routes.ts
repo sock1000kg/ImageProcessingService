@@ -17,6 +17,7 @@ import {
   getBatchHandler,
   getBatchReportHandler,
   listBatchesHandler,
+  rerunBatchHandler,
   startBatchHandler,
   updateBatchHandler,
 } from "../controllers/batches.controller";
@@ -96,6 +97,21 @@ batchesRouter.post("/:id/files", requireAuth, uploadLimit, validateId, upload.si
  * Errors: 400 INVALID_UUID / BATCH_EMPTY, 404 NOT_FOUND, 503 SERVICE_UNAVAILABLE
  */
 batchesRouter.post("/:id/start", requireAuth, validateId, startBatchHandler);
+
+/**
+ * POST /api/batches/:id/rerun
+ * Request: multipart/form-data with optional whitelist (max 5), config JSON, name
+ * Response: 201 { batch: BatchResponseDTO, skipped: number }
+ * Errors: 400 VALIDATION_ERROR / INVALID_UUID, 404 NOT_FOUND, 409 BATCH_NOT_STARTED, 410 NO_ORIGINALS, 503 SERVICE_UNAVAILABLE
+ */
+batchesRouter.post(
+  "/:id/rerun",
+  requireAuth,
+  createBatchLimit,
+  validateId,
+  upload.fields([{ name: "whitelist", maxCount: 5 }]),
+  rerunBatchHandler,
+);
 
 /**
  * GET /api/batches/:id

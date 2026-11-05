@@ -295,6 +295,20 @@ Batch creation and image processing use a three-step flow:
      - `400 VALIDATION_ERROR`: missing `name`, name exceeding 100 characters, control characters present, or unknown keys in request body.
      - `404 NOT_FOUND`: batch does not exist.
 
+5. **`POST /api/batches/:id/rerun`** (Re-run batch with new settings)
+   - **Request**: Multipart form data with:
+     - `name`: optional batch name (1–100 characters after trimming). When omitted or empty, defaults to `<source name> (re-run)` (trimmed to 100 characters).
+     - `config`: serialized JSON string with updated redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `confidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
+     - `whitelist`: optional 0 to 5 fresh face reference images. The source batch's whitelist is never reused (it is purged when jobs finish).
+   - **Behavior**: Verifies the source batch belongs to the authenticated user and has been started. Server-side copies each distinct input object to the new batch's S3 namespace (`uploads/<newBatchId>/<newJobId>/input.<ext>`), resolves output extension from the new `format`, and queues processing via `startBatch`. Missing originals are skipped. If all originals are missing, returns `410 NO_ORIGINALS` and cleans up the draft.
+   - **Response**: `201 Created` with `{ batch: BatchResponseDTO, skipped: number }`.
+   - **Errors**:
+     - `400 VALIDATION_ERROR` / `INVALID_UUID`: invalid batch id, config JSON, or whitelist count (>5).
+     - `404 NOT_FOUND`: source batch does not exist or belongs to another user.
+     - `409 BATCH_NOT_STARTED`: source batch is still a draft (`startedAt` is null).
+     - `410 NO_ORIGINALS`: no original images remain in storage for the source batch.
+     - `503 SERVICE_UNAVAILABLE`: queue unavailable.
+
 Every batch response (`BatchResponseDTO`) includes `name: string`. The batch report (`ReportResponseDTO` from `GET /api/batches/:id/report`) includes `batchName: string`.
 
 `BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 100). In Phase 2, originals and results are kept until the user deletes them, unless `RETENTION_DAYS` is set (when unset, only draft batches older than 24h are deleted by the periodic cleanup task). Whitelist reference portraits are deleted immediately once all jobs in a batch reach a terminal state.

@@ -236,6 +236,115 @@ export async function deleteBatchById(id: string, userId?: string): Promise<bool
   return userId ? deleteBatchRowOwnedByUser(id, userId) : deleteBatchRow(id);
 }
 
+/**
+ * Creates and starts a new batch using original image inputs from a previous batch with fresh settings.
+ *
+ * Why server-side copy: Duplicating original inputs into the new batch's S3 namespace keeps contract §5
+ * path isolation intact so deleting either batch never affects the other, avoiding client re-upload overhead.
+ */
+export async function rerunBatch(
+  sourceId: string,
+  options: {
+    whitelist?: Express.Multer.File[];
+    rawConfig?: unknown;
+    name?: unknown;
+    userId?: string;
+  },
+): Promise<{ batch: BatchResponseDTO; skipped: number }> {
+  const sourceBatch = options.userId ? await getBatchOwnedByUser(sourceId, options.userId) : await getBatch(sourceId);
+
+  if (!sourceBatch) {
+    throw notFound("Batch not found");
+  }
+
+  if (sourceBatch.startedAt === null) {
+    throw conflict("Source batch has not been started", "BATCH_NOT_STARTED");
+  }
+
+  const defaultName = `${sourceBatch.name} (re-run)`.slice(0, 100);
+  const targetName =
+    typeof options.name === "string" && options.name.trim().length > 0 ? options.name.trim() : defaultName;
+
+  const draftBatch = await createDraftBatch({
+    whitelist: options.whitelist,
+    rawConfig: options.rawConfig,
+    filesPresent: false,
+    name: targetName,
+    userId: options.userId,
+  });
+
+  try {
+    const sourceJobs = await getJobsByBatchId(sourceId);
+    const seenInputKeys = new Set<string>();
+    const distinctJobs: typeof sourceJobs = [];
+    for (const job of sourceJobs) {
+      if (!seenInputKeys.has(job.inputKey)) {
+        seenInputKeys.add(job.inputKey);
+        distinctJobs.push(job);
+      }
+    }
+
+    let skipped = 0;
+    let copiedCount = 0;
+    const newBatchConfig = parseBatchConfig(draftBatch.config);
+
+    for (const sourceJob of distinctJobs) {
+      const exists = await storage.objectExists(UPLOADS_BUCKET, sourceJob.inputKey);
+      if (!exists) {
+        skipped++;
+        continue;
+      }
+
+      const newJobId = randomUUID();
+      const ext =
+        path.extname(sourceJob.originalFilename).toLowerCase() ||
+        path.extname(sourceJob.inputKey).toLowerCase() ||
+        ".jpg";
+      const destInputKey = `${draftBatch.id}/${newJobId}/input${ext}`;
+      const outExt = resolveOutputExtension(newBatchConfig.format, sourceJob.originalFilename);
+      const destOutputKey = `${draftBatch.id}/${newJobId}/result.${outExt}`;
+
+      try {
+        await storage.copyObject(UPLOADS_BUCKET, sourceJob.inputKey, destInputKey);
+      } catch (err: unknown) {
+        const s3Err = err as { $metadata?: { httpStatusCode?: number }; name?: string };
+        if (s3Err?.$metadata?.httpStatusCode === 404 || s3Err?.name === "NoSuchKey" || s3Err?.name === "NotFound") {
+          skipped++;
+          continue;
+        }
+        throw err;
+      }
+
+      await addJobToBatchWithLock(draftBatch.id, {
+        id: newJobId,
+        originalFilename: sourceJob.originalFilename,
+        inputKey: destInputKey,
+        outputKey: destOutputKey,
+        inputBytes: sourceJob.inputBytes ?? undefined,
+      });
+      copiedCount++;
+    }
+
+    if (copiedCount === 0) {
+      throw gone("No original images remain in storage for this batch", "NO_ORIGINALS");
+    }
+
+    const startedBatch = await startBatch(draftBatch.id, options.userId);
+
+    return {
+      batch: startedBatch,
+      skipped,
+    };
+  } catch (error) {
+    try {
+      await deleteBatchById(draftBatch.id, options.userId);
+    } catch (cleanupError) {
+      console.error(`Failed to clean up draft batch ${draftBatch.id} after rerun failure`, cleanupError);
+    }
+    throw error;
+  }
+}
+
 export async function listBatches(
   userId: string,
   options: { limit: number; cursor?: string },

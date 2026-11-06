@@ -143,7 +143,7 @@ infra/bench/run.sh [--workers N | --autoscale [--min M] [--max N]] [--imgsz N] [
 - `--max N`: Maximum replicas for autoscale mode (1 to 6).
 - `--imgsz N`: YOLO inference input dimension in pixels (must be a positive integer multiple of 32, e.g. 640, 960, 1280; default: 640). Sets `YOLO_IMGSZ=N` on `deployment/image-worker` before starting, verifies after workers become Ready (or after the first worker pod becomes Ready in autoscale mode with `--min 0`) that worker pod logs contain `input size <N>px` (aborting immediately if unsupported), and restores or unsets the original environment variable on completion or interruption via `cleanup()`.
 - `--api URL`: URL to Web API. If omitted, starts `kubectl port-forward svc/web` automatically and waits for readiness.
-- `--out DIR`: Output directory (default: `infra/bench/results/<machine>-<set>/<imgsz>px/<UTC-timestamp>-<mode>/`, e.g. `results/laptop-rtx3050-1000/640px/20261031-120000-fixed-3w/`).
+- `--out DIR`: Output directory (default: `infra/bench/results/<machine>-<set>/<model>/<imgsz>px/<UTC-timestamp>-<mode>/`, e.g. `results/laptop-rtx3050-max/yolo26n-1280-e20-crowd/640px/20261105-163221-fixed-3w/`).
 - `--timeout SECONDS`: Maximum timeout in seconds (default: 1800; 7200 with `--dataset large`, 27000 with `--dataset max`).
 - `--dataset small|large|max`: `small` (default) = 100 images in 5 batches, `large` = 1000 images in 50 batches, `max` = 3726 images (see dataset sections). Runs default to `results/<machine>-<set>/<imgsz>px/` so datasets and resolutions never mix.
 - `--parallel P`: Upload up to $P$ batches at the same time (default 1 = one batch after another, as before). Even with 1000 images, sequential uploads can arrive slower than a fast worker drains them; `--parallel 4` keeps the queue full.
@@ -317,41 +317,35 @@ For benchmarking on a developer laptop (e.g. WSL2 Ubuntu 24.04 with an NVIDIA GP
 ## 6. Results Directory Layout
 
 Results are structured hierarchically by machine, dataset size, and input resolution, with shared deface runs:
-```
+```text
 infra/bench/results/
-├── home-server-100/                  # Lab server runs (100 images)
-│   ├── 640px/                        # 640px runs (evidence of 2-worker sweet spot)
-│   │   ├── 20261030-101056-fixed-1w/
-│   │   ├── 20261030-140727-fixed-2w/
-│   │   ├── ...
-│   │   └── comparison.md
-│   └── deface/                       # Shared deface runs for 100-image set
-│       └── full/
-│           └── 20261030-152000-deface-gpu/
-└── laptop-rtx3050-1000/              # Laptop runs (1000 images)
-    ├── 640px/
-    │   ├── 20261031-010000-fixed-3w/
-    │   └── comparison.md
-    ├── 960px/
-    │   ├── 20261031-020000-fixed-3w/
-    │   └── comparison.md
-    ├── 1280px/
-    │   ├── 20261031-030000-fixed-3w/
-    │   └── comparison.md
+├── comparison.md                     # the report: raw tables (generated) + final comparison
+├── home-server-100/                  # Lab runs (100 images)
+│   └── <model>/                      # e.g. yolo26n-1280-e20-crowd, yolov8n-oiv7
+│       └── 1280px/
+│           ├── 20261105-160036-fixed-2w/
+│           └── comparison.md
+└── laptop-rtx3050-max/               # Laptop runs (3726 images)
+    ├── <model>/
+    │   ├── 640px/
+    │   │   ├── 20261105-163221-fixed-3w/
+    │   │   └── comparison.md
+    │   ├── 960px/
+    │   └── 1280px/
     └── deface/                       # Shared deface runs across input sizes
         ├── full/
-        │   └── 20261031-001000-deface-gpu/
+        │   └── 20261105-155055-deface-gpu/
         └── 640x480/
-            └── 20261031-002000-deface-gpu/
+            └── 20261105-155705-deface-gpu/
 ```
 
 ### Layout Rules:
-- **Pipeline Runs (`run.sh`)**: Output directory defaults to `results/<machine>-<set>/<imgsz>px/<UTC>-<mode>/` where `<set>` is `100`, `1000`, or `max`, and `<imgsz>` is the input resolution (e.g. `640`, `960`, `1280`).
+- **Pipeline Runs (`run.sh`)**: Output directory defaults to `results/<machine>-<set>/<model>/<imgsz>px/<UTC>-<mode>/` where `<set>` is `100`, `1000`, or `max`, `<model>` is `--model`'s file, else the deployment's `YOLO_MODEL_NAME`, else `yolov8n-oiv7`, and `<imgsz>` is the input resolution (e.g. `640`, `960`, `1280`). `web_top.csv` records the `web` pods' CPU.
 - **Deface Runs (`deface.sh`)**: Deface operates independently of YOLO input size and is shared across input resolution evaluations. Output directory defaults to `results/<machine>-<set>/deface/<full|WxH>/<UTC>-deface-<gpu|cpu>/`.
 - **Summaries (`summarize.py`)**:
   - Accept `--deface DIR...` to include shared deface runs in the summary table.
   - Automatically enforce dataset matching: passing a deface run from a different dataset (e.g. `100` when evaluating `1000`) is refused with a clear error.
-  - Write `comparison.md` into the `<imgsz>px/` folder (or common machine folder if runs are direct children).
+  - Write `comparison.md` into the `<model>/<imgsz>px/` folder (or common machine folder if runs are direct children).
   - Existing user notes formatted as blockquotes (`> ...`) at the top of `comparison.md` are preserved across rewrites.
 
 Each run folder contains:
@@ -397,7 +391,7 @@ All commands from the repo root.
 | 0. Cluster | `bash infra/bench/local-cluster/up.sh` | — |
 | 1. Throughput of one model at one size | `bash infra/bench/run.sh --machine laptop-rtx3050 --dataset max --preload --parallel 4 --workers 3 --imgsz 1280 --model yolo26n-1280-e20-crowd.pt` | `infra/bench/results/laptop-rtx3050-max/1280px/<UTC>-fixed-3w-yolo26n-1280-e20-crowd/` (`summary.md`, `jobs.csv`, …; `meta.json` has `"model"`) |
 | 2a. Compare a selection | `python3 infra/bench/summarize.py <run dir> <run dir> … [--deface <deface run dirs>] --table-only --out infra/bench/results/<name>.md` | that file |
-| 2b. Compare everything for the report | `bash infra/bench/compare/comparison.sh` (new runs are picked up from their `<size>px/` folder; row names end with the model) | raw tables in `infra/bench/results/comparison.md` (the final comparison below them is written by hand) |
+| 2b. Compare everything for the report | `bash infra/bench/compare/comparison.sh` (new runs are picked up from their `<model>/<size>px/` folders; row names start with the model) | raw tables in `infra/bench/results/comparison.md` (the final comparison below them is written by hand) |
 | 3. CPU cost per model (no cluster) | `engine/training/.venv/bin/python infra/bench/compare/cpu_speed.py yolo --weights engine/models/<file>@1280 …` (`--device 0`: GPU); for the report, add it to `WEIGHTS` in `compare/comparison.sh` | printed rows / the CPU table in `comparison.md` |
 | 4. Accuracy through the pipeline (optional) | step 1 plus `--confidence 0.05 --save-detections --out "$PWD/engine/training/bench/<exp>-<run>@1280-pipeline"`, then `engine/training/.venv/bin/python engine/training/compare.py` | `engine/training/bench/` (`detections.jsonl.gz`, `accuracy.md`, `comparison.md`) |
 

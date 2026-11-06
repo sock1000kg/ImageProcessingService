@@ -142,7 +142,10 @@ export function WhitelistUploader({
       <div className="whitelist-header">
         <div>
           <h3>Face whitelist</h3>
-          <p>Reference faces will not be redacted when similarity is above the threshold.</p>
+          <p>
+            Reference faces will not be redacted when similarity is above the threshold. One person per photo. Only the
+            largest face is used.
+          </p>
         </div>
         <div className="whitelist-actions">
           <div className="dropzone-actions">

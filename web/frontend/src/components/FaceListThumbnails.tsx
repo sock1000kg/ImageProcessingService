@@ -1,6 +1,6 @@
 /**
  * Thumbnail strip component displaying up to MAX_FACE_LIST_FILES reference face thumbnails
- * for an allow list in a horizontal, non-wrapping, scrollable strip.
+ * for an allow list wrapping into rows of 3.
  *
  * Why centralized component: Deduplicates thumbnail strip rendering across SavedFaceListsPanel,
  * WhitelistUploader chosen rows, and WhitelistUploader picker dialog cards.
@@ -35,8 +35,7 @@ export interface FaceListThumbnailsProps {
 }
 
 /**
- * One horizontal, non-wrapping row of small thumbnail buttons, scrolling horizontally
- * if it has to, up to MAX_FACE_LIST_FILES.
+ * Small thumbnail buttons wrapping into rows of 3, up to MAX_FACE_LIST_FILES (at most 2 rows).
  */
 export function FaceListThumbnails({ list, revision, onSelect }: FaceListThumbnailsProps) {
   const count = Math.min(MAX_FACE_LIST_FILES, list.faceCount);

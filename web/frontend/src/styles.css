@@ -1722,14 +1722,10 @@ output {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  max-width: 196px;
+  flex-wrap: wrap;
+  max-width: calc(3 * 36px + 2 * 4px);
   min-width: 0;
   flex-shrink: 0;
-  scrollbar-width: thin;
-  padding: 3px 2px;
 }
 
 @media (max-width: 480px) {

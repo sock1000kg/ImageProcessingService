@@ -13,7 +13,6 @@ Usage:
 import argparse
 import gzip
 import json
-import math
 import os
 import re
 import sys
@@ -763,16 +762,16 @@ def write_single_report(run_dir: str, eval_res: Dict[str, Any]) -> None:
     sharp = eval_res.get("face_sharpness") or {}
 
     lines = [
-        f"# Detection Accuracy & Privacy Recall Report",
-        f"",
+        "# Detection Accuracy & Privacy Recall Report",
+        "",
         f"- **Tool**: `{tool_name}`",
         f"- **Run Directory**: `{run_dir}`",
         f"- **Operating Threshold**: `{op_thresh}`",
-        f"",
-        f"## Overall Detection Metrics",
-        f"",
-        f"| Class | Subset | GT Boxes | AP@0.5 | P (default) | R (default) | F1 (default) | Best Threshold | P (best) | R (best) | F1 (best) | Privacy Recall |",
-        f"| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "",
+        "## Overall Detection Metrics",
+        "",
+        "| Class | Subset | GT Boxes | AP@0.5 | P (default) | R (default) | F1 (default) | Best Threshold | P (best) | R (best) | F1 (best) | Privacy Recall |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
 
     # Face row
@@ -798,11 +797,11 @@ def write_single_report(run_dir: str, eval_res: Dict[str, Any]) -> None:
         )
 
     lines.extend([
-        f"",
-        f"## Face Detection by Size",
-        f"",
-        f"| Size Bucket | GT Width (px) | GT Count | Recall (IoU>=0.5) | Privacy Recall (>=70% cov) |",
-        f"| --- | --- | --- | --- | --- |",
+        "",
+        "## Face Detection by Size",
+        "",
+        "| Size Bucket | GT Width (px) | GT Count | Recall (IoU>=0.5) | Privacy Recall (>=70% cov) |",
+        "| --- | --- | --- | --- | --- |",
     ])
 
     size_defs = [
@@ -819,11 +818,11 @@ def write_single_report(run_dir: str, eval_res: Dict[str, Any]) -> None:
         )
 
     lines.extend([
-        f"",
-        f"## Face Detection by WIDER Attribute",
-        f"",
-        f"| Attribute | Value | GT Count | Recall (IoU>=0.5) | Privacy Recall (>=70% cov) |",
-        f"| --- | --- | --- | --- | --- |",
+        "",
+        "## Face Detection by WIDER Attribute",
+        "",
+        "| Attribute | Value | GT Count | Recall (IoU>=0.5) | Privacy Recall (>=70% cov) |",
+        "| --- | --- | --- | --- | --- |",
     ])
     for attr_key, attr_vals in WIDER_ATTR_DEFS.items():
         for val_num, val_name in attr_vals.items():
@@ -837,11 +836,11 @@ def write_single_report(run_dir: str, eval_res: Dict[str, Any]) -> None:
             )
 
     lines.extend([
-        f"",
-        f"## Face Detection by Measured Sharpness",
-        f"",
-        f"| Sharpness Bucket | Variance Range | GT Count | Recall (IoU>=0.5) | Privacy Recall (>=70% cov) |",
-        f"| --- | --- | --- | --- | --- |",
+        "",
+        "## Face Detection by Measured Sharpness",
+        "",
+        "| Sharpness Bucket | Variance Range | GT Count | Recall (IoU>=0.5) | Privacy Recall (>=70% cov) |",
+        "| --- | --- | --- | --- | --- |",
     ])
     for b_key, b_range, _, _ in SHARPNESS_BUCKETS:
         sh_data = sharp.get(b_key, {})

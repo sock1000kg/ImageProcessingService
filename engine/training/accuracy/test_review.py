@@ -22,10 +22,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from review import (
-    CALIBRATION_BINS,
     evaluate_review_for_class,
     evaluate_run_review,
-    format_single_markdown,
     generate_combined_review_report,
     write_single_review_report,
 )

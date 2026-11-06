@@ -31,7 +31,6 @@ try:
         find_detections,
         load_detections,
         load_labels,
-        manifest_path_to_filename,
     )
 except ImportError:
     sys.path.insert(0, os.path.dirname(__file__))
@@ -42,7 +41,6 @@ except ImportError:
         find_detections,
         load_detections,
         load_labels,
-        manifest_path_to_filename,
     )
 
 CALIBRATION_BINS: List[Tuple[str, float, float]] = [
@@ -450,15 +448,15 @@ def format_single_markdown(eval_res: Dict[str, Any]) -> str:
     imgsz = meta.get("imgsz", 640)
 
     lines: List[str] = [
-        f"# Review Warning Evaluation (`reviewThreshold` → `needsReview`)",
-        f"",
+        "# Review Warning Evaluation (`reviewThreshold` → `needsReview`)",
+        "",
         f"- **Run**: `{run_name}`",
         f"- **Dataset**: `{dataset}` ({imgsz}px input resolution)",
         f"- **Operating Threshold**: `{op_thresh}` (detections below are dropped by engine)",
         f"- **Default Review Threshold**: `{def_rev}` (kept detections below raise `lowConfidence`)",
-        f"- **Privacy Rule**: coverage ≥ 70% with padding expansion (0.1 default)",
-        f"- **Whitelist**: None (baseline benchmark without whitelist)",
-        f"",
+        "- **Privacy Rule**: coverage ≥ 70% with padding expansion (0.1 default)",
+        "- **Whitelist**: None (baseline benchmark without whitelist)",
+        "",
     ]
 
     for class_key, title, subset_name in [
@@ -474,19 +472,19 @@ def format_single_markdown(eval_res: Dict[str, Any]) -> str:
 
         lines.extend([
             f"## {title} ({subset_name})",
-            f"",
-            f"### Overview",
+            "",
+            "### Overview",
             f"- **Images**: {tot_img}",
             f"- **Ground Truth Targets**: {m['total_gt']} valid targets ({m['total_gt_no_tiny']} with width ≥ 16 px)",
-            f"- **Leaky Images (All)**: {leaky} / {tot_img} ({leaky / tot_img:.1%})" if tot_img else f"- **Leaky Images (All)**: 0",
-            f"- **Leaky Images (≥16 px)**: {leaky_nt} / {tot_img} ({leaky_nt / tot_img:.1%})" if tot_img else f"- **Leaky Images (≥16 px)**: 0",
+            f"- **Leaky Images (All)**: {leaky} / {tot_img} ({leaky / tot_img:.1%})" if tot_img else "- **Leaky Images (All)**: 0",
+            f"- **Leaky Images (≥16 px)**: {leaky_nt} / {tot_img} ({leaky_nt / tot_img:.1%})" if tot_img else "- **Leaky Images (≥16 px)**: 0",
             f"- **Silent Misses (All)**: {silent['count']} / {leaky} leaky images ({silent['share']:.1%}) have NO detection down to 0.05",
             f"- **Silent Misses (≥16 px)**: {silent['count_no_tiny']} / {leaky_nt} leaky images ({silent['share_no_tiny']:.1%})",
-            f"",
-            f"### Review Threshold Sweep",
-            f"",
-            f"| Review Threshold (R) | Flagged | Flag Rate | Caught Leaks (All) | Catch Rate (All) | Flag Precision (All) | Caught Leaks (≥16px) | Catch Rate (≥16px) | Flag Precision (≥16px) |",
-            f"| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "",
+            "### Review Threshold Sweep",
+            "",
+            "| Review Threshold (R) | Flagged | Flag Rate | Caught Leaks (All) | Catch Rate (All) | Flag Precision (All) | Caught Leaks (≥16px) | Catch Rate (≥16px) | Flag Precision (≥16px) |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ])
 
         for s in m["sweep"]:
@@ -510,13 +508,13 @@ def format_single_markdown(eval_res: Dict[str, Any]) -> str:
             f"*{wi['caught_no_tiny_count']} / {leaky_nt}* | *{wi['catch_rate_no_tiny']:.4f}* | *{wi['precision_no_tiny']:.4f}* |"
         )
         lines.extend([
-            f"",
+            "",
             f"*Note: The What-If row models the effect if detections between 0.20 and operating threshold ({op_thresh:.2f}) also raised the warning flag (clearly labelled scenario, not a recommendation).* ",
-            f"",
-            f"### Calibration by Confidence Bin",
-            f"",
-            f"| Confidence Bin | Detection Count | True Positives (IoU ≥ 0.5) | TP Share (Precision) | Protecting Detections (Cov ≥ 70%) | Protection Share |",
-            f"| --- | --- | --- | --- | --- | --- |",
+            "",
+            "### Calibration by Confidence Bin",
+            "",
+            "| Confidence Bin | Detection Count | True Positives (IoU ≥ 0.5) | TP Share (Precision) | Protecting Detections (Cov ≥ 70%) | Protection Share |",
+            "| --- | --- | --- | --- | --- | --- |",
         ])
 
         for cal in m["calibration"]:

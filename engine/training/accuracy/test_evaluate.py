@@ -22,20 +22,17 @@ import unittest
 sys.path.insert(0, os.path.dirname(__file__))
 # the benchmark tooling (run.sh, summarize.py, manifests) stays with the throughput benchmark in infra/bench
 BENCH_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "infra", "bench"))
-from evaluate import (
+from evaluate import (  # noqa: E402
     evaluate_run,
     write_single_report,
     generate_combined_report,
     compute_iou,
-    compute_coverage,
     load_labels,
     manifest_path_to_filename,
     evaluate_class,
     class_curve,
     CURVE_THRESHOLDS,
     compute_sharpness,
-    SHARPNESS_BUCKETS,
-    WIDER_ATTR_DEFS,
 )
 
 
@@ -190,8 +187,8 @@ class TestAccuracyEvaluation(unittest.TestCase):
             },
         ]
         with open(labels_file, "w", encoding="utf-8") as f:
-            for l in labels:
-                f.write(json.dumps(l) + "\n")
+            for label in labels:
+                f.write(json.dumps(label) + "\n")
 
         dets = [
             {
@@ -250,8 +247,8 @@ class TestAccuracyEvaluation(unittest.TestCase):
             }
         ]
         with open(labels_file, "w", encoding="utf-8") as f:
-            for l in labels:
-                f.write(json.dumps(l) + "\n")
+            for label in labels:
+                f.write(json.dumps(label) + "\n")
 
         # Shifted box: [135, 100, 240, 200].
         # IoU with [100, 100, 200, 200] is 6500 / 14000 = 0.464 < 0.5.
@@ -302,8 +299,8 @@ class TestAccuracyEvaluation(unittest.TestCase):
             }
         ]
         with open(labels_file, "w", encoding="utf-8") as f:
-            for l in labels:
-                f.write(json.dumps(l) + "\n")
+            for label in labels:
+                f.write(json.dumps(label) + "\n")
 
         dets = [
             {
@@ -393,8 +390,8 @@ class TestAccuracyEvaluation(unittest.TestCase):
             }
         ]
         with open(labels_file, "w", encoding="utf-8") as f:
-            for l in labels:
-                f.write(json.dumps(l) + "\n")
+            for label in labels:
+                f.write(json.dumps(label) + "\n")
 
         # Predictions match medium and large, but miss tiny and small
         dets = [
@@ -448,8 +445,8 @@ class TestAccuracyEvaluation(unittest.TestCase):
             },
         ]
         with open(labels_file, "w", encoding="utf-8") as f:
-            for l in labels:
-                f.write(json.dumps(l) + "\n")
+            for label in labels:
+                f.write(json.dumps(label) + "\n")
 
         dets = [
             {
@@ -662,8 +659,8 @@ class TestAccuracyEvaluation(unittest.TestCase):
             }
         ]
         with open(labels_file, "w", encoding="utf-8") as f:
-            for l in labels:
-                f.write(json.dumps(l) + "\n")
+            for label in labels:
+                f.write(json.dumps(label) + "\n")
 
         # Predictions:
         # Match Box 1 perfectly: [100, 100, 200, 200]

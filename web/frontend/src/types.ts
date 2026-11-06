@@ -81,6 +81,7 @@ export type ReportFailedImage = {
 export type ReportWhitelistPerson = {
   whitelistRef: number;
   whitelistKey: string;
+  name?: string | null;
   images: Array<{ jobId: string; originalFilename: string }>;
   imageCount: number;
   detectionCount: number;
@@ -185,5 +186,17 @@ export type FaceListItem = {
   id: string;
   name: string;
   faceCount: number;
+  faceNames?: (string | null)[];
   createdAt: string;
 };
+
+/**
+ * Resolves a human-readable display label for the nth face (1-indexed) in a saved face list.
+ *
+ * Why: Allows the UI to show the original uploaded photo name if available,
+ * while seamlessly falling back to standard "Face #n" for older records or unnamed entries.
+ */
+export function faceLabel(list: FaceListItem | null | undefined, n: number): string {
+  const name = list?.faceNames?.[n - 1];
+  return typeof name === "string" && name.trim().length > 0 ? name : `Face #${n}`;
+}

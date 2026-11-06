@@ -1,14 +1,150 @@
 /**
  * Batch report presentation component displaying detection aggregate totals and flagged review images.
  */
-import React from "react";
-import { BatchReport as Report } from "../types";
+import React, { useEffect, useState } from "react";
+import { BatchReport as Report, ReportWhitelistPerson } from "../types";
 import { Banner } from "./ui/Banner";
 import { StatTile } from "./ui/StatTile";
+import { usePrivateImage } from "../hooks/usePrivateImage";
 
 export interface BatchReportProps {
   report: Report | null;
   onSelectImage?: (jobId: string) => void;
+}
+
+/**
+ * Props for {@link ReportImageItem}.
+ */
+export interface ReportImageItemProps {
+  /** The primary display title of the image (e.g. filename). */
+  title: string;
+  /** Optional supplementary details or notes shown alongside the title. */
+  detail?: string;
+  /** Selection handler invoked when the item is clicked or activated via keyboard. */
+  onSelect?: () => void;
+}
+
+/**
+ * Clickable row representing a batch image in report sections (such as review candidates
+ * or whitelist matched images), providing keyboard and mouse selection into the batch viewer.
+ */
+export function ReportImageItem({ title, detail, onSelect }: ReportImageItemProps) {
+  return (
+    <div
+      className={`review-report-item ${onSelect ? "clickable" : ""}`.trim()}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (onSelect && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
+      <strong>{title}</strong>
+      {detail ? <span>{detail}</span> : null}
+    </div>
+  );
+}
+
+interface WhitelistPersonThumbnailProps {
+  batchId: string;
+  n: number;
+  label: string;
+}
+
+/**
+ * Thumbnail rendering for a whitelisted person's enrolled reference image.
+ *
+ * Why fallback placeholder: Uploaded whitelist files are deleted upon batch completion, or an allow list
+ * reference photo may have been purged, in which case a neutral placeholder is shown instead of a broken img.
+ */
+function WhitelistPersonThumbnail({ batchId, n, label }: WhitelistPersonThumbnailProps) {
+  const { url, loading, error } = usePrivateImage(`/api/batches/${batchId}/whitelist/${n}`);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [url]);
+
+  return (
+    <div className="thumbnail-container">
+      {loading || error || !url || imgError ? (
+        <div className="thumbnail-placeholder" aria-hidden="true" />
+      ) : (
+        <img src={url} alt={label} onError={() => setImgError(true)} />
+      )}
+      <span className="thumbnail-badge">#{n}</span>
+    </div>
+  );
+}
+
+interface WhitelistPersonSectionProps {
+  batchId: string;
+  person: ReportWhitelistPerson;
+  onSelectImage?: (jobId: string) => void;
+}
+
+/**
+ * Expandable person card summarizing detections of a single whitelisted reference photo.
+ *
+ * Why collapsed by default: Whitelist sections can contain many reference candidates; keeping them
+ * collapsed keeps the overview compact and uncluttered.
+ * Why plain div when 0 images: If there are no images to show, providing an expand/collapse toggle
+ * is misleading and creates unnecessary interactive noise.
+ */
+function WhitelistPersonSection({ batchId, person, onSelectImage }: WhitelistPersonSectionProps) {
+  const [open, setOpen] = useState(false);
+  const n = person.whitelistRef + 1;
+  const label = person.name && person.name.trim().length > 0 ? person.name : `Whitelist #${n}`;
+  const hasImages = Boolean(person.images && person.images.length > 0);
+
+  const headerContent = (
+    <>
+      <WhitelistPersonThumbnail batchId={batchId} n={n} label={label} />
+      <div className="file-row-info">
+        <strong>{label}</strong>
+        <span>
+          {person.imageCount} image(s), {person.detectionCount} detection(s)
+        </span>
+      </div>
+      {hasImages && (
+        <span className={`chevron ${open ? "open" : ""}`} aria-hidden="true">
+          ▾
+        </span>
+      )}
+    </>
+  );
+
+  return (
+    <div className="whitelist-person">
+      {hasImages ? (
+        <button
+          type="button"
+          className="file-row whitelist-person-button"
+          aria-expanded={open}
+          onClick={() => setOpen((prev) => !prev)}
+        >
+          {headerContent}
+        </button>
+      ) : (
+        <div className="file-row whitelist-person-row">{headerContent}</div>
+      )}
+
+      {open && hasImages && (
+        <div className="review-report-list scroll-list">
+          {person.images.map((image) => (
+            <ReportImageItem
+              key={image.jobId}
+              title={image.originalFilename}
+              onSelect={onSelectImage ? () => onSelectImage(image.jobId) : undefined}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -38,7 +174,7 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
       </div>
 
       {report.reviewImages.length > 0 ? (
-        <div className="review-report-list scroll-list">
+        <section className="review-report-list scroll-list" aria-label="Review candidates">
           <Banner variant="warning">{report.reviewImages.length} image(s) need review.</Banner>
           {report.reviewImages.map((image) => {
             const notes =
@@ -47,46 +183,33 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
                 : image.reviewReasons.join(" · ");
 
             return (
-              <div
-                className={`review-report-item ${onSelectImage ? "clickable" : ""}`.trim()}
+              <ReportImageItem
                 key={image.jobId}
-                role={onSelectImage ? "button" : undefined}
-                tabIndex={onSelectImage ? 0 : undefined}
-                onClick={() => onSelectImage?.(image.jobId)}
-                onKeyDown={(e) => {
-                  if (onSelectImage && (e.key === "Enter" || e.key === " ")) {
-                    e.preventDefault();
-                    onSelectImage(image.jobId);
-                  }
-                }}
-              >
-                <strong>{image.originalFilename}</strong>
-                <span>{notes}</span>
-              </div>
+                title={image.originalFilename}
+                detail={notes}
+                onSelect={onSelectImage ? () => onSelectImage(image.jobId) : undefined}
+              />
             );
           })}
-        </div>
+        </section>
       ) : (
         <Banner variant="success">No images need review.</Banner>
       )}
-      <div className="report-section">
+      <section className="report-section" aria-label="Whitelist people">
         <h4>Whitelist people</h4>
         {report.whitelistPeople && report.whitelistPeople.length > 0 ? (
           report.whitelistPeople.map((person) => (
-            <div className="whitelist-person" key={person.whitelistRef}>
-              <strong>Whitelist #{person.whitelistRef + 1}</strong>
-              <span>
-                {person.imageCount} image(s), {person.detectionCount} detection(s)
-              </span>
-              {person.imageCount > 0 && (
-                <small>{person.images.map((image) => image.originalFilename).join(", ")}</small>
-              )}
-            </div>
+            <WhitelistPersonSection
+              key={person.whitelistRef}
+              batchId={report.batchId}
+              person={person}
+              onSelectImage={onSelectImage}
+            />
           ))
         ) : (
           <div className="empty-inline">No whitelist detections were returned by the Engine.</div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

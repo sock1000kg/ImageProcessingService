@@ -52,7 +52,11 @@ export function DetectionList({
   }
 
   return (
-    <div className="detection-list scroll-list">
+    <ul
+      className="detection-list scroll-list"
+      aria-label="Detection list"
+      style={{ margin: 0, padding: 0, listStyle: "none" }}
+    >
       {detections.map((detection, index) => {
         const isFlagged =
           Boolean(detection.needsReview) ||
@@ -71,10 +75,12 @@ export function DetectionList({
               : null;
 
         return (
-          <div
+          <li
             className={rowClass}
             key={`${detection.label}-${index}`}
             tabIndex={0}
+            role="listitem"
+            aria-describedby={isFlagged ? `detection-review-${index}` : undefined}
             onMouseEnter={() => onHoverDetection?.(index)}
             onMouseLeave={() => onHoverDetection?.(null)}
             onFocus={() => onHoverDetection?.(index)}
@@ -89,10 +95,14 @@ export function DetectionList({
               )}
               {reviewNotesText && <small className="detection-notes">{reviewNotesText}</small>}
             </div>
-            {isFlagged && <StatusBadge variant="pill" label="Needs review" />}
-          </div>
+            {isFlagged && (
+              <span id={`detection-review-${index}`} role="status">
+                <StatusBadge variant="pill" label="Needs review" />
+              </span>
+            )}
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }

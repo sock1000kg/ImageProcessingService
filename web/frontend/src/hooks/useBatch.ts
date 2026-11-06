@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { deleteBatch, getBatch } from "../api";
+import { BATCH_SYNC_MS } from "../sync";
 import { Batch } from "../types";
 
 /**
@@ -62,7 +63,7 @@ export function useBatch(batchId: string | undefined, onMessage?: (message: stri
 
     const timer = window.setInterval(() => {
       void refreshBatch();
-    }, 3000);
+    }, BATCH_SYNC_MS);
 
     return () => window.clearInterval(timer);
   }, [batchId, refreshBatch]);

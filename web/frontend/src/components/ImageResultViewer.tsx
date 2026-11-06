@@ -3,7 +3,7 @@
  */
 import { useEffect, useState } from "react";
 import { Detection, Job, ReviewReason } from "../types";
-import { useJobOriginalUrl } from "../hooks/useJobOriginalUrl";
+import { usePrivateImage } from "../hooks/usePrivateImage";
 import { DetectionList } from "./DetectionList";
 import { boxToPercent, ImageStage } from "./ui/ImageStage";
 import { StatusBadge } from "./ui/StatusBadge";
@@ -65,7 +65,7 @@ export function ImageResultViewer({
   const [showBoxes, setShowBoxes] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
-  const originalUrl = useJobOriginalUrl(job.id);
+  const { url: originalUrl } = usePrivateImage(job ? `/api/jobs/${job.id}/original` : null);
 
   useEffect(() => {
     setNaturalSize(null);

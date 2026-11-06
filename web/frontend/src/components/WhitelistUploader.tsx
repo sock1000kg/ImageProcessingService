@@ -1,41 +1,54 @@
 /**
- * File upload input, saved face list selector, and preview list for biometric reference whitelist faces.
+ * File upload input, allow list picker dialog, and preview list for biometric reference whitelist faces.
  *
  * Biometric data retention policy: Whitelist faces uploaded directly for a batch are purged immediately
- * once all jobs terminate. Saved face lists are stored permanently under the user's account until explicitly
- * deleted. Using a saved list copies its references into the batch namespace so deleting a list never affects
- * running batches.
+ * once all jobs terminate. Allow lists are stored permanently under the user's account until explicitly
+ * deleted. Using an allow list references its photos directly without copying so deleting a list removes the photos
+ * while retry continues working while the list exists.
  */
 import { ChangeEvent, useEffect, useRef, useState } from "react";
-import { addWhitelistFiles, FileSelectionIssue, MAX_WHITELIST_FILES } from "./file-selection";
+import { addWhitelistFiles, FileSelectionIssue, MAX_FACE_LIST_FILES, MAX_WHITELIST_FILES } from "./file-selection";
 import { FilePreviewList } from "./FilePreviewList";
 import { RejectedFilesNotice } from "./RejectedFilesNotice";
 import { FaceListItem } from "../types";
 import { createFaceList, listFaceLists } from "../api";
-import { useFaceListThumbnail } from "../hooks/useFaceListThumbnail";
-
-function SavedFaceThumbnail({ listId, index }: { listId: string; index: number }) {
-  const url = useFaceListThumbnail(listId, index);
-  return <img src={url ?? undefined} alt={`Face ${index}`} />;
-}
+import { Dialog } from "./ui/Dialog";
+import { FaceListViewer } from "./FaceListViewer";
+import { FaceListThumbnails } from "./FaceListThumbnails";
 
 export interface WhitelistUploaderProps {
   files: File[];
   onChange: (files: File[]) => void;
   selectedFaceListId?: string | null;
   onFaceListIdChange?: (id: string | null) => void;
+  selectedFaceListIds?: string[];
+  onFaceListIdsChange?: (ids: string[]) => void;
+  showSavedSelector?: boolean;
+  showSaveAsList?: boolean;
 }
 
 /**
- * Handles selection of up to 5 reference face images excluded from redaction,
- * or selection of an existing saved face list with opt-in storage management.
+ * Handles selection of up to 20 reference face images excluded from redaction,
+ * combining chosen allow lists and uploaded reference face files.
  */
-export function WhitelistUploader({ files, onChange, selectedFaceListId, onFaceListIdChange }: WhitelistUploaderProps) {
+export function WhitelistUploader({
+  files,
+  onChange,
+  selectedFaceListId,
+  onFaceListIdChange,
+  selectedFaceListIds,
+  onFaceListIdsChange,
+  showSavedSelector = true,
+  showSaveAsList = true,
+}: WhitelistUploaderProps) {
   const [issues, setIssues] = useState<FileSelectionIssue[]>([]);
   const [savedLists, setSavedLists] = useState<FaceListItem[]>([]);
   const [listName, setListName] = useState("");
   const [savingList, setSavingList] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [viewingList, setViewingList] = useState<{ list: FaceListItem; initialIndex: number } | null>(null);
+  const [internalListIds, setInternalListIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -54,6 +67,30 @@ export function WhitelistUploader({ files, onChange, selectedFaceListId, onFaceL
     };
   }, []);
 
+  const isControlled = selectedFaceListIds !== undefined;
+  const activeListIds = isControlled
+    ? selectedFaceListIds
+    : selectedFaceListId !== undefined
+      ? selectedFaceListId
+        ? [selectedFaceListId]
+        : []
+      : internalListIds;
+
+  const updateListIds = (next: string[]) => {
+    if (!isControlled) {
+      setInternalListIds(next);
+    }
+    onFaceListIdsChange?.(next);
+    if (!onFaceListIdsChange) {
+      onFaceListIdChange?.(next[0] ?? null);
+    }
+  };
+
+  const chosenLists = savedLists.filter((list) => activeListIds.includes(list.id));
+  const chosenFacesCount = chosenLists.reduce((sum, list) => sum + list.faceCount, 0);
+  const totalFaces = chosenFacesCount + files.length;
+  const maxCap = showSavedSelector ? MAX_WHITELIST_FILES : MAX_FACE_LIST_FILES;
+
   const change = (event: ChangeEvent<HTMLInputElement>) => {
     const incoming = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -62,11 +99,8 @@ export function WhitelistUploader({ files, onChange, selectedFaceListId, onFaceL
     }
     if (!incoming.length) return;
 
-    if (selectedFaceListId) {
-      onFaceListIdChange?.(null);
-    }
-
-    const result = addWhitelistFiles(files, incoming, MAX_WHITELIST_FILES);
+    const remaining = Math.max(0, maxCap - chosenFacesCount);
+    const result = addWhitelistFiles(files, incoming, remaining);
     onChange(result.files);
     setIssues(result.issues);
   };
@@ -79,20 +113,11 @@ export function WhitelistUploader({ files, onChange, selectedFaceListId, onFaceL
     onChange(next);
   };
 
-  const handleSelectSavedList = (id: string) => {
-    if (!id) {
-      onFaceListIdChange?.(null);
-      return;
-    }
-    onChange([]);
-    onFaceListIdChange?.(id);
+  const handleRemoveList = (id: string) => {
+    updateListIds(activeListIds.filter((item) => item !== id));
   };
 
-  const handleClearSavedList = () => {
-    onFaceListIdChange?.(null);
-  };
-
-  const handleSaveAsList = async () => {
+  const handleSaveList = async () => {
     const trimmed = listName.trim();
     if (!trimmed || !files.length || savingList) return;
     setSavingList(true);
@@ -102,133 +127,180 @@ export function WhitelistUploader({ files, onChange, selectedFaceListId, onFaceL
       setSavedLists((prev) => [result.list, ...prev]);
       setListName("");
       onChange([]);
-      onFaceListIdChange?.(result.list.id);
+      updateListIds([...activeListIds, result.list.id]);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save face list");
+      setSaveError(err instanceof Error ? err.message : "Failed to create allow list");
     } finally {
       setSavingList(false);
     }
   };
 
-  const selectedList = savedLists.find((l) => l.id === selectedFaceListId);
-
   return (
     <div className="whitelist-box">
       <div className="whitelist-header">
         <div>
-          <span className="mini-label">OPTIONAL</span>
           <h3>Face whitelist</h3>
           <p>Reference faces will not be redacted when similarity is above the threshold.</p>
         </div>
         <div className="whitelist-actions">
-          {(savedLists ?? []).length > 0 && (
-            <select
-              className="button secondary-button"
-              aria-label="Use a saved list"
-              value={selectedFaceListId ?? ""}
-              onChange={(e) => handleSelectSavedList(e.target.value)}
-            >
-              <option value="">Use a saved list…</option>
-              {(savedLists ?? []).map((list) => (
-                <option key={list.id} value={list.id}>
-                  {list.name} ({list.faceCount} {list.faceCount === 1 ? "face" : "faces"})
-                </option>
-              ))}
-            </select>
-          )}
-
-          {!selectedFaceListId && (
-            <>
-              <label className="button secondary-button">
-                Add references
-                <input
-                  ref={inputRef}
-                  hidden
-                  type="file"
-                  multiple
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={change}
-                />
-              </label>
-              {files.length > 0 && (
-                <span className="file-count">
-                  {files.length}/{MAX_WHITELIST_FILES} selected
-                </span>
-              )}
-            </>
-          )}
+          <div className="dropzone-actions">
+            {showSavedSelector && (
+              <button type="button" className="secondary-button" onClick={() => setPickerOpen(true)}>
+                Add allow list
+              </button>
+            )}
+            <label className="button secondary-button">
+              Add references
+              <input
+                ref={inputRef}
+                hidden
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp"
+                onChange={change}
+              />
+            </label>
+          </div>
+          {totalFaces > 0 && <span className="file-count">{totalFaces} / 20 faces</span>}
         </div>
       </div>
 
       <RejectedFilesNotice issues={issues} onDismiss={() => setIssues([])} />
 
-      {selectedFaceListId && selectedList ? (
+      {chosenLists.length > 0 && (
         <div className="file-preview-wrap">
-          <div className="file-list-header">
-            <span className="file-list-title">
-              Using saved list: <strong>{selectedList.name}</strong> ({selectedList.faceCount} faces)
-            </span>
-            <span className="file-list-divider"> · </span>
-            <button type="button" className="file-list-clear" onClick={handleClearSavedList}>
-              Clear
-            </button>
-          </div>
-          <div className="file-list scroll-list">
-            {Array.from({ length: selectedList.faceCount }, (_, i) => i + 1).map((n) => (
-              <div className="file-row" key={`saved-face-${selectedList.id}-${n}`}>
-                <div className="thumbnail-container">
-                  <SavedFaceThumbnail listId={selectedList.id} index={n} />
-                  <span className="thumbnail-badge">{`#${n}`}</span>
+          <div className="file-list">
+            {chosenLists.map((list) => (
+              <div className="file-row" key={`chosen-list-${list.id}`}>
+                <FaceListThumbnails list={list} onSelect={(n) => setViewingList({ list, initialIndex: n })} />
+                <div className="file-row-info">
+                  <strong>{list.name}</strong>
+                  <span>
+                    {list.faceCount} {list.faceCount === 1 ? "face" : "faces"}
+                  </span>
                 </div>
-                <div>
-                  <strong>Face #{n}</strong>
-                  <span>Saved reference</span>
-                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Remove allow list ${list.name}`}
+                  onClick={() => handleRemoveList(list.id)}
+                >
+                  ×
+                </button>
               </div>
             ))}
           </div>
         </div>
-      ) : (
-        <>
-          <FilePreviewList files={files} onRemove={handleRemove} label={(index) => `#${index + 1}`} />
+      )}
 
-          {files.length > 0 && (
-            <div className="file-preview-wrap" style={{ marginTop: "0.75rem" }}>
-              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <input
-                  type="text"
-                  placeholder="Name this face list…"
-                  aria-label="Face list name"
-                  value={listName}
-                  onChange={(e) => setListName(e.target.value)}
-                  style={{
-                    padding: "0.4rem 0.6rem",
-                    borderRadius: "4px",
-                    border: "1px solid var(--border-color, #ccc)",
-                    flex: 1,
-                  }}
-                  disabled={savingList}
-                />
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={!listName.trim() || savingList}
-                  onClick={() => void handleSaveAsList()}
-                >
-                  {savingList ? "Saving…" : "Save as list"}
-                </button>
-              </div>
-              <small style={{ display: "block", marginTop: "0.35rem", opacity: 0.8 }}>
-                Saved faces are kept under your account until the list is deleted.
-              </small>
-              {saveError && (
-                <small className="field-error" style={{ display: "block", marginTop: "0.25rem" }}>
-                  {saveError}
-                </small>
-              )}
+      <FilePreviewList files={files} onRemove={handleRemove} label={(index) => `#${chosenFacesCount + index + 1}`} />
+
+      {showSaveAsList && files.length > 0 && (
+        <div className="file-preview-wrap">
+          <div className="batch-name-group">
+            <input
+              type="text"
+              className="text-input"
+              placeholder="Name this allow list…"
+              style={{ marginBottom: "8px" }}
+              aria-label="Allow list name"
+              value={listName}
+              onChange={(e) => setListName(e.target.value)}
+              disabled={savingList}
+            />
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={!listName.trim() || savingList}
+              onClick={() => void handleSaveList()}
+            >
+              {savingList ? "Saving…" : "Save list"}
+            </button>
+          </div>
+          <p className="subtitle">Allow lists are kept under your account until deleted.</p>
+          <p className="subtitle">If a job fails, faces not saved to an Allow List won't be used for retries.</p>
+          {saveError && <p className="field-error">{saveError}</p>}
+        </div>
+      )}
+
+      {pickerOpen && (
+        <Dialog
+          open={pickerOpen}
+          title="Allow lists"
+          titleId="picker-dialog-title"
+          size="large"
+          onClose={() => setPickerOpen(false)}
+        >
+          {savedLists.length === 0 ? (
+            <div className="empty-dashboard saved-face-lists-empty">
+              <span>👤</span>
+              <h3>No allow lists</h3>
+              <p>Create an allow list on the overview to select it here.</p>
+            </div>
+          ) : (
+            <div className="library-grid">
+              {savedLists.map((list) => {
+                const isAdded = activeListIds.includes(list.id);
+                const wouldExceed = totalFaces + list.faceCount > MAX_WHITELIST_FILES;
+                return (
+                  <article key={list.id} className="library-card" aria-label={list.name}>
+                    <div className="library-card-header">
+                      <FaceListThumbnails list={list} onSelect={(n) => setViewingList({ list, initialIndex: n })} />
+                      <div className="library-card-body">
+                        <h3>{list.name}</h3>
+                        <div className="library-card-meta saved-face-list-card-meta">
+                          <span>
+                            {list.faceCount} {list.faceCount === 1 ? "face" : "faces"}
+                          </span>
+                          <span>{new Date(list.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="library-card-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setViewingList({ list, initialIndex: 1 })}
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        className={isAdded ? "secondary-button" : "primary-button"}
+                        disabled={!isAdded && wouldExceed}
+                        title={!isAdded && wouldExceed ? "Exceeds 20 faces cap" : undefined}
+                        onClick={() => {
+                          if (isAdded) {
+                            updateListIds(activeListIds.filter((id) => id !== list.id));
+                          } else if (!wouldExceed) {
+                            updateListIds([...activeListIds, list.id]);
+                          }
+                        }}
+                      >
+                        {isAdded ? "Added" : "Add"}
+                      </button>
+                    </div>
+                    {!isAdded && wouldExceed && <span className="field-error">Exceeds 20 faces cap</span>}
+                  </article>
+                );
+              })}
             </div>
           )}
-        </>
+          <div className="dialog-actions">
+            <button type="button" className="primary-button" onClick={() => setPickerOpen(false)}>
+              Done
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {viewingList && (
+        <FaceListViewer
+          list={viewingList.list}
+          initialIndex={viewingList.initialIndex}
+          open={true}
+          onClose={() => setViewingList(null)}
+        />
       )}
     </div>
   );

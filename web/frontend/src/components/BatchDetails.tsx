@@ -3,7 +3,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getBatchReport, getBatchZipUrl, retryJob } from "../api";
+import { ApiError, getBatchReport, getBatchZipUrl, retryJob } from "../api";
 import { Batch, BatchReport as Report, Job } from "../types";
 import { BatchHeader } from "./BatchHeader";
 import { BatchImageList } from "./BatchImageList";
@@ -26,6 +26,11 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
   const [selectedId, setSelectedId] = useState(batch.jobs[0]?.id ?? null);
   const [report, setReport] = useState<Report | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [missingFacesConfirm, setMissingFacesConfirm] = useState<{
+    job: Job;
+    missing: number;
+    total: number;
+  } | null>(null);
 
   const isDraft = batch.status === "DRAFT" || !batch.startedAt;
 
@@ -34,18 +39,27 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
     [batch.jobs, selectedId],
   );
 
+  const jobsStatusKey = batch.jobs.map((job) => `${job.id}:${job.status}`).join(",");
+
   useEffect(() => {
     void getBatchReport(batch.id)
       .then((response) => setReport(response.report))
       .catch(() => setReport(null));
-  }, [batch.id, batch.jobs]);
+  }, [batch.id, jobsStatusKey]);
 
-  const retry = async (job: Job) => {
+  const retry = async (job: Job, acceptMissingFaces = false) => {
     try {
-      await retryJob(job.id);
+      await retryJob(job.id, acceptMissingFaces ? { acceptMissingFaces: true } : undefined);
       onMessage("Retry queued");
       await onRefresh();
     } catch (error) {
+      if (error instanceof ApiError && error.code === "WHITELIST_FACES_MISSING") {
+        const details = (error.details as { missing?: number; total?: number }) ?? {};
+        const missing = details.missing ?? 1;
+        const total = details.total ?? missing;
+        setMissingFacesConfirm({ job, missing, total });
+        return;
+      }
       onMessage(error instanceof Error ? error.message : "Retry failed");
     }
   };
@@ -119,18 +133,18 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
             >
               Download zip ({completedJobs.length})
             </button>
+            <button type="button" className="secondary-button" onClick={handleDownloadReport} disabled={!report}>
+              Download JSON report
+            </button>
             <button
               type="button"
               className="secondary-button"
               disabled={isDraft}
               onClick={() => navigate(`/batches/${batch.id}/rerun`)}
             >
-              Re-run with new settings
+              Rerun
             </button>
           </div>
-          <button type="button" className="secondary-button" onClick={handleDownloadReport} disabled={!report}>
-            Download JSON report
-          </button>
         </div>
       </div>
 
@@ -140,6 +154,26 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
         onConfirm={() => {
           setConfirm(false);
           void onDelete();
+        }}
+      />
+
+      <DeleteBatchDialog
+        open={Boolean(missingFacesConfirm)}
+        title="Missing whitelist faces"
+        body={
+          missingFacesConfirm
+            ? `${missingFacesConfirm.missing} whitelist face${
+                missingFacesConfirm.missing === 1 ? " isn't" : "s aren't"
+              } saved to a list and retrying will blur them.`
+            : ""
+        }
+        confirmLabel="Retry anyway"
+        onCancel={() => setMissingFacesConfirm(null)}
+        onConfirm={() => {
+          if (!missingFacesConfirm) return;
+          const { job } = missingFacesConfirm;
+          setMissingFacesConfirm(null);
+          void retry(job, true);
         }}
       />
     </section>

@@ -58,7 +58,7 @@ export function FilePreviewList({ files, errors = {}, onRemove, label, title, on
               <FileThumbnail file={file} />
               {badge && <span className="thumbnail-badge">{badge}</span>}
             </div>
-            <div>
+            <div className="file-row-info">
               <strong title={displayPath}>{displayPath}</strong>
               <span>
                 {formatSize(file.size)} · {typeLabel}

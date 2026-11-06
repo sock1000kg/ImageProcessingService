@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { getSystemStats } from "../api";
+import { STATS_SYNC_MS } from "../sync";
 
 /**
  * Polls the user's job counts by status every 5 seconds.
@@ -32,7 +33,7 @@ export function useSystemStats() {
     void refreshStats();
     const timer = window.setInterval(() => {
       void refreshStats();
-    }, 5000);
+    }, STATS_SYNC_MS);
     return () => window.clearInterval(timer);
   }, []);
 

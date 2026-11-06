@@ -73,6 +73,24 @@ export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): F
   };
 }
 
+const THRESHOLD_FIELDS = [
+  {
+    key: "confidenceThreshold",
+    label: "Confidence Threshold",
+    hint: "which detections get redacted",
+  },
+  {
+    key: "reviewThreshold",
+    label: "Review Threshold",
+    hint: "which detections get flagged for review",
+  },
+  {
+    key: "similarityThreshold",
+    label: "Similarity Threshold",
+    hint: "how closely a face must match the whitelist",
+  },
+] as const;
+
 export interface RedactionConfigFormProps {
   config: FormConfig;
   setConfig: Dispatch<SetStateAction<FormConfig>>;
@@ -179,10 +197,16 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
 
       <details className="advanced-settings">
         <summary>Advanced thresholds</summary>
+        <p className="preview-note" style={{ margin: "8px 0 2px" }}>
+          Higher = stricter
+        </p>
         <div className="threshold-grid">
-          {(["confidenceThreshold", "reviewThreshold", "similarityThreshold"] as const).map((key) => (
+          {THRESHOLD_FIELDS.map(({ key, label, hint }) => (
             <label key={key}>
-              {key.replace("Threshold", " threshold")}
+              <span>{label}</span>
+              <span className="preview-note" style={{ margin: 0, fontWeight: "normal" }}>
+                {hint}
+              </span>
               <input
                 type="number"
                 min="0"

@@ -1,6 +1,10 @@
 /**
  * Modal confirmation dialog displayed before destructive deletion.
+ *
+ * Why: Wraps the shared Dialog component with standard cancellation and confirmation actions
+ * to prevent accidental loss of image files and processing results.
  */
+import { Dialog } from "./ui/Dialog";
 
 export interface DeleteBatchDialogProps {
   open: boolean;
@@ -25,19 +29,16 @@ export function DeleteBatchDialog({
   if (!open) return null;
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title">
-        <h3 id="delete-title">{title}</h3>
-        <p>{body}</p>
-        <div className="dialog-actions">
-          <button type="button" className="secondary-button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="danger-button" onClick={onConfirm}>
-            {confirmLabel}
-          </button>
-        </div>
+    <Dialog open={open} title={title} titleId="delete-title" onClose={onCancel}>
+      <p>{body}</p>
+      <div className="dialog-actions">
+        <button type="button" className="secondary-button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="danger-button" onClick={onConfirm}>
+          {confirmLabel}
+        </button>
       </div>
-    </div>
+    </Dialog>
   );
 }

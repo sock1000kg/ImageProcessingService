@@ -1,20 +1,22 @@
 /**
- * Dashboard overview component displaying workspace welcome banner, system metrics, and empty state.
+ * Dashboard overview component displaying workspace welcome banner, system metrics, and saved face lists.
  */
 import React from "react";
 import { Batch } from "../types";
 import { StatTile } from "./ui/StatTile";
+import { SavedFaceListsPanel } from "./SavedFaceListsPanel";
 
 export interface DashboardProps {
   stats: Record<string, number>;
-  batch: Batch | null;
+  batch?: Batch | null;
   onCreate: () => void;
+  onMessage?: (message: string) => void;
 }
 
 /**
- * Renders the dashboard workspace metrics and navigation prompts.
+ * Renders the dashboard workspace metrics, quick creation action, and saved face lists panel.
  */
-export function Dashboard({ stats, batch, onCreate }: DashboardProps) {
+export function Dashboard({ stats, batch, onCreate, onMessage }: DashboardProps) {
   const total = Object.values(stats).reduce((sum, value) => sum + value, 0);
 
   return (
@@ -37,13 +39,7 @@ export function Dashboard({ stats, batch, onCreate }: DashboardProps) {
         <StatTile label="Needs attention" value={stats.FAILED ?? 0} />
       </div>
 
-      {!batch && (
-        <div className="empty-dashboard">
-          <span>✦</span>
-          <h3>Your workspace is ready</h3>
-          <p>Create a batch to start protecting your media.</p>
-        </div>
-      )}
+      <SavedFaceListsPanel onMessage={onMessage} />
     </section>
   );
 }

@@ -8,5 +8,6 @@ venv/
 .git
 .gitignore
 docs/
+training/
 tests/
 *.log

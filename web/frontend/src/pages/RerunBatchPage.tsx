@@ -3,14 +3,14 @@
  */
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getBatch, rerunBatch } from "../api";
+import { getBatch, rerunBatch, startBatch, uploadBatch, UploadProgress } from "../api";
 import { BatchCreateForm } from "../components/BatchCreateForm";
 import { batchConfigToFormConfig, FormConfig } from "../components/RedactionConfigForm";
 import { Banner } from "../components/ui/Banner";
-import { Batch } from "../types";
+import { Batch, MessageHandler } from "../types";
 
 export interface RerunBatchPageProps {
-  onMessage?: (message: string) => void;
+  onMessage?: MessageHandler;
 }
 
 /**
@@ -40,20 +40,69 @@ export function RerunBatchPage({ onMessage }: RerunBatchPageProps = {}) {
       });
   }, [id]);
 
-  const handleRerunSubmit = async (whitelist: File[], config: FormConfig, name?: string, faceListId?: string) => {
+  const handleRerunSubmit = async (
+    files: File[],
+    whitelist: File[],
+    config: FormConfig,
+    onProgress?: (progress: UploadProgress) => void,
+    name?: string,
+    faceListId?: string,
+    faceListIds?: string[],
+  ) => {
     if (!id) return;
     setBusy(true);
     setError("");
     try {
-      const result = await rerunBatch(id, whitelist, config, name, faceListId);
-      if (result.skipped > 0) {
-        onMessage?.(`Batch created successfully (${result.skipped} skipped)`);
-      } else {
-        onMessage?.("Batch created successfully");
+      const rerunResult = await rerunBatch(id, whitelist, config, name, faceListId, faceListIds);
+      const uploadResult = await uploadBatch(files, [], config, onProgress, rerunResult.batch.id);
+      if (uploadResult && uploadResult.failed.length === 0) {
+        if (rerunResult.skipped > 0) {
+          onMessage?.(`Batch created successfully (${rerunResult.skipped} skipped)`);
+        } else {
+          onMessage?.("Batch created successfully");
+        }
+        navigate(`/batches/${uploadResult.batch.id}`);
       }
-      navigate(`/batches/${result.batch.id}`);
+      return uploadResult;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to re-run batch");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRetryUpload = async (
+    files: File[],
+    _whitelist: File[],
+    config: FormConfig,
+    onProgress?: (progress: UploadProgress) => void,
+    existingBatchId?: string,
+  ) => {
+    setBusy(true);
+    setError("");
+    try {
+      const uploadResult = await uploadBatch(files, [], config, onProgress, existingBatchId);
+      if (uploadResult && uploadResult.failed.length === 0) {
+        onMessage?.("Batch created successfully");
+        navigate(`/batches/${uploadResult.batch.id}`);
+      }
+      return uploadResult;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStartWithoutFailed = async (batchId: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      const started = await startBatch(batchId);
+      onMessage?.("Batch created successfully");
+      navigate(`/batches/${started.batch.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Start failed");
     } finally {
       setBusy(false);
     }
@@ -107,6 +156,8 @@ export function RerunBatchPage({ onMessage }: RerunBatchPageProps = {}) {
           initialName,
         }}
         onRerunSubmit={handleRerunSubmit}
+        onSubmit={handleRetryUpload}
+        onStartWithoutFailed={handleStartWithoutFailed}
       />
     </section>
   );

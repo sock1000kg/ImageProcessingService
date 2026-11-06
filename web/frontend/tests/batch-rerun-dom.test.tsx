@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { RerunBatchPage } from "../src/pages/RerunBatchPage";
@@ -24,15 +24,55 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
               batch: {
                 id: "batch-new-rerun",
                 name: "Holiday Trip (re-run)",
-                status: "PROCESSING",
+                status: "DRAFT",
                 config: {},
                 whitelistKeys: [],
                 whitelistDeletedAt: null,
-                startedAt: new Date().toISOString(),
+                startedAt: null,
                 createdAt: new Date().toISOString(),
                 jobs: [],
               },
               skipped: 0,
+            }),
+          } as Response;
+        }
+
+        if (url.includes("/api/batches/batch-new-rerun/start")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              batch: {
+                id: "batch-new-rerun",
+                name: "Holiday Trip (re-run)",
+                status: "PROCESSING",
+              },
+            }),
+          } as Response;
+        }
+
+        if (url.includes("/api/batches/batch-new-rerun/files")) {
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              job: { id: "job-new-1" },
+            }),
+          } as Response;
+        }
+
+        if (url.includes("/api/batches/batch-new-rerun")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              batch: {
+                id: "batch-new-rerun",
+                name: "Holiday Trip (re-run)",
+                status: "DRAFT",
+                config: {},
+                jobs: [],
+              },
             }),
           } as Response;
         }
@@ -142,7 +182,7 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
     vi.restoreAllMocks();
   });
 
-  it("page prefills config and name from the source batch and hides the dropzone", async () => {
+  it("page prefills config and name from the source batch and shows the dropzone", async () => {
     render(
       <MemoryRouter initialEntries={["/batches/source-1/rerun"]}>
         <Routes>
@@ -151,25 +191,21 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
       </MemoryRouter>,
     );
 
-    // Should load and show image count from source batch
+    // Should load and show prefilled name from source batch
     await waitFor(() => {
-      expect(screen.getByText("3 images from Holiday Trip")).toBeDefined();
+      const nameInput = screen.getByLabelText(/Batch name/i) as HTMLInputElement;
+      expect(nameInput.value).toBe("Holiday Trip (re-run)");
     });
-
-    // Name should be prefilled with "<source name> (re-run)"
-    const nameInput = screen.getByLabelText(/Batch name/i) as HTMLInputElement;
-    expect(nameInput.value).toBe("Holiday Trip (re-run)");
 
     // Style select should be prefilled with "pixelate"
     const styleSelect = screen.getByLabelText(/Redaction style/i) as HTMLSelectElement;
     expect(styleSelect.value).toBe("pixelate");
 
-    // Dropzone / folder picker must NOT be present
-    expect(screen.queryByLabelText(/Choose images to redact/i)).toBeNull();
-    expect(screen.queryByText(/Drop images here or browse/i)).toBeNull();
+    // Dropzone / folder picker must be present
+    expect(screen.getByLabelText(/Choose images to redact/i)).toBeDefined();
   });
 
-  it("submit calls rerunBatch and navigates to the new batch page", async () => {
+  it("submit with 0 added files calls rerunBatch and navigates to the new batch page", async () => {
     const onMessage = vi.fn();
     render(
       <MemoryRouter initialEntries={["/batches/source-1/rerun"]}>
@@ -181,18 +217,150 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("3 images from Holiday Trip")).toBeDefined();
+      const submitBtn = screen.getByRole("button", { name: /run/i }) as HTMLButtonElement;
+      expect(submitBtn.disabled).toBe(false);
     });
 
-    const submitBtn = screen.getByRole("button", { name: /Re-run batch/i }) as HTMLButtonElement;
-    expect(submitBtn.disabled).toBe(false);
-
-    const form = submitBtn.closest("form")!;
+    const form = screen.getByRole("form", { name: /batch/i });
     fireEvent.submit(form);
 
     await waitFor(() => {
       expect(screen.getByText("Target Batch Page")).toBeDefined();
     });
+
+    expect(onMessage).toHaveBeenCalledWith("Batch created successfully");
+  });
+
+  it("re-run with 2 added files uploads them to the new batch id and starts once", async () => {
+    const fetchCalls: { url: string; method?: string }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        fetchCalls.push({ url, method });
+
+        if (url.includes("/api/batches/source-1/rerun") && method === "POST") {
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              batch: {
+                id: "batch-new-rerun",
+                name: "Holiday Trip (re-run)",
+                status: "DRAFT",
+                config: {},
+                whitelistKeys: [],
+                whitelistDeletedAt: null,
+                startedAt: null,
+                createdAt: new Date().toISOString(),
+                jobs: [],
+              },
+              skipped: 0,
+            }),
+          } as Response;
+        }
+
+        if (url.includes("/api/batches/batch-new-rerun/files") && method === "POST") {
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({ job: { id: "job-extra" } }),
+          } as Response;
+        }
+
+        if (url.includes("/api/batches/batch-new-rerun/start") && method === "POST") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              batch: { id: "batch-new-rerun", status: "PROCESSING" },
+            }),
+          } as Response;
+        }
+
+        if (url.includes("/api/batches/batch-new-rerun") && method === "GET") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              batch: { id: "batch-new-rerun", status: "DRAFT", jobs: [] },
+            }),
+          } as Response;
+        }
+
+        if (url.includes("/api/batches/source-1") && method === "GET") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              batch: {
+                id: "source-1",
+                name: "Holiday Trip",
+                status: "COMPLETED",
+                startedAt: "2026-11-04T10:00:00.000Z",
+                createdAt: "2026-11-04T09:00:00.000Z",
+                config: { targets: ["face"], style: "pixelate" },
+                whitelistKeys: [],
+                whitelistDeletedAt: null,
+                jobs: [{ id: "job-1", originalFilename: "photo1.jpg", status: "COMPLETED" }],
+              },
+            }),
+          } as Response;
+        }
+
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }),
+    );
+
+    const onMessage = vi.fn();
+    const { container } = render(
+      <MemoryRouter initialEntries={["/batches/source-1/rerun"]}>
+        <Routes>
+          <Route path="/batches/:id/rerun" element={<RerunBatchPage onMessage={onMessage} />} />
+          <Route path="/batches/:id" element={<div>Target Batch Page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      const nameInput = screen.getByLabelText(/Batch name/i) as HTMLInputElement;
+      expect(nameInput.value).toBe("Holiday Trip (re-run)");
+    });
+
+    // Add 2 extra files via dropzone
+    const dropzoneInput = container.querySelector("input[type='file']") as HTMLInputElement;
+    const file1 = new File(["face1"], "extra1.jpg", { type: "image/jpeg" });
+    const file2 = new File(["face2"], "extra2.png", { type: "image/png" });
+    fireEvent.change(dropzoneInput, { target: { files: [file1, file2] } });
+
+    await waitFor(() => {
+      expect(screen.getByText("extra1.jpg")).toBeDefined();
+      expect(screen.getByText("extra2.png")).toBeDefined();
+    });
+
+    const form = screen.getByRole("form", { name: /batch/i });
+    fireEvent.submit(form);
+
+    await waitFor(() => {
+      expect(screen.getByText("Target Batch Page")).toBeDefined();
+    });
+
+    // Verify rerunBatch was called once
+    const rerunCalls = fetchCalls.filter((c) => c.url.includes("/api/batches/source-1/rerun") && c.method === "POST");
+    expect(rerunCalls).toHaveLength(1);
+
+    // Verify file uploads to batch-new-rerun was called 2 times
+    const fileCalls = fetchCalls.filter(
+      (c) => c.url.includes("/api/batches/batch-new-rerun/files") && c.method === "POST",
+    );
+    expect(fileCalls).toHaveLength(2);
+
+    // Verify start was called once
+    const startCalls = fetchCalls.filter(
+      (c) => c.url.includes("/api/batches/batch-new-rerun/start") && c.method === "POST",
+    );
+    expect(startCalls).toHaveLength(1);
 
     expect(onMessage).toHaveBeenCalledWith("Batch created successfully");
   });
@@ -211,15 +379,42 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
               batch: {
                 id: "batch-partial-rerun",
                 name: "Holiday Trip (re-run)",
-                status: "PROCESSING",
+                status: "DRAFT",
                 config: {},
                 whitelistKeys: [],
                 whitelistDeletedAt: null,
-                startedAt: new Date().toISOString(),
+                startedAt: null,
                 createdAt: new Date().toISOString(),
                 jobs: [],
               },
               skipped: 2,
+            }),
+          } as Response;
+        }
+
+        if (url.includes("/api/batches/batch-partial-rerun/start")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              batch: {
+                id: "batch-partial-rerun",
+                status: "PROCESSING",
+              },
+            }),
+          } as Response;
+        }
+
+        if (url.includes("/api/batches/batch-partial-rerun")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              batch: {
+                id: "batch-partial-rerun",
+                status: "DRAFT",
+                jobs: [],
+              },
             }),
           } as Response;
         }
@@ -259,11 +454,11 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("1 images from Holiday Trip")).toBeDefined();
+      const nameInput = screen.getByLabelText(/Batch name/i) as HTMLInputElement;
+      expect(nameInput.value).toBe("Holiday Trip (re-run)");
     });
 
-    const submitBtn = screen.getByRole("button", { name: /Re-run batch/i }) as HTMLButtonElement;
-    const form = submitBtn.closest("form")!;
+    const form = screen.getByRole("form", { name: /batch/i });
     fireEvent.submit(form);
 
     await waitFor(() => {
@@ -292,7 +487,7 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
       </MemoryRouter>,
     );
 
-    const rerunBtn = screen.getByRole("button", { name: /Re-run with new settings/i }) as HTMLButtonElement;
+    const rerunBtn = screen.getByRole("button", { name: /run/i }) as HTMLButtonElement;
     expect(rerunBtn.disabled).toBe(true);
 
     // When started and completed, button becomes enabled
@@ -308,7 +503,7 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
       </MemoryRouter>,
     );
 
-    const updatedRerunBtn = screen.getByRole("button", { name: /Re-run with new settings/i }) as HTMLButtonElement;
+    const updatedRerunBtn = screen.getByRole("button", { name: /run/i }) as HTMLButtonElement;
     expect(updatedRerunBtn.disabled).toBe(false);
   });
 
@@ -364,12 +559,12 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
       expect(screen.getByText("Unstarted Batch")).toBeDefined();
     });
 
-    const rerunButtons = screen.getAllByRole("button", { name: /Re-run with new settings/i }) as HTMLButtonElement[];
-    expect(rerunButtons).toHaveLength(2);
+    const readyCard = screen.getByRole("article", { name: /Ready Batch/i });
+    const readyRerunBtn = within(readyCard).getByRole("button", { name: /run/i }) as HTMLButtonElement;
+    expect(readyRerunBtn.disabled).toBe(false);
 
-    // First card (COMPLETED) is enabled
-    expect(rerunButtons[0].disabled).toBe(false);
-    // Second card (DRAFT) is disabled
-    expect(rerunButtons[1].disabled).toBe(true);
+    const draftCard = screen.getByRole("article", { name: /Unstarted Batch/i });
+    const draftRerunBtn = within(draftCard).getByRole("button", { name: /run/i }) as HTMLButtonElement;
+    expect(draftRerunBtn.disabled).toBe(true);
   });
 });

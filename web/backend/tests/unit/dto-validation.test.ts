@@ -229,7 +229,7 @@ describe("DTO Validation and Schemas (Task 26)", () => {
       expect(() => validateUploadFiles({ files: [] })).toThrow("At least one image file is required");
     });
 
-    it("throws 400 when whitelist files exceed 5", () => {
+    it("throws 400 when whitelist files exceed 20", () => {
       const dummyFile = {
         originalname: "a.jpg",
         mimetype: "image/jpeg",
@@ -240,9 +240,9 @@ describe("DTO Validation and Schemas (Task 26)", () => {
       expect(() =>
         validateUploadFiles({
           files: [dummyFile],
-          whitelist: Array(6).fill(dummyFile),
+          whitelist: Array(21).fill(dummyFile),
         }),
-      ).toThrow("Too many whitelist files: maximum allowed is 5");
+      ).toThrow("At most 20 whitelist faces per batch");
     });
 
     it("throws 400 when file format is unsupported", () => {

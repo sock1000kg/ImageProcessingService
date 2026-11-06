@@ -81,6 +81,7 @@ export type ReportFailedImage = {
 export type ReportWhitelistPerson = {
   whitelistRef: number;
   whitelistKey: string;
+  name?: string | null;
   images: Array<{ jobId: string; originalFilename: string }>;
   imageCount: number;
   detectionCount: number;
@@ -130,7 +131,7 @@ export type BatchReport = {
 /**
  * Lifecycle status of a processing batch.
  */
-export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL";
+export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL" | "FAILED";
 
 export type BatchSummaryItem = {
   id: string;
@@ -185,5 +186,35 @@ export type FaceListItem = {
   id: string;
   name: string;
   faceCount: number;
+  faceNames?: (string | null)[];
   createdAt: string;
 };
+
+/**
+ * Resolves a human-readable display label for the nth face (1-indexed) in a saved face list.
+ *
+ * Why: Allows the UI to show the original uploaded photo name if available,
+ * while seamlessly falling back to standard "Face #n" for older records or unnamed entries.
+ */
+export function faceLabel(list: FaceListItem | null | undefined, n: number): string {
+  const name = list?.faceNames?.[n - 1];
+  return typeof name === "string" && name.trim().length > 0 ? name : `Face #${n}`;
+}
+
+/**
+ * Options configuring app-wide notice banner display.
+ *
+ * Why: Allows callers to specify whether a notice is a transient success
+ * confirmation or a persistent error alert requiring manual dismissal.
+ */
+export type NoticeOptions = {
+  variant?: "success" | "error";
+};
+
+/**
+ * Global message handler callback invoked by pages and components to display app-wide notices.
+ *
+ * Why: Centralizes toast message dispatching with optional variant metadata (success vs error),
+ * replacing repeated `(message: string) => void` declarations across components.
+ */
+export type MessageHandler = (message: string, options?: NoticeOptions) => void;

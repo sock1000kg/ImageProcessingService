@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { configSchema } from "../../src/config";
 import { parseBatchConfig, parseBatchConfigJson } from "../../src/dto";
 
 describe("Batch Config Schema and Defaults", () => {
@@ -83,5 +84,35 @@ describe("Batch Config Schema and Defaults", () => {
 
   it("throws validation error for invalid format", () => {
     expect(() => parseBatchConfig({ format: "gif" })).toThrow(/format/);
+  });
+});
+
+describe("RATE_LIMIT_MULTIPLIER config schema validation", () => {
+  it("defaults to 1 when undefined", () => {
+    expect(configSchema.shape.RATE_LIMIT_MULTIPLIER.parse(undefined)).toBe(1);
+  });
+
+  it("accepts valid positive numbers and numeric strings", () => {
+    expect(configSchema.shape.RATE_LIMIT_MULTIPLIER.parse(1)).toBe(1);
+    expect(configSchema.shape.RATE_LIMIT_MULTIPLIER.parse("2")).toBe(2);
+    expect(configSchema.shape.RATE_LIMIT_MULTIPLIER.parse(0.5)).toBe(0.5);
+    expect(configSchema.shape.RATE_LIMIT_MULTIPLIER.parse("0.5")).toBe(0.5);
+    expect(configSchema.shape.RATE_LIMIT_MULTIPLIER.parse(100)).toBe(100);
+  });
+
+  it("rejects 0", () => {
+    expect(() => configSchema.shape.RATE_LIMIT_MULTIPLIER.parse(0)).toThrow();
+    expect(() => configSchema.shape.RATE_LIMIT_MULTIPLIER.parse("0")).toThrow();
+  });
+
+  it("rejects negative values", () => {
+    expect(() => configSchema.shape.RATE_LIMIT_MULTIPLIER.parse(-1)).toThrow();
+    expect(() => configSchema.shape.RATE_LIMIT_MULTIPLIER.parse("-0.5")).toThrow();
+  });
+
+  it("rejects non-numeric values", () => {
+    expect(() => configSchema.shape.RATE_LIMIT_MULTIPLIER.parse("abc")).toThrow();
+    expect(() => configSchema.shape.RATE_LIMIT_MULTIPLIER.parse("not-a-number")).toThrow();
+    expect(() => configSchema.shape.RATE_LIMIT_MULTIPLIER.parse({})).toThrow();
   });
 });

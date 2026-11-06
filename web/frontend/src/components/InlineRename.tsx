@@ -8,9 +8,24 @@ export interface InlineRenameProps {
   onSave: (newName: string) => Promise<void> | void;
   headingLevel?: "h2" | "h3";
   className?: string;
+  title?: string;
+  ariaLabel?: string;
+  /**
+   * Optional text or element rendered beside the title inside the heading tag
+   * (e.g. face count in a dialog header) and preserved next to the input while editing.
+   */
+  suffix?: React.ReactNode;
 }
 
-export function InlineRename({ name, onSave, headingLevel = "h2", className = "" }: InlineRenameProps) {
+export function InlineRename({
+  name,
+  onSave,
+  headingLevel = "h2",
+  className = "",
+  title,
+  ariaLabel,
+  suffix,
+}: InlineRenameProps) {
   const [currentName, setCurrentName] = useState(name);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(name);
@@ -76,36 +91,52 @@ export function InlineRename({ name, onSave, headingLevel = "h2", className = ""
     <div className={`batch-title-container ${className}`.trim()}>
       <div className="batch-title-row">
         {isEditing ? (
-          <input
-            ref={inputRef}
-            type="text"
-            className="batch-title-input"
-            value={editValue}
-            maxLength={100}
-            disabled={saving}
-            onChange={(e) => setEditValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
+          <>
+            <input
+              ref={inputRef}
+              type="text"
+              className="batch-title-input"
+              value={editValue}
+              maxLength={100}
+              disabled={saving}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={(e) => {
+                // Why: Stop propagation on Enter and Escape so parent dialogs or forms do not close or submit while editing
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void handleSave();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleCancel();
+                }
+              }}
+              onBlur={() => {
                 void handleSave();
-              } else if (e.key === "Escape") {
-                e.preventDefault();
-                handleCancel();
-              }
-            }}
-            onBlur={() => {
-              void handleSave();
-            }}
-          />
+              }}
+            />
+            {suffix && <span>{` ${suffix}`}</span>}
+          </>
         ) : (
           <div className="batch-title-display">
-            {headingLevel === "h3" ? <h3>{currentName}</h3> : <h2>{currentName}</h2>}
+            {headingLevel === "h3" ? (
+              <h3>
+                {currentName}
+                {suffix && ` ${suffix}`}
+              </h3>
+            ) : (
+              <h2>
+                {currentName}
+                {suffix && ` ${suffix}`}
+              </h2>
+            )}
             <button
               type="button"
               className="pencil-button"
               onClick={handleStartEdit}
-              title="Rename batch"
-              aria-label="Rename batch"
+              title={title ?? "Rename batch"}
+              aria-label={ariaLabel ?? title ?? "Rename batch"}
             >
               ✎
             </button>

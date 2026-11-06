@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { setAccessToken } from "../src/auth";
-import { useJobOriginalUrl } from "../src/hooks/useJobOriginalUrl";
+import { usePrivateImage } from "../src/hooks/usePrivateImage";
 
 afterEach(() => {
   cleanup();
@@ -10,21 +10,21 @@ afterEach(() => {
   setAccessToken(null);
 });
 
-describe("useJobOriginalUrl", () => {
-  it("fetches the original with the Bearer token and exposes a blob URL, revoked on unmount", async () => {
+describe("usePrivateImage", () => {
+  it("fetches the image with the Bearer token and exposes a blob URL, revoked on unmount", async () => {
     setAccessToken("token-1");
     const fetchMock = vi.fn().mockResolvedValue(new Response(new Blob(["img"]), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const revoke = vi.spyOn(URL, "revokeObjectURL");
 
-    const { result, unmount } = renderHook(() => useJobOriginalUrl("job-1"));
-    await waitFor(() => expect(result.current).toMatch(/^blob:/));
+    const { result, unmount } = renderHook(() => usePrivateImage("/api/jobs/job-1/original"));
+    await waitFor(() => expect(result.current.url).toMatch(/^blob:/));
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/jobs/job-1/original");
     expect(new Headers(init.headers).get("Authorization")).toBe("Bearer token-1");
 
-    const objectUrl = result.current;
+    const objectUrl = result.current.url;
     unmount();
     expect(revoke).toHaveBeenCalledWith(objectUrl);
   });
@@ -43,8 +43,8 @@ describe("useJobOriginalUrl", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const { result } = renderHook(() => useJobOriginalUrl("job-2"));
-    await waitFor(() => expect(result.current).toMatch(/^blob:/));
+    const { result } = renderHook(() => usePrivateImage("/api/jobs/job-2/original"));
+    await waitFor(() => expect(result.current.url).toMatch(/^blob:/));
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
       "/api/jobs/job-2/original",
       "/api/auth/refresh",

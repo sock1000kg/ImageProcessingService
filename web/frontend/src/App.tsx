@@ -13,41 +13,50 @@ import { Banner } from "./components/ui/Banner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
-
-interface TopbarProps {
-  onRefresh?: (() => Promise<void> | void) | null;
-}
+import { SyncStatus } from "./components/SyncStatus";
+import { BATCH_SYNC_MS, STATS_SYNC_MS, useSyncStatus } from "./sync";
+import { MessageHandler, NoticeOptions } from "./types";
 
 /**
- * Topbar header component reflecting the active view's context and refresh action.
+ * Topbar header component reflecting the active view's context and sync telemetry.
  */
-function Topbar({ onRefresh }: TopbarProps) {
+function Topbar() {
   const { user, signOut } = useAuth();
   const location = useLocation();
+  const syncStatus = useSyncStatus();
   const isCreate = location.pathname === "/batches/new";
+  const isRerun = Boolean(location.pathname.match(/^\/batches\/[^/]+\/rerun$/));
   const isLibrary = location.pathname === "/library";
+  const isOverview = location.pathname === "/";
+  const isBatch = Boolean(location.pathname.match(/^\/batches\/[^/]+$/) && !isCreate);
+
+  const syncIntervalMs = isBatch ? BATCH_SYNC_MS : isOverview ? STATS_SYNC_MS : null;
 
   return (
     <header className="topbar">
       <div>
-        <p className="eyebrow">
-          Cloud-native privacy service <span className="eyebrow-dot" />
-        </p>
-        <h1>{isCreate ? "Create a secure batch" : isLibrary ? "Media library" : "Your privacy workspace"}</h1>
+        <h1>
+          {isRerun
+            ? "Rerun batch"
+            : isCreate
+              ? "Create a batch"
+              : isLibrary
+                ? "Media library"
+                : "Your privacy workspace"}
+        </h1>
         <p className="subtitle">
-          {isCreate
-            ? "Configure redaction once. Workers handle the rest asynchronously."
-            : isLibrary
-              ? "Manage stored originals, completed results, and account storage."
-              : "Monitor processing and review protected media in one place."}
+          {isRerun
+            ? "Rerun a batch with different configs"
+            : isCreate
+              ? "Configure redaction once. Workers handle the rest asynchronously."
+              : isLibrary
+                ? "Manage stored originals, completed results, and account storage."
+                : "Monitor processing and review protected media in one place."}
         </p>
       </div>
       <div className="topbar-actions">
-        <span className="last-sync">Live sync · 3s</span>
-        {typeof onRefresh === "function" && (
-          <button type="button" className="secondary-button" onClick={() => void onRefresh()}>
-            Refresh
-          </button>
+        {syncIntervalMs !== null && syncStatus !== "lost" && (
+          <span className="last-sync">{`Live sync · ${syncIntervalMs / 1000}s`}</span>
         )}
         {user && (
           <>
@@ -75,27 +84,38 @@ export function App() {
 
 const MESSAGE_TIMEOUT_MS = 3000;
 
+type NoticeState = {
+  text: string;
+  variant: "success" | "error";
+  id: number;
+};
+
 function AuthenticatedApp() {
   const { status } = useAuth();
   const location = useLocation();
   // The id makes a repeated message ("Batch renamed" twice) restart the timer instead of being ignored.
-  const [message, setMessageState] = useState<{ text: string; id: number } | null>(null);
-  const setMessage = useCallback((text: string) => setMessageState(text ? { text, id: Date.now() } : null), []);
-  const [refreshHandler, setRefreshHandler] = useState<(() => Promise<void> | void) | null>(null);
+  const [message, setMessageState] = useState<NoticeState | null>(null);
+  const setMessage: MessageHandler = useCallback((text: string, options?: NoticeOptions) => {
+    setMessageState(
+      text
+        ? {
+            text,
+            variant: options?.variant ?? "success",
+            id: Date.now(),
+          }
+        : null,
+    );
+  }, []);
 
   // Notices like "Batch renamed" are confirmations, not state: hide them after a few seconds.
+  // Error notices stay until dismissed.
   useEffect(() => {
-    if (!message) return;
+    if (!message || message.variant !== "success") return;
     const timer = setTimeout(() => setMessageState(null), MESSAGE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [message]);
 
   if (status === "loading") return <div className="viewer-empty">Checking session…</div>;
-
-  // Store function reference safely without triggering React's functional updater pattern
-  const handleRegisterRefresh = (handler: (() => Promise<void> | void) | null) => {
-    setRefreshHandler(() => handler);
-  };
 
   const batchMatch = location.pathname.match(/^\/batches\/([^/]+)$/);
   const activeBatchId = batchMatch && batchMatch[1] !== "new" ? batchMatch[1] : null;
@@ -106,7 +126,7 @@ function AuthenticatedApp() {
         <div className="brand">
           <span className="brand-mark">✦</span>
           <span>
-            Privacy<span>Cloud</span>
+            Redact<span>Funnel</span>
           </span>
         </div>
         <nav>
@@ -128,18 +148,29 @@ function AuthenticatedApp() {
             </NavLink>
           )}
         </nav>
-        <div className="sidebar-footer">
-          <span className="online-dot" /> Service operational
-        </div>
       </aside>
 
       <main className="workspace">
-        <Topbar onRefresh={refreshHandler} />
+        <Topbar />
+        {/* Render overlay toast wrapper so transient confirmations take no layout space and avoid page jumps */}
         {message && (
-          <Banner variant="success" role="status">
-            {message.text}
-          </Banner>
+          <div className="toast">
+            <Banner variant={message.variant} role={message.variant === "error" ? "alert" : "status"}>
+              <span>{message.text}</span>
+              {message.variant === "error" && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Dismiss"
+                  onClick={() => setMessageState(null)}
+                >
+                  ×
+                </button>
+              )}
+            </Banner>
+          </div>
         )}
+        <SyncStatus />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
@@ -147,7 +178,7 @@ function AuthenticatedApp() {
             path="/"
             element={
               <ProtectedRoute>
-                <DashboardPage />
+                <DashboardPage onMessage={setMessage} />
               </ProtectedRoute>
             }
           />
@@ -179,7 +210,7 @@ function AuthenticatedApp() {
             path="/batches/:id"
             element={
               <ProtectedRoute>
-                <BatchPage onMessage={setMessage} onRegisterRefresh={handleRegisterRefresh} />
+                <BatchPage onMessage={setMessage} />
               </ProtectedRoute>
             }
           />

@@ -61,14 +61,66 @@ export const patchBatchBodySchema = z
   })
   .strict();
 
+export const MAX_WHITELIST_FILES = 20;
+export const MAX_FACE_LIST_FILES = 5;
+
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/**
+ * Extracts and deduplicates faceListIds from request body or options.
+ * Supports array of strings, comma/bracketed JSON arrays, repeated fields,
+ * and falls back to single faceListId as a one-item alias.
+ */
+export function parseFaceListIds(body: any): string[] | undefined {
+  if (!body) return undefined;
+  const items: string[] = [];
+
+  const addRaw = (val: unknown) => {
+    if (val === undefined || val === null || val === "") return;
+    if (Array.isArray(val)) {
+      for (const item of val) {
+        addRaw(item);
+      }
+    } else if (typeof val === "string") {
+      const trimmed = val.trim();
+      if (!trimmed) return;
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            for (const item of parsed) addRaw(item);
+            return;
+          }
+        } catch {
+          // not valid JSON, treat as raw string
+        }
+      }
+      items.push(trimmed);
+    }
+  };
+
+  if (body.faceListIds !== undefined && body.faceListIds !== null) {
+    addRaw(body.faceListIds);
+  }
+  if (body["faceListIds[]"] !== undefined && body["faceListIds[]"] !== null) {
+    addRaw(body["faceListIds[]"]);
+  }
+  if (body.faceListId !== undefined && body.faceListId !== null) {
+    addRaw(body.faceListId);
+  }
+
+  if (items.length === 0) return undefined;
+  return Array.from(new Set(items));
+}
 
 export function validateBatchCreation(options: {
   filesPresent?: boolean;
   whitelist?: Express.Multer.File[];
+  faceListIds?: string[];
   faceListId?: string;
 }): void {
-  const { filesPresent = false, whitelist = [], faceListId } = options;
+  const { filesPresent = false, whitelist = [] } = options;
+  const faceListIds = parseFaceListIds(options);
 
   if (filesPresent) {
     throw badRequest(
@@ -77,18 +129,16 @@ export function validateBatchCreation(options: {
     );
   }
 
-  if (faceListId !== undefined && faceListId !== null) {
-    if (typeof faceListId !== "string" || !UUID_REGEX.test(faceListId)) {
-      throw notFound("Face list not found");
+  if (faceListIds) {
+    for (const id of faceListIds) {
+      if (!UUID_REGEX.test(id)) {
+        throw notFound("Face list not found");
+      }
     }
   }
 
-  if (faceListId && whitelist.length > 0) {
-    throw badRequest("Use either a saved list or uploaded faces", "VALIDATION_ERROR");
-  }
-
-  if (whitelist.length > 5) {
-    throw badRequest("Too many whitelist files: maximum allowed is 5");
+  if (whitelist.length > MAX_WHITELIST_FILES) {
+    throw badRequest("At most 20 whitelist faces per batch", "VALIDATION_ERROR");
   }
 
   for (const file of whitelist) {
@@ -134,8 +184,8 @@ export function validateUploadFiles(options: {
   if (files.length > config.BATCH_MAX_FILES) {
     throw badRequest(`Too many files: maximum allowed is ${config.BATCH_MAX_FILES}`);
   }
-  if (whitelist.length > 5) {
-    throw badRequest("Too many whitelist files: maximum allowed is 5");
+  if (whitelist.length > MAX_WHITELIST_FILES) {
+    throw badRequest("At most 20 whitelist faces per batch", "VALIDATION_ERROR");
   }
 
   for (const file of files) {

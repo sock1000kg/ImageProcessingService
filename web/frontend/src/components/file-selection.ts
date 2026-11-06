@@ -3,8 +3,10 @@
  */
 
 export const MAX_BATCH_FILES = 100;
-/** Maximum reference face photos allowed for biometric whitelist matching. */
-export const MAX_WHITELIST_FILES = 5;
+/** Maximum reference face photos allowed for biometric whitelist matching in batches. */
+export const MAX_WHITELIST_FILES = 20;
+/** Maximum reference face photos allowed for creating a single saved allow list. */
+export const MAX_FACE_LIST_FILES = 5;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -504,7 +506,9 @@ export interface AddWhitelistFilesResult {
 
 /**
  * Validates, normalises, deduplicates, and appends reference photos for the face whitelist.
- * Enforces the maximum allowed reference faces (default: MAX_WHITELIST_FILES = 5).
+ * Enforces the maximum allowed reference faces (default: MAX_WHITELIST_FILES = 20).
+ * Capacity is calculated as nextFiles.length + existingCount < max, ensuring error messages
+ * display the total limit max rather than remaining slots.
  * Duplicates are skipped without creating issues; invalid formats or overflows beyond max
  * return descriptive issues.
  */
@@ -512,6 +516,7 @@ export function addWhitelistFiles(
   current: File[],
   incoming: File[],
   max = MAX_WHITELIST_FILES,
+  existingCount = 0,
 ): AddWhitelistFilesResult {
   const issues: FileSelectionIssue[] = [];
   const validationIssues = validateImageFiles(incoming);
@@ -532,14 +537,14 @@ export function addWhitelistFiles(
     }
     seenIdentities.add(identity);
 
-    if (nextFiles.length < max) {
+    if (nextFiles.length + existingCount < max) {
       const mime = getInferredImageType(file);
       const normalized = mime ? ensureFileType(file, mime) : file;
       nextFiles.push(normalized);
     } else {
       issues.push({
         file,
-        reason: `only ${max} reference faces allowed`,
+        reason: `only ${max} reference files allowed`,
       });
     }
   }

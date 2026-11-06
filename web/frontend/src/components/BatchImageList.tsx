@@ -7,6 +7,7 @@ import { deleteJob } from "../api";
 import { Batch, Job, ReportImage } from "../types";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { StatusBadge } from "./ui/StatusBadge";
+import { TrashIcon } from "./ui/TrashIcon";
 
 export interface BatchImageListProps {
   batch: Batch;
@@ -119,7 +120,7 @@ export function BatchImageList({ batch, report, selected, onSelect, onJobDeleted
                   setDeletingJob(job);
                 }}
               >
-                🗑
+                <TrashIcon />
               </button>
             </div>
           );

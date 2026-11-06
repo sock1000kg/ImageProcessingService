@@ -30,6 +30,7 @@ import {
   updateJobState,
 } from "../repositories/job.repository";
 import { getFaceListOwnedByUser } from "../repositories/face-list.repository";
+import { parseFaceNamesMap, sanitizeFaceFileName } from "./face-list.service";
 import { publishJob } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
 import { BatchConfig } from "../types";
@@ -47,9 +48,11 @@ import {
   BatchResponseDTO,
   BatchSummaryItemDTO,
   JobResponseDTO,
+  MAX_WHITELIST_FILES,
   parseBatchConfig,
   parseBatchConfigJson,
   parseBatchName,
+  parseFaceListIds,
   ReportResponseDTO,
   toBatchResponse,
   toJobResponse,
@@ -63,56 +66,81 @@ import {
 import { badRequest, conflict, gone, notFound, unavailable } from "../errors";
 
 /**
- * Creates a new draft batch with optional whitelist faces or saved face list references.
+ * Creates a new draft batch record, referencing saved allow lists directly and storing uploaded whitelist files.
  *
- * Why biometric server-side copy: When a batch references a saved face list, the list's objects are
- * copied directly into the batch's isolated `uploads/<batchId>/whitelist/` path. This decouples the
- * batch lifecycle from the saved list. When all jobs in the batch finish processing, the batch's
- * whitelist copies are purged immediately without deleting the user's permanent list. Conversely,
- * if the user deletes their saved face list, running batches continue processing safely without broken references.
+ * Why direct reference for allow lists: A batch references the allow list's own photos under `uploads/lists/...`
+ * directly instead of copying them. Deleting an allow list removes the photos, and retrying failed jobs continues
+ * working while the list exists. Directly uploaded reference photos (not saved to a list) remain scoped to
+ * `<batchId>/whitelist/` and are deleted upon batch completion.
  */
 export async function createDraftBatch(options: {
   whitelist?: Express.Multer.File[];
+  faceListIds?: string[];
   faceListId?: string;
   rawConfig?: unknown;
   filesPresent?: boolean;
   name?: unknown;
   userId?: string;
 }): Promise<BatchResponseDTO> {
-  const { whitelist = [], faceListId, rawConfig, filesPresent = false, name } = options;
+  const { whitelist = [], rawConfig, filesPresent = false, name } = options;
+  const faceListIds = parseFaceListIds(options);
 
-  validateBatchCreation({ filesPresent, whitelist, faceListId });
+  validateBatchCreation({ filesPresent, whitelist, faceListIds });
 
   const batchConfig: BatchConfig = parseBatchConfigJson(rawConfig);
   const validatedName = parseBatchName(name);
-  const batchId = randomUUID();
 
-  const whitelistKeys: string[] = [];
-  try {
-    if (faceListId) {
-      if (!UUID_REGEX.test(faceListId) || !options.userId) {
+  // Validate all face lists first (UUID and ownership) BEFORE any storage or DB writes
+  const faceLists: Array<{ id: string; name: string; keys: string[]; faceNames?: unknown }> = [];
+  if (faceListIds && faceListIds.length > 0) {
+    for (const id of faceListIds) {
+      if (!UUID_REGEX.test(id) || !options.userId) {
         throw notFound("Face list not found");
       }
-      const faceList = await getFaceListOwnedByUser(faceListId, options.userId);
+      const faceList = await getFaceListOwnedByUser(id, options.userId);
       if (!faceList) {
         throw notFound("Face list not found");
       }
+      faceLists.push(faceList);
+    }
+  }
 
-      for (let i = 0; i < faceList.keys.length; i++) {
-        const sourceKey = faceList.keys[i]!;
-        const ext = path.extname(sourceKey).toLowerCase() || ".jpg";
-        const destKey = `${batchId}/whitelist/face-${i + 1}${ext}`;
-        await storage.copyObject(UPLOADS_BUCKET, sourceKey, destKey);
-        whitelistKeys.push(destKey);
+  // Check total face count across all face lists and uploaded files
+  const listFacesCount = faceLists.reduce((sum, list) => sum + list.keys.length, 0);
+  const totalFaces = listFacesCount + whitelist.length;
+  if (totalFaces > MAX_WHITELIST_FILES) {
+    throw badRequest("At most 20 whitelist faces per batch", "VALIDATION_ERROR");
+  }
+
+  const batchId = randomUUID();
+  const whitelistKeys: string[] = [];
+  const whitelistNames: Record<string, string> = {};
+  try {
+    // Push each list's own keys directly into whitelistKeys (no copy) and snapshot names
+    for (const faceList of faceLists) {
+      const listNames = parseFaceNamesMap(faceList.faceNames);
+
+      for (const sourceKey of faceList.keys) {
+        whitelistKeys.push(sourceKey);
+        const faceName = listNames[sourceKey];
+        if (typeof faceName === "string" && faceName.trim().length > 0) {
+          whitelistNames[sourceKey] = faceName;
+        }
       }
-    } else {
-      for (let i = 0; i < whitelist.length; i++) {
-        const file = whitelist[i]!;
-        const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
-        const key = `${batchId}/whitelist/face-${i + 1}${ext}`;
-        await storage.putObject(UPLOADS_BUCKET, key, file.buffer, file.mimetype);
-        whitelistKeys.push(key);
+    }
+
+    // Then save directly uploaded whitelist files in order
+    let uploadedFaceIndex = 1;
+    for (const file of whitelist) {
+      const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
+      const key = `${batchId}/whitelist/face-${uploadedFaceIndex}${ext}`;
+      await storage.putObject(UPLOADS_BUCKET, key, file.buffer, file.mimetype);
+      whitelistKeys.push(key);
+      const displayName = sanitizeFaceFileName(file.originalname);
+      if (displayName) {
+        whitelistNames[key] = displayName;
       }
+      uploadedFaceIndex++;
     }
 
     const createdBatch = await createDraftBatchRepository({
@@ -121,6 +149,7 @@ export async function createDraftBatch(options: {
       name: validatedName,
       config: batchConfig,
       whitelistKeys,
+      whitelistNames,
     });
 
     return toBatchResponse(createdBatch, []);
@@ -267,15 +296,17 @@ export async function deleteBatchById(id: string, userId?: string): Promise<bool
 }
 
 /**
- * Creates and starts a new batch using original image inputs from a previous batch with fresh settings.
+ * Creates a new draft batch using original image inputs from a previous batch with fresh settings.
  *
  * Why server-side copy: Duplicating original inputs into the new batch's S3 namespace keeps contract §5
  * path isolation intact so deleting either batch never affects the other, avoiding client re-upload overhead.
+ * Why draft is unstarted: Enables the caller to add additional images before starting processing.
  */
 export async function rerunBatch(
   sourceId: string,
   options: {
     whitelist?: Express.Multer.File[];
+    faceListIds?: string[];
     faceListId?: string;
     rawConfig?: unknown;
     name?: unknown;
@@ -298,6 +329,7 @@ export async function rerunBatch(
 
   const draftBatch = await createDraftBatch({
     whitelist: options.whitelist,
+    faceListIds: options.faceListIds,
     faceListId: options.faceListId,
     rawConfig: options.rawConfig,
     filesPresent: false,
@@ -361,10 +393,11 @@ export async function rerunBatch(
       throw gone("No original images remain in storage for this batch", "NO_ORIGINALS");
     }
 
-    const startedBatch = await startBatch(draftBatch.id, options.userId);
+    const currentDraft = await getBatch(draftBatch.id);
+    const currentJobs = await getJobsByBatchId(draftBatch.id);
 
     return {
-      batch: startedBatch,
+      batch: toBatchResponse(currentDraft!, currentJobs),
       skipped,
     };
   } catch (error) {
@@ -455,7 +488,11 @@ export async function getJobById(id: string, userId?: string): Promise<JobRespon
   return toJobResponse(job);
 }
 
-export async function retryFailedJob(id: string, userId?: string): Promise<JobResponseDTO> {
+export async function retryFailedJob(
+  id: string,
+  userId?: string,
+  options?: { acceptMissingFaces?: boolean },
+): Promise<JobResponseDTO> {
   const failedJob = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
   if (!failedJob) {
     throw gone("Job not found or its batch has expired", "JOB_EXPIRED");
@@ -468,22 +505,34 @@ export async function retryFailedJob(id: string, userId?: string): Promise<JobRe
   if (!batch) {
     throw gone("Batch has expired", "BATCH_EXPIRED");
   }
-  if (batch.whitelistKeys.length > 0 && batch.whitelistDeletedAt !== null) {
-    throw gone("Whitelist files have expired and cannot be used for retry", "WHITELIST_EXPIRED");
-  }
   if (!(await storage.objectExists(UPLOADS_BUCKET, failedJob.inputKey))) {
     throw gone("Original input has expired and cannot be retried", "INPUT_EXPIRED");
-  }
-  for (const whitelistKey of batch.whitelistKeys) {
-    if (!(await storage.objectExists(UPLOADS_BUCKET, whitelistKey))) {
-      throw gone("Whitelist files have expired and cannot be used for retry", "WHITELIST_EXPIRED");
-    }
   }
 
   const activeRetry = await getActiveRetryJob(failedJob);
   if (activeRetry) {
     return toJobResponse(activeRetry)!;
   }
+
+  const survivingKeys: string[] = [];
+  for (const whitelistKey of batch.whitelistKeys) {
+    if (await storage.objectExists(UPLOADS_BUCKET, whitelistKey)) {
+      survivingKeys.push(whitelistKey);
+    }
+  }
+
+  const missingCount = batch.whitelistKeys.length - survivingKeys.length;
+  if (missingCount > 0 && !options?.acceptMissingFaces) {
+    throw conflict("Some whitelist faces are no longer available", "WHITELIST_FACES_MISSING", {
+      missing: missingCount,
+      total: batch.whitelistKeys.length,
+    });
+  }
+
+  const whitelistRefs =
+    survivingKeys.length < batch.whitelistKeys.length
+      ? survivingKeys.map((key) => batch.whitelistKeys.indexOf(key))
+      : [];
 
   const batchConfig = parseBatchConfigJson(batch.config);
   const retryJobId = randomUUID();
@@ -497,6 +546,7 @@ export async function retryFailedJob(id: string, userId?: string): Promise<JobRe
       failedJob.originalFilename,
     )}`,
     inputBytes: failedJob.inputBytes,
+    whitelistRefs,
   };
   await insertRetryJob(retryJob);
 
@@ -507,7 +557,7 @@ export async function retryFailedJob(id: string, userId?: string): Promise<JobRe
       inputKey: retryJob.inputKey,
       outputKey: retryJob.outputKey,
       config: batchConfig,
-      whitelistKeys: batch.whitelistKeys,
+      whitelistKeys: survivingKeys,
     });
     await publishJob("jobs.image", command);
     await updateJobQueued(retryJob.id);
@@ -535,6 +585,83 @@ export async function getJobOriginalStream(id: string, userId?: string) {
   };
 }
 
+/**
+ * Streams the batch's nth reference whitelist photo (1-based index).
+ *
+ * Why owner-scoped: Whitelist reference images contain biometric profile data that must remain
+ * strictly private to the user account that uploaded or referenced them.
+ * Why 404 on missing object: Directly uploaded faces are purged on batch completion, or referenced
+ * allow lists/faces may have been deleted, rendering the reference photo unavailable.
+ */
+export async function getBatchWhitelistStream(
+  batchId: string,
+  index: number,
+  userId: string,
+): Promise<{ stream: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+  if (!UUID_REGEX.test(batchId)) {
+    throw notFound("Batch not found");
+  }
+
+  const batch = await getBatchOwnedByUser(batchId, userId);
+  if (!batch) {
+    throw notFound("Batch not found");
+  }
+
+  const keys = Array.isArray(batch.whitelistKeys) ? batch.whitelistKeys : [];
+  if (index < 1 || index > keys.length) {
+    throw notFound("Whitelist photo not found");
+  }
+
+  const key = keys[index - 1]!;
+  const streamInfo = await storage.getObjectStream(UPLOADS_BUCKET, key);
+  if (!streamInfo) {
+    throw notFound("Whitelist photo not found");
+  }
+
+  return streamInfo;
+}
+
+/**
+ * Rewrites a worker WHITELIST_REFERENCE_ERROR message to display the reference photo's original filename
+ * instead of internal bucket storage keys. Falls back to a generic description if the key is unknown.
+ *
+ * Why storage keys are stripped: Internal storage paths (e.g. `uploads/lists/...`) expose system bucket
+ * structures and UUIDs to end users. Replacing them with the user's uploaded filename keeps error notices
+ * actionable while preserving privacy and security boundaries.
+ */
+export function sanitizeWhitelistReferenceErrorMessage(
+  message: string,
+  whitelistKeys: string[],
+  whitelistNames: Record<string, unknown>,
+): string {
+  // Find which whitelist key is contained in the worker's error message.
+  // The worker prefixes the key with the bucket name (e.g. `uploads/lists/...` or `uploads/<batchId>/whitelist/...`),
+  // while `whitelistKeys` contains `lists/...` or `<batchId>/whitelist/...`.
+  const matchedKey = [...whitelistKeys].sort((a, b) => b.length - a.length).find((key) => key && message.includes(key));
+
+  let replacement = "a reference photo";
+  if (matchedKey) {
+    const rawName = whitelistNames[matchedKey];
+    if (typeof rawName === "string" && rawName.trim().length > 0) {
+      replacement = rawName.trim();
+    }
+  }
+
+  // Replace the whole quoted identifier (e.g. `'uploads/lists/...'` or `"uploads/..."`)
+  const quotedMatch = message.match(/['"]([^'"]+)['"]/);
+  if (quotedMatch) {
+    return message.replace(quotedMatch[0], replacement);
+  }
+
+  // Fallback: replace any unquoted key occurrence or remaining bucket prefix
+  if (matchedKey) {
+    const keyPattern = new RegExp(`(?:uploads/)?${matchedKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
+    return message.replace(keyPattern, replacement);
+  }
+
+  return message.replace(/uploads\/[^\s,':]+/g, replacement);
+}
+
 export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
   const current = await getJob(event.jobId);
   if (!current) return;
@@ -548,7 +675,56 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
     error: current.error as { code: string; message: string } | null,
   };
 
-  const nextState = calculateNextJobState(currentState, event, config.PUBLIC_RESULTS_BASE_URL);
+  let eventPayload = event;
+  if (event.status === "FAILED" && event.error?.code === "WHITELIST_REFERENCE_ERROR" && event.error.message) {
+    // Why batch lookup only on WHITELIST_REFERENCE_ERROR: Normal processing events avoid
+    // an extra database round trip; only bad reference failures load the batch to resolve filenames.
+    const batch = await getBatch(current.batchId);
+    const keys = Array.isArray(batch?.whitelistKeys) ? batch.whitelistKeys : [];
+    const names =
+      batch &&
+      typeof batch.whitelistNames === "object" &&
+      batch.whitelistNames !== null &&
+      !Array.isArray(batch.whitelistNames)
+        ? (batch.whitelistNames as Record<string, unknown>)
+        : {};
+    const sanitizedMessage = sanitizeWhitelistReferenceErrorMessage(event.error.message, keys, names);
+    eventPayload = {
+      ...eventPayload,
+      error: {
+        ...event.error,
+        message: sanitizedMessage,
+      },
+    };
+  }
+
+  if (
+    current.whitelistRefs &&
+    current.whitelistRefs.length > 0 &&
+    event.status === "COMPLETED" &&
+    event.resultSummary?.detections
+  ) {
+    eventPayload = {
+      ...event,
+      resultSummary: {
+        ...event.resultSummary,
+        detections: event.resultSummary.detections.map((detection) => {
+          if (
+            typeof detection.whitelistRef === "number" &&
+            current.whitelistRefs[detection.whitelistRef] !== undefined
+          ) {
+            return {
+              ...detection,
+              whitelistRef: current.whitelistRefs[detection.whitelistRef],
+            };
+          }
+          return detection;
+        }),
+      },
+    };
+  }
+
+  const nextState = calculateNextJobState(currentState, eventPayload, config.PUBLIC_RESULTS_BASE_URL);
 
   let resultBytes: number | null | undefined = undefined;
   if (nextState.status === JobStatus.COMPLETED) {

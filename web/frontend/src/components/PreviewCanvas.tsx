@@ -57,10 +57,24 @@ function drawRedaction(
     return;
   }
   if (style === "blur") {
-    context.save();
-    context.filter = `blur(${Math.max(1, strength / 3)}px)`;
-    context.drawImage(context.canvas, x, y, width, height, x, y, width, height);
-    context.restore();
+    // Why: drawImage with a blur filter on a sub-rectangle samples transparent pixels beyond the crop
+    // boundary, causing large blur radii (e.g. strength ~60) to fade to transparent so the original
+    // shows through. By copying the canvas once, clipping to the bounding box, and drawing the entire
+    // offscreen copy with the blur filter, the filter only samples real pixels and stays fully opaque.
+    const copy = document.createElement("canvas");
+    copy.width = context.canvas.width;
+    copy.height = context.canvas.height;
+    const copyContext = copy.getContext("2d");
+    if (copyContext) {
+      copyContext.drawImage(context.canvas, 0, 0);
+      context.save();
+      context.beginPath();
+      context.rect(x, y, width, height);
+      context.clip();
+      context.filter = `blur(${Math.max(1, strength / 3)}px)`;
+      context.drawImage(copy, 0, 0);
+      context.restore();
+    }
     return;
   }
   const pixelSize = Math.max(2, Math.round(strength / 2));

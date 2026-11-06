@@ -116,7 +116,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
         name: `${validSourceBatch.name} (re-run)`,
         config: { targets: ["face"], style: "pixelate", format: "png" },
         whitelistKeys: [],
-        startedAt: new Date(),
+        startedAt: null,
         createdAt: new Date(),
       } as any;
     });
@@ -127,6 +127,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
     });
 
     expect(result.skipped).toBe(0);
+    expect(result.batch.status).toBe("DRAFT");
     // Distinct inputs: photo1 and photo2 -> exactly 2 copies
     expect(copySpy).toHaveBeenCalledTimes(2);
     expect(addedJobs).toHaveLength(2);
@@ -142,8 +143,8 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
       expect(job.outputKey).toMatch(new RegExp(`^${createdBatchId}/[^/]+/result\\.png$`));
     }
 
-    // Verify job published per original
-    expect(publishSpy).toHaveBeenCalledTimes(2);
+    // Verify draft batch is not started yet (jobs not published yet)
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it("handles fresh whitelist files under the new batch id without reusing old keys", async () => {
@@ -198,7 +199,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
           name: "New",
           config: { targets: ["face"] },
           whitelistKeys: [`${bId}/whitelist/face-1.png`],
-          startedAt: new Date(),
+          startedAt: null,
           createdAt: new Date(),
         }) as any,
     );
@@ -390,7 +391,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
       name: "Source Batch (re-run)",
       config: { targets: ["face"], style: "blur" },
       whitelistKeys: [],
-      startedAt: new Date(),
+      startedAt: null,
       createdAt: new Date(),
     } as any);
 
@@ -401,6 +402,83 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
 
     expect(result.skipped).toBe(1);
     expect(result.batch.id).toBe("new-batch-id");
+  });
+
+  it("reruns a batch whose jobs all failed successfully", async () => {
+    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue(validSourceBatch as any);
+    const failedJobs = [
+      {
+        id: "source-job-1",
+        batchId: sourceBatchId,
+        originalFilename: "fail1.jpg",
+        inputKey: `${sourceBatchId}/fail1/input.jpg`,
+        outputKey: `${sourceBatchId}/fail1/result.jpg`,
+        inputBytes: 1000,
+        status: JobStatus.FAILED,
+        createdAt: new Date("2026-11-04T10:01:00Z"),
+      },
+      {
+        id: "source-job-2",
+        batchId: sourceBatchId,
+        originalFilename: "fail2.jpg",
+        inputKey: `${sourceBatchId}/fail2/input.jpg`,
+        outputKey: `${sourceBatchId}/fail2/result.jpg`,
+        inputBytes: 2000,
+        status: JobStatus.FAILED,
+        createdAt: new Date("2026-11-04T10:02:00Z"),
+      },
+    ];
+    vi.spyOn(jobRepository, "getJobsByBatchId").mockImplementation(async (bId: string) => {
+      if (bId === sourceBatchId) return failedJobs as any;
+      return [
+        {
+          id: "new-j1",
+          batchId: "rerun-failed-batch-id",
+          status: JobStatus.PENDING,
+          originalFilename: "fail1.jpg",
+          inputKey: "rerun-failed-batch-id/j1/input.jpg",
+          outputKey: "rerun-failed-batch-id/j1/result.jpg",
+        },
+        {
+          id: "new-j2",
+          batchId: "rerun-failed-batch-id",
+          status: JobStatus.PENDING,
+          originalFilename: "fail2.jpg",
+          inputKey: "rerun-failed-batch-id/j2/input.jpg",
+          outputKey: "rerun-failed-batch-id/j2/result.jpg",
+        },
+      ] as any;
+    });
+    vi.spyOn(storage, "objectExists").mockResolvedValue(true);
+    vi.spyOn(storage, "copyObject").mockResolvedValue(undefined);
+    vi.spyOn(storage, "deletePrefix").mockResolvedValue(undefined);
+    vi.spyOn(jobRepository, "createDraftBatch").mockResolvedValue({
+      id: "rerun-failed-batch-id",
+      userId,
+      name: "Source Batch (re-run)",
+      config: { targets: ["face"], style: "blur" },
+      whitelistKeys: [],
+      createdAt: new Date(),
+    } as any);
+    vi.spyOn(jobRepository, "addJobToBatchWithLock").mockResolvedValue({} as any);
+    vi.spyOn(jobRepository, "getBatch").mockResolvedValue({
+      id: "rerun-failed-batch-id",
+      userId,
+      name: "Source Batch (re-run)",
+      config: { targets: ["face"], style: "blur" },
+      whitelistKeys: [],
+      startedAt: null,
+      createdAt: new Date(),
+    } as any);
+
+    const result = await rerunBatch(sourceBatchId, {
+      userId,
+    });
+
+    expect(result.skipped).toBe(0);
+    expect(result.batch.id).toBe("rerun-failed-batch-id");
+    expect(result.batch.name).toBe("Source Batch (re-run)");
+    expect(storage.copyObject).toHaveBeenCalledTimes(2);
   });
 
   it("handles rerunBatchHandler controller request and returns 201", async () => {
@@ -469,7 +547,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
       name: "Custom Rerun Name",
       config: { targets: ["face"] },
       whitelistKeys: [],
-      startedAt: new Date(),
+      startedAt: null,
       createdAt: new Date(),
     } as any);
 

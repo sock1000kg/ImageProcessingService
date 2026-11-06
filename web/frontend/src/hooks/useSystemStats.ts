@@ -3,38 +3,35 @@
  *
  * What it polls: Calls `getSystemStats()`, which counts jobs by status in the user's own batches only (the backend
  * filters by account; the "system" in the route name is historical).
- * Polling cadence: Executes immediately upon mounting, then polls periodically every 5 seconds.
- * When it stops: Polling terminates when the mounting component unmounts via `clearInterval`.
- * How errors surface: Failures are caught and silently ignored because the stats are non-blocking
- * and must not disrupt user workflows or main view interactions.
+ * Polling cadence: Executes initial fetch upon mounting, then polls periodically every 5 seconds via `usePolling`.
+ * When it stops: Polling terminates when the mounting component unmounts via `usePolling`.
+ * How errors surface: Polling errors reach `usePolling` to update the global connection status while preserving
+ * existing stats on screen.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getSystemStats } from "../api";
+import { STATS_SYNC_MS } from "../sync";
+import { usePolling } from "./usePolling";
 
 /**
  * Polls the user's job counts by status every 5 seconds.
  *
- * @returns State object exposing the user's job statistics and a manual refresh method
+ * @returns State object exposing the user's job statistics
  */
 export function useSystemStats() {
   const [stats, setStats] = useState<Record<string, number>>({});
 
-  const refreshStats = async () => {
-    try {
-      const response = await getSystemStats();
-      setStats(response.jobs ?? {});
-    } catch {
-      // Non-blocking background telemetry: preserve existing stats on transient failures
-    }
-  };
-
-  useEffect(() => {
-    void refreshStats();
-    const timer = window.setInterval(() => {
-      void refreshStats();
-    }, 5000);
-    return () => window.clearInterval(timer);
+  const pollStats = useCallback(async () => {
+    const response = await getSystemStats();
+    setStats(response.jobs ?? {});
   }, []);
 
-  return { stats, refreshStats };
+  usePolling(pollStats, STATS_SYNC_MS);
+
+  useEffect(() => {
+    // Initial load on mount: failures are ignored here because the next poll reports connection state
+    void pollStats().catch(() => {});
+  }, [pollStats]);
+
+  return { stats };
 }

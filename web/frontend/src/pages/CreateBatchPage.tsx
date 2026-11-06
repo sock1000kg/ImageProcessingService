@@ -6,9 +6,10 @@ import { BatchCreateForm } from "../components/BatchCreateForm";
 import { FormConfig } from "../components/RedactionConfigForm";
 import { useCreateBatch } from "../hooks/useCreateBatch";
 import { UploadProgress } from "../api";
+import { MessageHandler } from "../types";
 
 export interface CreateBatchPageProps {
-  onMessage?: (message: string) => void;
+  onMessage?: MessageHandler;
 }
 
 /**
@@ -26,8 +27,9 @@ export function CreateBatchPage({ onMessage }: CreateBatchPageProps = {}) {
     existingBatchId?: string,
     name?: string,
     faceListId?: string,
+    faceListIds?: string[],
   ) => {
-    const result = await create(files, whitelist, config, onProgress, existingBatchId, name, faceListId);
+    const result = await create(files, whitelist, config, onProgress, existingBatchId, name, faceListId, faceListIds);
     if (result && result.failed.length === 0) {
       onMessage?.("Batch created successfully");
       navigate(`/batches/${result.batch.id}`);

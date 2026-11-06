@@ -22,9 +22,30 @@ async function authedFetch(url: string, init?: RequestInit): Promise<Response> {
   return refreshed ? send() : response;
 }
 
-async function errorMessage(response: Response): Promise<string> {
+/**
+ * Error raised on non-2xx responses from the backend API, preserving status, code, and details.
+ */
+export class ApiError extends Error {
+  readonly code?: string;
+  readonly details?: unknown;
+  readonly status: number;
+
+  constructor(message: string, options?: { code?: string; details?: unknown; status: number }) {
+    super(message);
+    this.name = "ApiError";
+    this.code = options?.code;
+    this.details = options?.details;
+    this.status = options?.status ?? 500;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+async function parseApiError(response: Response): Promise<ApiError> {
   const data = await response.json().catch(() => ({}));
-  return data.error?.message ?? (typeof data.error === "string" ? data.error : "Request failed");
+  const message = data.error?.message ?? (typeof data.error === "string" ? data.error : "Request failed");
+  const code = typeof data.error?.code === "string" ? data.error.code : undefined;
+  const details = data.error?.details;
+  return new ApiError(message, { code, details, status: response.status });
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -33,19 +54,21 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     return {} as T;
   }
   if (!response.ok) {
-    throw new Error(await errorMessage(response));
+    throw await parseApiError(response);
   }
   return response.json();
 }
 
 /**
- * Downloads a job's original image. It is a protected API route, so an <img src> (which cannot send the Bearer
- * header) would get 401; callers turn this Blob into an object URL instead.
+ * Fetches a private image blob from an authenticated API endpoint.
+ *
+ * Why authedFetch: Protected image endpoints require the Bearer access token; standard <img> tags
+ * cannot send custom headers and would receive 401. Callers convert the returned Blob into an object URL.
  */
-export async function fetchJobOriginal(id: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await authedFetch(`/api/jobs/${id}/original`, { signal });
+export async function fetchPrivateImage(path: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await authedFetch(path, { signal });
   if (!response.ok) {
-    throw new Error(await errorMessage(response));
+    throw await parseApiError(response);
   }
   return response.blob();
 }
@@ -67,6 +90,7 @@ export async function createDraftBatch(
   config: Record<string, unknown>,
   name?: string,
   faceListId?: string,
+  faceListIds?: string[],
 ): Promise<{ batch: Batch }> {
   const form = new FormData();
   for (const file of whitelist) {
@@ -76,7 +100,16 @@ export async function createDraftBatch(
   if (name !== undefined && name !== null && name.trim() !== "") {
     form.append("name", name.trim());
   }
-  if (faceListId !== undefined && faceListId !== null && faceListId.trim() !== "") {
+  const resolvedIds =
+    faceListIds && faceListIds.length > 0
+      ? faceListIds
+      : faceListId && faceListId.trim() !== ""
+        ? [faceListId.trim()]
+        : [];
+  for (const id of resolvedIds) {
+    form.append("faceListIds", id);
+  }
+  if (faceListId && (!faceListIds || faceListIds.length === 0)) {
     form.append("faceListId", faceListId.trim());
   }
   return request("/api/batches", { method: "POST", body: form });
@@ -85,8 +118,8 @@ export async function createDraftBatch(
 /**
  * Re-runs an existing batch with new redaction settings from stored originals.
  *
- * Why multipart request: Accommodates both JSON configuration parameters and up to 5 optional
- * face reference files in a single network round-trip.
+ * Why multipart request: Accommodates both JSON configuration parameters and up to 20 optional
+ * face reference files and allow lists in a single network round-trip.
  */
 export async function rerunBatch(
   id: string,
@@ -94,6 +127,7 @@ export async function rerunBatch(
   config: Record<string, unknown>,
   name?: string,
   faceListId?: string,
+  faceListIds?: string[],
 ): Promise<{ batch: Batch; skipped: number }> {
   const form = new FormData();
   for (const file of whitelist) {
@@ -103,7 +137,16 @@ export async function rerunBatch(
   if (name !== undefined && name !== null && name.trim() !== "") {
     form.append("name", name.trim());
   }
-  if (faceListId !== undefined && faceListId !== null && faceListId.trim() !== "") {
+  const resolvedIds =
+    faceListIds && faceListIds.length > 0
+      ? faceListIds
+      : faceListId && faceListId.trim() !== ""
+        ? [faceListId.trim()]
+        : [];
+  for (const listId of resolvedIds) {
+    form.append("faceListIds", listId);
+  }
+  if (faceListId && (!faceListIds || faceListIds.length === 0)) {
     form.append("faceListId", faceListId.trim());
   }
   return request<{ batch: Batch; skipped: number }>(`/api/batches/${id}/rerun`, { method: "POST", body: form });
@@ -136,12 +179,13 @@ export async function uploadBatch(
   existingBatchId?: string,
   name?: string,
   faceListId?: string,
+  faceListIds?: string[],
 ): Promise<{ batch: Batch; failed: File[] }> {
   let batchId = existingBatchId;
   let batch: Batch;
 
   if (!batchId) {
-    const created = await createDraftBatch(whitelist, config, name, faceListId);
+    const created = await createDraftBatch(whitelist, config, name, faceListId, faceListIds);
     batch = created.batch;
     batchId = batch.id;
   } else {
@@ -222,10 +266,14 @@ export async function getBatchZipUrl(id: string): Promise<string> {
 }
 
 /**
- * Enqueues a retry for a failed job.
+ * Enqueues a retry for a failed job, optionally accepting that missing whitelist faces will be blurred.
  */
-export function retryJob(id: string): Promise<{ job: Job }> {
-  return request(`/api/jobs/${id}/retry`, { method: "POST" });
+export function retryJob(id: string, options?: { acceptMissingFaces?: boolean }): Promise<{ job: Job }> {
+  return request(`/api/jobs/${id}/retry`, {
+    method: "POST",
+    headers: options?.acceptMissingFaces ? { "Content-Type": "application/json" } : undefined,
+    body: options?.acceptMissingFaces ? JSON.stringify({ acceptMissingFaces: true }) : undefined,
+  });
 }
 
 /**
@@ -290,14 +338,27 @@ export async function createFaceList(name: string, faces: File[]): Promise<{ lis
 }
 
 /**
- * Fetches an individual face thumbnail blob for a saved face list.
+ * Appends additional biometric reference faces to an existing allow list.
+ *
+ * Why atomic upload: Uploads directly to the list's endpoint to guarantee the cap is enforced
+ * atomically on the backend without overwriting existing reference faces.
  */
-export async function fetchFaceListThumbnail(id: string, n: number, signal?: AbortSignal): Promise<Blob> {
-  const response = await authedFetch(`/api/face-lists/${id}/faces/${n}`, { signal });
-  if (!response.ok) {
-    throw new Error(await errorMessage(response));
+export async function addFacesToList(id: string, files: File[]): Promise<{ list: FaceListItem }> {
+  const form = new FormData();
+  for (const file of files) {
+    form.append("faces", file);
   }
-  return response.blob();
+  return request(`/api/face-lists/${id}/faces`, { method: "POST", body: form });
+}
+
+/**
+ * Deletes a single biometric face from a saved allow list.
+ *
+ * Why returns { list | null }: If the list's only face was deleted, the list is removed and
+ * list is returned as null. Otherwise returns the updated list item with decremented faceCount.
+ */
+export function deleteFaceFromList(id: string, n: number): Promise<{ list: FaceListItem | null }> {
+  return request(`/api/face-lists/${id}/faces/${n}`, { method: "DELETE" });
 }
 
 /**
@@ -305,4 +366,18 @@ export async function fetchFaceListThumbnail(id: string, n: number, signal?: Abo
  */
 export function deleteFaceList(id: string): Promise<void> {
   return request(`/api/face-lists/${id}`, { method: "DELETE" });
+}
+
+/**
+ * Renames a saved face list.
+ *
+ * Why owner-scoped PATCH: Allows changing the display title of an enrolled biometric list
+ * without re-uploading or modifying the underlying facial reference images.
+ */
+export function renameFaceList(id: string, name: string): Promise<{ list: FaceListItem }> {
+  return request<{ list: FaceListItem }>(`/api/face-lists/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
 }

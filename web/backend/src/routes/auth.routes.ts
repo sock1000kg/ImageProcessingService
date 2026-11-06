@@ -7,14 +7,16 @@ import {
   registerHandler,
 } from "../controllers/auth.controller";
 import { requireAuth } from "../middleware/auth.middleware";
-import { rateLimit } from "../middleware/rate-limit.middleware";
+import { RATE_LIMIT_BASES, rateLimit } from "../middleware/rate-limit.middleware";
 
 export const authRouter = Router();
-// Strict: slows password and register-key guessing. Per IP, since there is no user yet.
-const strictAuthLimit = rateLimit(60_000, 10);
+// Strict: slows password and register-key guessing. Per IP, shared by register and login.
+export const authLimit = rateLimit(RATE_LIMIT_BASES.auth);
+// Separate bucket for silent token refreshes so they don't consume the login attempt budget.
+export const refreshLimit = rateLimit(RATE_LIMIT_BASES.refresh);
 
-authRouter.post("/register", strictAuthLimit, registerHandler);
-authRouter.post("/login", strictAuthLimit, loginHandler);
-authRouter.post("/refresh", strictAuthLimit, refreshHandler);
+authRouter.post("/register", authLimit, registerHandler);
+authRouter.post("/login", authLimit, loginHandler);
+authRouter.post("/refresh", refreshLimit, refreshHandler);
 authRouter.post("/logout", logoutHandler);
 authRouter.get("/me", requireAuth, meHandler);

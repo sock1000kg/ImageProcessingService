@@ -14,11 +14,20 @@ describe("Batch Status Derivation", () => {
     expect(deriveBatchStatus(["COMPLETED", "COMPLETED", "COMPLETED"])).toBe("COMPLETED");
   });
 
-  it("derives PARTIAL when all jobs are terminal with at least 1 failed", () => {
-    expect(deriveBatchStatus(["FAILED"])).toBe("PARTIAL");
+  it("derives FAILED when all terminal jobs failed", () => {
+    expect(deriveBatchStatus(["FAILED"])).toBe("FAILED");
+    expect(deriveBatchStatus(["FAILED", "FAILED"])).toBe("FAILED");
+  });
+
+  it("derives PARTIAL when jobs are mixed completed and failed", () => {
     expect(deriveBatchStatus(["COMPLETED", "FAILED"])).toBe("PARTIAL");
-    expect(deriveBatchStatus(["FAILED", "FAILED"])).toBe("PARTIAL");
     expect(deriveBatchStatus(["COMPLETED", "COMPLETED", "FAILED"])).toBe("PARTIAL");
+  });
+
+  it("derives PROCESSING when failed jobs exist but some jobs are still running", () => {
+    expect(deriveBatchStatus(["FAILED", "QUEUED"])).toBe("PROCESSING");
+    expect(deriveBatchStatus(["FAILED", "PROCESSING"])).toBe("PROCESSING");
+    expect(deriveBatchStatus(["FAILED", "PENDING"])).toBe("PROCESSING");
   });
 
   it("derives DRAFT when startedAt is null", () => {

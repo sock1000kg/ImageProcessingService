@@ -5,22 +5,32 @@ import { Router } from "express";
 import multer from "multer";
 import { config } from "../config";
 import { requireAuth } from "../middleware/auth.middleware";
-import { rateLimit, userKey } from "../middleware/rate-limit.middleware";
+import { RATE_LIMIT_BASES, rateLimit, userKey } from "../middleware/rate-limit.middleware";
 import {
+  addFacesToListHandler,
   createFaceListHandler,
+  deleteFaceFromListHandler,
   deleteFaceListHandler,
   getFaceStreamHandler,
   listFaceListsHandler,
+  renameFaceListHandler,
 } from "../controllers/face-lists.controller";
 
-const upload = multer({
+/**
+ * Multer multipart upload parser for face list images.
+ *
+ * Why defParamCharset utf8: Multer defaults to latin1, which garbles non-ASCII filenames (e.g. Vietnamese).
+ * Setting defParamCharset to utf8 ensures original filenames with diacritics decode correctly.
+ */
+export const faceListsUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.UPLOAD_MAX_BYTES },
+  defParamCharset: "utf8",
 });
 
 export const faceListsRouter = Router();
 
-const createListLimit = rateLimit(60_000, config.RATE_LIMIT_BATCHES_PER_MINUTE, userKey);
+export const createListLimit = rateLimit(RATE_LIMIT_BASES.createFaceList, userKey);
 
 /**
  * GET /api/face-lists
@@ -36,7 +46,21 @@ faceListsRouter.get("/", requireAuth, listFaceListsHandler);
  * Response: 201 { list: FaceListItemDTO }
  * Errors: 400 VALIDATION_ERROR, 401 UNAUTHORIZED, 413 FILE_TOO_LARGE, 429 RATE_LIMITED
  */
-faceListsRouter.post("/", requireAuth, createListLimit, upload.array("faces", 10), createFaceListHandler);
+faceListsRouter.post("/", requireAuth, createListLimit, faceListsUpload.array("faces", 10), createFaceListHandler);
+
+/**
+ * POST /api/face-lists/:id/faces
+ * Request: Params id (UUID), multipart/form-data with 1..5 faces files
+ * Response: 200 { list: FaceListItemDTO }
+ * Errors: 400 VALIDATION_ERROR, 401 UNAUTHORIZED, 404 NOT_FOUND, 409 FACE_LIST_FULL, 413 FILE_TOO_LARGE, 429 RATE_LIMITED
+ */
+faceListsRouter.post(
+  "/:id/faces",
+  requireAuth,
+  createListLimit,
+  faceListsUpload.array("faces", 10),
+  addFacesToListHandler,
+);
 
 /**
  * GET /api/face-lists/:id/faces/:n
@@ -45,6 +69,22 @@ faceListsRouter.post("/", requireAuth, createListLimit, upload.array("faces", 10
  * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
  */
 faceListsRouter.get("/:id/faces/:n", requireAuth, getFaceStreamHandler);
+
+/**
+ * DELETE /api/face-lists/:id/faces/:n
+ * Request: Params id (UUID) and n (1-based face index)
+ * Response: 200 { list: FaceListItemDTO | null }
+ * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
+ */
+faceListsRouter.delete("/:id/faces/:n", requireAuth, deleteFaceFromListHandler);
+
+/**
+ * PATCH /api/face-lists/:id
+ * Request: Params id (UUID), JSON body { name: string } (1-100 chars)
+ * Response: 200 { list: FaceListItemDTO }
+ * Errors: 400 VALIDATION_ERROR, 401 UNAUTHORIZED, 404 NOT_FOUND
+ */
+faceListsRouter.patch("/:id", requireAuth, renameFaceListHandler);
 
 /**
  * DELETE /api/face-lists/:id

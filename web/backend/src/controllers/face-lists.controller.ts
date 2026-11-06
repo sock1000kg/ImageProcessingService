@@ -2,15 +2,33 @@
  * HTTP request controllers managing saved face lists, biometric reference storage, and thumbnails.
  */
 import { NextFunction, Request, Response } from "express";
-import { createFaceList, deleteFaceList, getFaceStream, listFaceLists } from "../services/face-list.service";
+import {
+  addFacesToList,
+  createFaceList,
+  deleteFaceFromList,
+  deleteFaceList,
+  getFaceStream,
+  listFaceLists,
+  renameFaceList,
+} from "../services/face-list.service";
 import { notFound } from "../errors";
 import { UUID_REGEX } from "../dto";
+import { streamPrivateObject } from "./private-stream";
 
 function parseListId(idParam: unknown): string {
   if (typeof idParam !== "string" || !UUID_REGEX.test(idParam)) {
     throw notFound("Face list not found");
   }
   return idParam;
+}
+
+function parseFaceIndex(nParam: unknown): number {
+  const rawN = Array.isArray(nParam) ? nParam[0] : nParam;
+  const n = typeof rawN === "string" ? parseInt(rawN, 10) : NaN;
+  if (Number.isNaN(n) || n < 1) {
+    throw notFound("Face reference not found");
+  }
+  return n;
 }
 
 /**
@@ -43,6 +61,25 @@ export async function createFaceListHandler(request: Request, response: Response
 }
 
 /**
+ * POST /api/face-lists/:id/faces
+ * Appends new biometric reference photos to an existing saved face list.
+ *
+ * Why atomic append: Ensures concurrent requests cannot exceed the face list cap
+ * or leave orphaned storage objects behind on failure.
+ */
+export async function addFacesToListHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = parseListId(request.params.id);
+    const userId = request.authUser!.id;
+    const files = (request.files as Express.Multer.File[]) ?? [];
+    const list = await addFacesToList(id, userId, files);
+    response.status(200).json({ list });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
  * GET /api/face-lists/:id/faces/:n
  * Streams an individual face thumbnail with no-store cache directives to protect biometric data.
  *
@@ -52,28 +89,35 @@ export async function createFaceListHandler(request: Request, response: Response
 export async function getFaceStreamHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = parseListId(request.params.id);
-    const rawN = Array.isArray(request.params.n) ? request.params.n[0] : request.params.n;
-    const n = typeof rawN === "string" ? parseInt(rawN, 10) : NaN;
-    if (Number.isNaN(n) || n < 1) {
-      throw notFound("Face reference not found");
-    }
+    const n = parseFaceIndex(request.params.n);
 
     const userId = request.authUser!.id;
     const streamInfo = await getFaceStream(id, n, userId);
 
-    response.setHeader("Cache-Control", "private, no-store");
-    if (streamInfo.contentType) {
-      response.setHeader("Content-Type", streamInfo.contentType);
-    }
-    if (streamInfo.contentLength !== undefined) {
-      response.setHeader("Content-Length", streamInfo.contentLength);
-    }
+    streamPrivateObject(response, next, streamInfo);
+  } catch (error) {
+    next(error);
+  }
+}
 
-    streamInfo.stream.on("error", (error) => {
-      next(error);
-    });
-
-    streamInfo.stream.pipe(response);
+/**
+ * DELETE /api/face-lists/:id/faces/:n
+ * Deletes a single biometric face from a saved face list.
+ *
+ * Why return { list }: Allows the frontend to update its local state and faceCount atomically.
+ * Returns { list: null } if the last face was deleted, mirroring batch deletion when the last job is removed.
+ */
+export async function deleteFaceFromListHandler(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const id = parseListId(request.params.id);
+    const n = parseFaceIndex(request.params.n);
+    const userId = request.authUser!.id;
+    const result = await deleteFaceFromList(id, n, userId);
+    response.status(200).json(result);
   } catch (error) {
     next(error);
   }
@@ -89,6 +133,21 @@ export async function deleteFaceListHandler(request: Request, response: Response
     const userId = request.authUser!.id;
     await deleteFaceList(id, userId);
     response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * PATCH /api/face-lists/:id
+ * Renames a saved face list owned by the authenticated user.
+ */
+export async function renameFaceListHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = parseListId(request.params.id);
+    const userId = request.authUser!.id;
+    const list = await renameFaceList(id, request.body?.name, userId);
+    response.status(200).json({ list });
   } catch (error) {
     next(error);
   }

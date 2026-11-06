@@ -36,8 +36,8 @@ export function notFound(message = "Not found", code = "NOT_FOUND"): AppError {
   return new AppError(404, code, message);
 }
 
-export function conflict(message: string, code = "CONFLICT"): AppError {
-  return new AppError(409, code, message);
+export function conflict(message: string, code = "CONFLICT", details?: unknown): AppError {
+  return new AppError(409, code, message, details);
 }
 
 export function payloadTooLarge(message: string, code = "PAYLOAD_TOO_LARGE"): AppError {

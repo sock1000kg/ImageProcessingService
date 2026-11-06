@@ -23,6 +23,7 @@ model Batch {
   name               String    @db.VarChar(100)
   config             Json
   whitelistKeys      String[]  @default([]) @map("whitelist_keys")
+  whitelistNames     Json      @default("{}") @map("whitelist_names")
   whitelistDeletedAt DateTime? @map("whitelist_deleted_at") @db.Timestamptz
   startedAt          DateTime? @map("started_at") @db.Timestamptz
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
@@ -54,6 +55,7 @@ model FaceList {
   userId    String   @map("user_id") @db.Uuid
   name      String   @db.VarChar(100)
   keys      String[] @default([])
+  faceNames Json     @default("{}") @map("face_names")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -91,6 +93,7 @@ model Job {
   resultUrl        String?   @map("result_url")
   resultSummary    Json?     @map("result_summary")
   error            Json?
+  whitelistRefs    Int[]     @default([]) @map("whitelist_refs")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 

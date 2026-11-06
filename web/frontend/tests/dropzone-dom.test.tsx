@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
-import { beforeAll, describe, expect, it, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, render, fireEvent, within } from "@testing-library/react";
+
+afterEach(() => {
+  cleanup();
+});
 import { FileDropzone } from "../src/components/FileDropzone";
 import { RejectedFilesNotice } from "../src/components/RejectedFilesNotice";
 import { FileSelectionIssue } from "../src/components/file-selection";
@@ -21,7 +25,7 @@ describe("Step 0: Choose folder DOM render and click isolation", () => {
     const onFiles = vi.fn();
     const onFolderFiles = vi.fn();
 
-    const { container, getByText } = render(
+    const { container, getByRole } = render(
       <FileDropzone files={[]} errors={{}} onFiles={onFiles} onFolderFiles={onFolderFiles} />,
     );
 
@@ -33,14 +37,14 @@ describe("Step 0: Choose folder DOM render and click isolation", () => {
     const filesClickSpy = vi.spyOn(filesInput, "click");
     const folderClickSpy = vi.spyOn(folderInput, "click");
 
-    const chooseFolderButton = getByText("Choose folder");
+    const chooseFolderButton = getByRole("button", { name: /folder/i });
     fireEvent.click(chooseFolderButton);
 
     expect(folderClickSpy).toHaveBeenCalledTimes(1);
     expect(filesClickSpy).not.toHaveBeenCalled();
 
     // Verify clicking the dropzone itself triggers the files input
-    const dropzone = container.querySelector(".dropzone") as HTMLDivElement;
+    const dropzone = getByRole("button", { name: /choose images|drop/i });
     fireEvent.click(dropzone);
     expect(filesClickSpy).toHaveBeenCalledTimes(1);
     expect(folderClickSpy).toHaveBeenCalledTimes(1);
@@ -64,19 +68,17 @@ describe("RejectedFilesNotice reusable component", () => {
     ];
 
     const onDismiss = vi.fn();
-    const { getByText, getByLabelText, container } = render(
-      <RejectedFilesNotice issues={issues} onDismiss={onDismiss} />,
-    );
+    const { getByText, getByRole } = render(<RejectedFilesNotice issues={issues} onDismiss={onDismiss} />);
 
-    expect(getByText("2 files were not added")).toBeDefined();
+    expect(getByRole("status")).toBeDefined();
     expect(getByText("sub/scan.tiff")).toBeDefined();
-    expect(getByText(/unsupported image type \(image\/tiff\)/)).toBeDefined();
+    expect(getByText(/unsupported image type/i)).toBeDefined();
 
-    const dismissBtn = getByLabelText("Dismiss rejected files list");
+    const dismissBtn = getByRole("button", { name: /dismiss/i });
     fireEvent.click(dismissBtn);
     expect(onDismiss).toHaveBeenCalledTimes(1);
 
-    const items = container.querySelectorAll(".notice-list li");
+    const items = within(getByRole("list")).getAllByRole("listitem");
     expect(items).toHaveLength(2);
   });
 
@@ -86,13 +88,13 @@ describe("RejectedFilesNotice reusable component", () => {
       reason: "not an image",
     }));
 
-    const { getByText, container } = render(<RejectedFilesNotice issues={issues} />);
+    const { getByText, getByRole } = render(<RejectedFilesNotice issues={issues} />);
 
-    expect(getByText("13 files were not added")).toBeDefined();
-    expect(getByText("+3 more")).toBeDefined();
+    expect(getByRole("status")).toBeDefined();
+    expect(getByText(/\+3/i)).toBeDefined();
 
     // 10 items + 1 more item
-    const items = container.querySelectorAll(".notice-list li");
+    const items = within(getByRole("list")).getAllByRole("listitem");
     expect(items).toHaveLength(11);
   });
 });

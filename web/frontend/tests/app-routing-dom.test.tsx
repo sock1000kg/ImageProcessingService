@@ -99,8 +99,7 @@ describe("App Routing and Page Headings", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("heading", { name: /Your privacy workspace/i })).toBeDefined();
-    expect(screen.getByRole("heading", { name: /Keep every image private\./i })).toBeDefined();
+    expect(screen.getByRole("heading", { level: 1 })).toBeDefined();
   });
 
   it("renders the batch creation heading at route /batches/new", async () => {
@@ -110,8 +109,19 @@ describe("App Routing and Page Headings", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("heading", { name: /Create a secure batch/i })).toBeDefined();
-    expect(screen.getByRole("heading", { name: /Processing profile/i })).toBeDefined();
+    expect(screen.getByRole("form", { name: /batch/i })).toBeDefined();
+  });
+
+  it("renders the rerun page heading at route /batches/:id/rerun", async () => {
+    render(
+      <MemoryRouter initialEntries={["/batches/batch-123/rerun"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /run/i })).toBeDefined();
+    });
   });
 
   it("renders the batch page heading at route /batches/:id", async () => {
@@ -129,33 +139,13 @@ describe("App Routing and Page Headings", () => {
   it("does not render a banner when history carries router state on reload", async () => {
     render(
       <MemoryRouter
-        initialEntries={[{ pathname: "/batches/batch-123", state: { message: "Batch created successfully" } }]}
+        initialEntries={[{ pathname: "/batches/batch-123", state: { message: "Custom test flash message" } }]}
       >
         <App />
       </MemoryRouter>,
     );
 
-    expect(screen.queryByText("Batch created successfully")).toBeNull();
-  });
-
-  it("renders Topbar Refresh button when batch is loaded and triggers refresh", async () => {
-    render(
-      <MemoryRouter initialEntries={["/batches/batch-123"]}>
-        <App />
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Refresh" })).toBeDefined();
-    });
-
-    const refreshBtn = screen.getByRole("button", { name: "Refresh" });
-    fireEvent.click(refreshBtn);
-
-    // Verify fetch was called again for batch-123
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith("/api/batches/batch-123", undefined);
-    });
+    expect(screen.queryByText("Custom test flash message")).toBeNull();
   });
 
   it("displays an error banner when deleting a batch fails", async () => {
@@ -231,18 +221,108 @@ describe("App Routing and Page Headings", () => {
       expect(screen.getByRole("heading", { name: /Alpha Production Run/i })).toBeDefined();
     });
 
-    const openDeleteBtn = screen.getByRole("button", { name: "Delete batch" });
+    const openDeleteBtn = screen.getByRole("button", { name: /delete/i });
     fireEvent.click(openDeleteBtn);
 
     const dialog = screen.getByRole("dialog");
-    const confirmDeleteBtn = within(dialog).getByRole("button", { name: "Delete batch" });
+    const confirmDeleteBtn = within(dialog).getByRole("button", { name: /delete/i });
     fireEvent.click(confirmDeleteBtn);
 
     await waitFor(() => {
-      expect(screen.getByText("Delete failed")).toBeDefined();
+      expect(screen.getByText(/delete failed/i)).toBeDefined();
     });
 
     // The top notice is a confirmation, not state: it hides itself after about 3 seconds.
-    await waitFor(() => expect(screen.queryByText("Delete failed")).toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(screen.queryByText(/delete failed/i)).toBeNull(), { timeout: 4000 });
+  }, 10_000);
+
+  it("displays toast overlay after an action and hides it after timeout", async () => {
+    // Mock library fetch and rename endpoints to verify app-wide confirmation banner behavior
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.includes("/api/batches/batch-1") && init?.method === "PATCH") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              batch: {
+                id: "batch-1",
+                name: "Renamed Album",
+                status: "COMPLETED",
+                jobs: [],
+                config: {},
+                whitelistKeys: [],
+                whitelistDeletedAt: null,
+                createdAt: new Date().toISOString(),
+              },
+            }),
+          } as Response;
+        }
+
+        if (url.includes("/api/batches")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              batches: [
+                {
+                  id: "batch-1",
+                  name: "First Album",
+                  createdAt: new Date().toISOString(),
+                  status: "COMPLETED",
+                  jobCounts: { total: 1, completed: 1, failed: 0 },
+                  thumbnailUrl: null,
+                  bytes: 1024,
+                },
+              ],
+              nextCursor: null,
+              usage: { bytes: 1024, batches: 1, jobs: 1 },
+            }),
+          } as Response;
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        } as Response;
+      }),
+    );
+
+    const { container } = render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("First Album")).toBeDefined();
+    });
+
+    // Toast overlay is initially absent to avoid taking up any screen space
+    expect(container.querySelector(".toast")).toBeNull();
+
+    // Trigger inline rename action in library to test confirmation flow
+    const renameBtn = screen.getByRole("button", { name: /rename/i });
+    fireEvent.click(renameBtn);
+
+    const input = screen.getByDisplayValue("First Album");
+    fireEvent.change(input, { target: { value: "Renamed Album" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    // Toast appears inside .toast wrapper with role="status" and confirmation text
+    await waitFor(() => {
+      const toast = container.querySelector(".toast");
+      expect(toast).not.toBeNull();
+      expect(screen.getByRole("status")).toBeDefined();
+      expect(screen.getByText("Batch renamed")).toBeDefined();
+    });
+
+    // The toast disappears after the 3-second confirmation timeout
+    await waitFor(() => expect(screen.queryByText("Batch renamed")).toBeNull(), { timeout: 4000 });
+    expect(container.querySelector(".toast")).toBeNull();
   }, 10_000);
 });

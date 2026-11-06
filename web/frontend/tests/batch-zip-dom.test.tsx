@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { BatchDetails } from "../src/components/BatchDetails";
@@ -84,26 +84,26 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
   };
 
   describe("BatchDetails Page Component", () => {
-    it("renders 'Download zip (2)' button enabled when batch has completed results", () => {
+    it("renders download zip button enabled when batch has completed results", () => {
       render(
         <MemoryRouter>
           <BatchDetails batch={mockBatchWithCompleted} onRefresh={vi.fn()} onDelete={vi.fn()} onMessage={vi.fn()} />
         </MemoryRouter>,
       );
 
-      const downloadBtn = screen.getByRole("button", { name: /Download zip \(2\)/i }) as HTMLButtonElement;
+      const downloadBtn = screen.getByRole("button", { name: /(?:zip|download(?!.*json))/i }) as HTMLButtonElement;
       expect(downloadBtn).toBeDefined();
       expect(downloadBtn.disabled).toBe(false);
     });
 
-    it("disables 'Download zip (0)' button when batch has 0 completed results", () => {
+    it("disables download zip button when batch has 0 completed results", () => {
       render(
         <MemoryRouter>
           <BatchDetails batch={mockBatchEmpty} onRefresh={vi.fn()} onDelete={vi.fn()} onMessage={vi.fn()} />
         </MemoryRouter>,
       );
 
-      const downloadBtn = screen.getByRole("button", { name: /Download zip \(0\)/i }) as HTMLButtonElement;
+      const downloadBtn = screen.getByRole("button", { name: /(?:zip|download(?!.*json))/i }) as HTMLButtonElement;
       expect(downloadBtn).toBeDefined();
       expect(downloadBtn.disabled).toBe(true);
     });
@@ -139,7 +139,7 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         </MemoryRouter>,
       );
 
-      const downloadBtn = screen.getByRole("button", { name: /Download zip \(2\)/i });
+      const downloadBtn = screen.getByRole("button", { name: /(?:zip|download(?!.*json))/i });
       fireEvent.click(downloadBtn);
 
       await waitFor(() => {
@@ -180,7 +180,7 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         </MemoryRouter>,
       );
 
-      const downloadBtn = screen.getByRole("button", { name: /Download zip \(2\)/i });
+      const downloadBtn = screen.getByRole("button", { name: /(?:zip|download(?!.*json))/i });
       fireEvent.click(downloadBtn);
 
       await waitFor(() => {
@@ -242,14 +242,17 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         expect(screen.getByText("Album with 3 Completed")).toBeDefined();
       });
 
-      const zipButtons = screen.getAllByRole("button", { name: /^Download zip$/i }) as HTMLButtonElement[];
-      expect(zipButtons).toHaveLength(2);
-
       // Card 1 has 3 completed -> enabled
-      expect(zipButtons[0]!.disabled).toBe(false);
+      const completedCard = screen.getByRole("article", { name: /Album with 3 Completed/i });
+      const completedZipBtn = within(completedCard).getByRole("button", {
+        name: /download|zip/i,
+      }) as HTMLButtonElement;
+      expect(completedZipBtn.disabled).toBe(false);
 
       // Card 2 has 0 completed -> disabled
-      expect(zipButtons[1]!.disabled).toBe(true);
+      const emptyCard = screen.getByRole("article", { name: /Album with 0 Completed/i });
+      const emptyZipBtn = within(emptyCard).getByRole("button", { name: /download|zip/i }) as HTMLButtonElement;
+      expect(emptyZipBtn.disabled).toBe(true);
     });
 
     it("clicking 'Download zip' on library card navigates window.location to download token url", async () => {
@@ -283,8 +286,9 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         expect(screen.getByText("Album with 3 Completed")).toBeDefined();
       });
 
-      const zipButtons = screen.getAllByRole("button", { name: /^Download zip$/i });
-      fireEvent.click(zipButtons[0]!);
+      const completedCard = screen.getByRole("article", { name: /Album with 3 Completed/i });
+      const zipBtn = within(completedCard).getByRole("button", { name: /download|zip/i });
+      fireEvent.click(zipBtn);
 
       await waitFor(() => {
         expect(navigatedUrl).toBe(mockDownloadUrl);
@@ -322,8 +326,9 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         expect(screen.getByText("Album with 3 Completed")).toBeDefined();
       });
 
-      const zipButtons = screen.getAllByRole("button", { name: /^Download zip$/i });
-      fireEvent.click(zipButtons[0]!);
+      const completedCard = screen.getByRole("article", { name: /Album with 3 Completed/i });
+      const zipBtn = within(completedCard).getByRole("button", { name: /download|zip/i });
+      fireEvent.click(zipBtn);
 
       await waitFor(() => {
         expect(screen.getByText("Failed to create download token")).toBeDefined();

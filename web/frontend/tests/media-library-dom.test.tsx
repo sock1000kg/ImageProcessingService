@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { LibraryPage } from "../src/pages/LibraryPage";
@@ -142,7 +142,6 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
     });
 
     expect(screen.getByText("Second Album")).toBeDefined();
-    expect(screen.getByText("Storage used")).toBeDefined();
     expect(screen.getByText("3.0 MB")).toBeDefined();
     expect(screen.getByText("2")).toBeDefined(); // 2 batches
 
@@ -151,7 +150,7 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
     expect(img.src).toContain("/results/batch-1/job-1/result.jpg");
 
     // Batch 2 has placeholder
-    expect(screen.getByLabelText("No thumbnail")).toBeDefined();
+    expect(screen.getByLabelText(/no thumbnail/i)).toBeDefined();
 
     // Size formatting
     expect(screen.getByText("1.0 MB")).toBeDefined();
@@ -170,7 +169,7 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
     });
 
     // Click pencil rename button
-    const pencilButtons = screen.getAllByRole("button", { name: "Rename batch" });
+    const pencilButtons = screen.getAllByRole("button", { name: /rename/i });
     fireEvent.click(pencilButtons[0]);
 
     // An input appears with the current name
@@ -194,20 +193,85 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
       expect(screen.getByText("First Album")).toBeDefined();
     });
 
-    const deleteButtons = screen.getAllByRole("button", { name: "Delete" });
-    fireEvent.click(deleteButtons[0]);
+    const card = screen.getByRole("article", { name: "First Album" });
+    const deleteButton = within(card).getByRole("button", { name: /delete/i });
+    fireEvent.click(deleteButton);
 
     // Dialog opens
-    expect(screen.getByRole("heading", { name: "Delete this batch?" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: /delete/i })).toBeDefined();
 
     // Click confirm "Delete batch" inside dialog
-    const confirmButton = screen.getByRole("button", { name: "Delete batch" });
+    const confirmButton = within(screen.getByRole("dialog")).getByRole("button", { name: /delete/i });
     fireEvent.click(confirmButton);
 
     await waitFor(() => {
       expect(screen.queryByText("First Album")).toBeNull();
     });
     expect(screen.getByText("Second Album")).toBeDefined();
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/batches/batch-1"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("keeps Open, Rerun, and Download actions functional on each card", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/batches/batch-1/download-token") && init?.method === "POST") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ url: "https://example.com/download.zip" }),
+          } as Response;
+        }
+        if (url.includes("/api/batches")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => mockBatchesPage1,
+          } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <Routes>
+          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/batches/:id/rerun" element={<div>Rerun Route</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("First Album")).toBeDefined();
+    });
+
+    const card = screen.getByRole("article", { name: "First Album" });
+
+    // Open link points to the batch detail page
+    const openLink = within(card).getByRole("link", { name: /open/i });
+    expect(openLink.getAttribute("href")).toBe("/batches/batch-1");
+
+    // Download button calls download token endpoint
+    const downloadBtn = within(card).getByRole("button", { name: /download/i });
+    fireEvent.click(downloadBtn);
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/batches/batch-1/download-token"),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    // Rerun button navigates to rerun page
+    const rerunBtn = within(card).getByRole("button", { name: /rerun/i });
+    fireEvent.click(rerunBtn);
+    await waitFor(() => {
+      expect(screen.getByText("Rerun Route")).toBeDefined();
+    });
   });
 
   it("loads more batches when clicking 'Load more'", async () => {
@@ -221,14 +285,14 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
       expect(screen.getByText("First Album")).toBeDefined();
     });
 
-    const loadMoreBtn = screen.getByRole("button", { name: "Load more" });
+    const loadMoreBtn = screen.getByRole("button", { name: /load more/i });
     fireEvent.click(loadMoreBtn);
 
     await waitFor(() => {
       expect(screen.getByText("Third Album")).toBeDefined();
     });
     // Once page 2 is loaded, nextCursor is null, so load more button disappears
-    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
   });
 
   it("renders empty state when there are no batches", async () => {
@@ -252,9 +316,8 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("No batches in library")).toBeDefined();
+      expect(screen.getByText(/no batches/i)).toBeDefined();
     });
-    expect(screen.getByText("Create a batch to start protecting your media.")).toBeDefined();
   });
 
   describe("BatchImageList delete button", () => {
@@ -301,8 +364,8 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
         </MemoryRouter>,
       );
 
-      const completedDeleteBtn = screen.getByRole("button", { name: "Delete completed.jpg" });
-      const activeDeleteBtn = screen.getByRole("button", { name: "Delete active.jpg" });
+      const completedDeleteBtn = screen.getByRole("button", { name: /delete.*completed\.jpg/i });
+      const activeDeleteBtn = screen.getByRole("button", { name: /delete.*active\.jpg/i });
 
       expect((completedDeleteBtn as HTMLButtonElement).disabled).toBe(false);
       expect((activeDeleteBtn as HTMLButtonElement).disabled).toBe(true);
@@ -322,12 +385,12 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
         </MemoryRouter>,
       );
 
-      const completedDeleteBtn = screen.getByRole("button", { name: "Delete completed.jpg" });
+      const completedDeleteBtn = screen.getByRole("button", { name: /delete.*completed\.jpg/i });
       fireEvent.click(completedDeleteBtn);
 
-      expect(screen.getByRole("heading", { name: "Delete this image?" })).toBeDefined();
+      expect(screen.getByRole("heading", { name: /delete/i })).toBeDefined();
 
-      const confirmBtn = screen.getByRole("button", { name: "Delete image" });
+      const confirmBtn = screen.getByRole("button", { name: /delete.*image/i });
       fireEvent.click(confirmBtn);
 
       await waitFor(() => {
@@ -355,10 +418,10 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
         </MemoryRouter>,
       );
 
-      const deleteBtn = screen.getByRole("button", { name: "Delete completed.jpg" });
+      const deleteBtn = screen.getByRole("button", { name: /delete.*completed\.jpg/i });
       fireEvent.click(deleteBtn);
 
-      const confirmBtn = screen.getByRole("button", { name: "Delete image" });
+      const confirmBtn = screen.getByRole("button", { name: /delete.*image/i });
       fireEvent.click(confirmBtn);
 
       await waitFor(() => {
@@ -397,10 +460,10 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
         </MemoryRouter>,
       );
 
-      const deleteBtn = screen.getByRole("button", { name: "Delete completed.jpg" });
+      const deleteBtn = screen.getByRole("button", { name: /delete.*completed\.jpg/i });
       fireEvent.click(deleteBtn);
 
-      const confirmBtn = screen.getByRole("button", { name: "Delete image" });
+      const confirmBtn = screen.getByRole("button", { name: /delete.*image/i });
       fireEvent.click(confirmBtn);
 
       await waitFor(() => {

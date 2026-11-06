@@ -23,7 +23,9 @@ import {
 } from "../src/components/file-selection";
 
 function makeFile(name: string, relativePath: string, type = "", size = 1000): File {
-  const file = new File([new Uint8Array(size)], name, { type });
+  const content = size > 4096 ? [] : [new Uint8Array(size)];
+  const file = new File(content, name, { type });
+  Object.defineProperty(file, "size", { value: size, configurable: true });
   Object.defineProperty(file, "webkitRelativePath", {
     value: relativePath,
     configurable: true,

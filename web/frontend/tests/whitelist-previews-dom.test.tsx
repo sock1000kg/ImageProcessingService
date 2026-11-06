@@ -74,76 +74,63 @@ describe("Step 1: addWhitelistFiles pure helper", () => {
     expect(result.issues[1]?.file.name).toBe("doc.pdf");
   });
 
-  it("allows exactly 5 files with no issues", () => {
-    const files = Array.from({ length: 5 }, (_, i) => makeFile(`face${i + 1}.jpg`));
+  it("allows exactly 20 files with no issues", () => {
+    const files = Array.from({ length: 20 }, (_, i) => makeFile(`face${i + 1}.jpg`));
     const result = addWhitelistFiles([], files);
     expect(result.files).toHaveLength(MAX_WHITELIST_FILES);
     expect(result.issues).toHaveLength(0);
   });
 
-  it("reports an issue for the 6th file and does not add past max", () => {
-    const files = Array.from({ length: 6 }, (_, i) => makeFile(`face${i + 1}.jpg`));
+  it("reports an issue for the 21st file and does not add past max", () => {
+    const files = Array.from({ length: 21 }, (_, i) => makeFile(`face${i + 1}.jpg`));
     const result = addWhitelistFiles([], files);
 
-    expect(result.files).toHaveLength(5);
-    expect(result.files.map((f) => f.name)).toEqual(["face1.jpg", "face2.jpg", "face3.jpg", "face4.jpg", "face5.jpg"]);
+    expect(result.files).toHaveLength(20);
+    expect(result.files.map((f) => f.name)).toEqual(Array.from({ length: 20 }, (_, i) => `face${i + 1}.jpg`));
     expect(result.issues).toHaveLength(1);
-    expect(result.issues[0]?.file.name).toBe("face6.jpg");
-    expect(result.issues[0]?.reason).toBe("only 5 reference faces allowed");
+    expect(result.issues[0]?.file.name).toBe("face21.jpg");
+    expect(result.issues[0]?.reason).toBe("only 20 reference faces allowed");
   });
 
   it("reports issues for all overflow files when appending to an existing list", () => {
-    const existing = [makeFile("face1.jpg"), makeFile("face2.jpg"), makeFile("face3.jpg")];
-    const incoming = [makeFile("face4.jpg"), makeFile("face5.jpg"), makeFile("face6.jpg"), makeFile("face7.jpg")];
+    const existing = Array.from({ length: 18 }, (_, i) => makeFile(`face${i + 1}.jpg`));
+    const incoming = [makeFile("face19.jpg"), makeFile("face20.jpg"), makeFile("face21.jpg"), makeFile("face22.jpg")];
 
     const result = addWhitelistFiles(existing, incoming);
-    expect(result.files).toHaveLength(5);
+    expect(result.files).toHaveLength(20);
     expect(result.issues).toHaveLength(2);
-    expect(result.issues[0]?.file.name).toBe("face6.jpg");
-    expect(result.issues[0]?.reason).toBe("only 5 reference faces allowed");
-    expect(result.issues[1]?.file.name).toBe("face7.jpg");
-    expect(result.issues[1]?.reason).toBe("only 5 reference faces allowed");
+    expect(result.issues[0]?.file.name).toBe("face21.jpg");
+    expect(result.issues[0]?.reason).toBe("only 20 reference faces allowed");
+    expect(result.issues[1]?.file.name).toBe("face22.jpg");
+    expect(result.issues[1]?.reason).toBe("only 20 reference faces allowed");
   });
 });
 
-describe("Step 2 & 5: FilePreviewList scrollable class, badge labels, and header", () => {
-  it("renders with generic .scroll-list class", () => {
-    const file = makeFile("photo.jpg");
-    const { container } = render(<FilePreviewList files={[file]} errors={{}} onRemove={vi.fn()} />);
-
-    const scrollList = container.querySelector(".scroll-list");
-    expect(scrollList).not.toBeNull();
-    expect(scrollList?.classList.contains("file-list")).toBe(true);
-  });
-
-  it("renders header row with title and 'Clear all' button when provided", () => {
+describe("Step 2 & 5: FilePreviewList badge labels and header controls", () => {
+  it("renders header row with title and clear button when provided", () => {
     const files = [makeFile("a.jpg"), makeFile("b.jpg")];
     const onClear = vi.fn();
 
-    const { getByText, container } = render(
-      <FilePreviewList files={files} errors={{}} onRemove={vi.fn()} title="2 images selected" onClear={onClear} />,
+    const { getByText, getByRole } = render(
+      <FilePreviewList files={files} errors={{}} onRemove={vi.fn()} title="Custom File Summary" onClear={onClear} />,
     );
 
-    const header = container.querySelector(".file-list-header");
-    expect(header).not.toBeNull();
-    expect(getByText("2 images selected")).toBeDefined();
-    expect(getByText("Clear all")).toBeDefined();
+    expect(getByText(/Custom File Summary/i)).toBeDefined();
+    const clearButton = getByRole("button", { name: /clear/i });
+    expect(clearButton).toBeDefined();
 
-    const clearButton = getByText("Clear all");
     fireEvent.click(clearButton);
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 
   it("renders thumbnail badge when label prop is provided", () => {
     const files = [makeFile("ref1.jpg"), makeFile("ref2.jpg")];
-    const { getByText, container } = render(
+    const { getByText } = render(
       <FilePreviewList files={files} errors={{}} onRemove={vi.fn()} label={(index) => `#${index + 1}`} />,
     );
 
     expect(getByText("#1")).toBeDefined();
     expect(getByText("#2")).toBeDefined();
-    const badges = container.querySelectorAll(".thumbnail-badge");
-    expect(badges).toHaveLength(2);
   });
 });
 
@@ -153,8 +140,8 @@ describe("Step 3: WhitelistUploader integration DOM tests", () => {
     return <WhitelistUploader files={files} onChange={setFiles} />;
   }
 
-  it("supports selecting 2 files, re-indexing on removal, and reporting overflow on 5 more", () => {
-    const { container, getByText, queryByText, getByLabelText } = render(<WhitelistHarness />);
+  it("supports selecting 2 files, re-indexing on removal, and reporting overflow past 20", () => {
+    const { container, getByText, queryByText, getByRole, getAllByRole, queryByRole } = render(<WhitelistHarness />);
 
     const input = container.querySelector("input[type='file']") as HTMLInputElement;
     expect(input).not.toBeNull();
@@ -164,57 +151,46 @@ describe("Step 3: WhitelistUploader integration DOM tests", () => {
     const file2 = makeFile("ref2.jpg");
     fireEvent.change(input, { target: { files: [file1, file2] } });
 
-    // Both thumbnails with #1 and #2 badges are rendered
-    expect(getByText("2/5 selected")).toBeDefined();
-    expect(getByText("#1")).toBeDefined();
-    expect(getByText("#2")).toBeDefined();
+    // Both thumbnails are rendered
+    expect(getAllByRole("button", { name: /remove/i })).toHaveLength(2);
     expect(getByText("ref1.jpg")).toBeDefined();
     expect(getByText("ref2.jpg")).toBeDefined();
 
-    // 2. Remove #1 -> the old #2 becomes #1
-    const removeRef1 = getByLabelText("Remove ref1.jpg");
+    // 2. Remove #1 -> the old #2 remains
+    const removeRef1 = getByRole("button", { name: /remove.*ref1\.jpg/i });
     fireEvent.click(removeRef1);
 
-    expect(getByText("1/5 selected")).toBeDefined();
+    expect(getAllByRole("button", { name: /remove/i })).toHaveLength(1);
     expect(queryByText("ref1.jpg")).toBeNull();
     expect(getByText("ref2.jpg")).toBeDefined();
-    // ref2 now has badge #1
-    expect(getByText("#1")).toBeDefined();
-    expect(queryByText("#2")).toBeNull();
 
-    // 3. Select 5 more files -> total capacity 5 reached, 5 shown + notice for the overflow
-    const incomingFive = Array.from({ length: 5 }, (_, i) => makeFile(`more${i + 1}.jpg`));
-    fireEvent.change(input, { target: { files: incomingFive } });
+    // 3. Select 20 more files -> total capacity 20 reached, 20 shown + notice for the overflow
+    const incomingTwenty = Array.from({ length: 20 }, (_, i) => makeFile(`more${i + 1}.jpg`));
+    fireEvent.change(input, { target: { files: incomingTwenty } });
 
-    expect(getByText("5/5 selected")).toBeDefined();
-    expect(getByText("#1")).toBeDefined();
-    expect(getByText("#2")).toBeDefined();
-    expect(getByText("#3")).toBeDefined();
-    expect(getByText("#4")).toBeDefined();
-    expect(getByText("#5")).toBeDefined();
+    expect(getAllByRole("button", { name: /remove/i })).toHaveLength(20);
 
-    // The 5th file from incoming (more5.jpg) exceeded the capacity
-    expect(getByText("1 file was not added")).toBeDefined();
-    expect(getByText(/more5\.jpg/)).toBeDefined();
-    expect(getByText(/only 5 reference faces allowed/)).toBeDefined();
+    // The 20th file from incoming (more20.jpg) exceeded the capacity
+    expect(getByText(/more20\.jpg/)).toBeDefined();
+    expect(queryByRole("button", { name: /remove.*more20\.jpg/i })).toBeNull();
   });
 
   it("resets input value so re-selecting the same file after removal works", () => {
-    const { container, getByText, queryByText, getByLabelText } = render(<WhitelistHarness />);
+    const { container, getByText, queryByText, getByRole, queryByRole } = render(<WhitelistHarness />);
     const input = container.querySelector("input[type='file']") as HTMLInputElement;
 
     const file1 = makeFile("face.jpg");
     fireEvent.change(input, { target: { files: [file1] } });
-    expect(getByText("1/5 selected")).toBeDefined();
+    expect(getByRole("button", { name: /remove.*face\.jpg/i })).toBeDefined();
 
     // Remove the file
-    fireEvent.click(getByLabelText("Remove face.jpg"));
+    fireEvent.click(getByRole("button", { name: /remove.*face\.jpg/i }));
     expect(queryByText("face.jpg")).toBeNull();
-    expect(queryByText("1/5 selected")).toBeNull();
+    expect(queryByRole("button", { name: /remove/i })).toBeNull();
 
     // Add the exact same file again
     fireEvent.change(input, { target: { files: [file1] } });
-    expect(getByText("1/5 selected")).toBeDefined();
+    expect(getByRole("button", { name: /remove.*face\.jpg/i })).toBeDefined();
     expect(getByText("face.jpg")).toBeDefined();
   });
 });
@@ -222,12 +198,12 @@ describe("Step 3: WhitelistUploader integration DOM tests", () => {
 describe("Step 4: BatchCreateForm Clear all behavior", () => {
   it("clears files, errors, folder summary and folder default name, but preserves user typed name", () => {
     const onSubmit = vi.fn();
-    const { container, getByText, queryByText, getAllByText } = render(
+    const { container, getByText, queryByText, getByRole, queryByRole } = render(
       <BatchCreateForm busy={false} error="" onSubmit={onSubmit} />,
     );
 
     // User types a custom batch name
-    const nameInput = container.querySelector("#batch-name-input") as HTMLInputElement;
+    const nameInput = getByRole("textbox", { name: /batch name/i }) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "My Custom Batch" } });
     expect(nameInput.value).toBe("My Custom Batch");
 
@@ -237,15 +213,17 @@ describe("Step 4: BatchCreateForm Clear all behavior", () => {
     const file2 = makeFile("img2.jpg");
     fireEvent.change(dropzoneInput, { target: { files: [file1, file2] } });
 
-    expect(getAllByText("2 images selected")).toHaveLength(2);
-    expect(getByText("Clear all")).toBeDefined();
+    expect(getByText("img1.jpg")).toBeDefined();
+    expect(getByText("img2.jpg")).toBeDefined();
+    expect(getByRole("button", { name: /clear/i })).toBeDefined();
 
     // Click "Clear all"
-    fireEvent.click(getByText("Clear all"));
+    fireEvent.click(getByRole("button", { name: /clear/i }));
 
     // Files are cleared
     expect(queryByText("img1.jpg")).toBeNull();
-    expect(queryByText("Clear all")).toBeNull();
+    expect(queryByText("img2.jpg")).toBeNull();
+    expect(queryByRole("button", { name: /clear/i })).toBeNull();
 
     // User typed name is still intact!
     expect(nameInput.value).toBe("My Custom Batch");

@@ -1,0 +1,8 @@
+{
+  "mode": "local",
+  "weights": "yolov8n-oiv7.pt",
+  "imgsz": 1280,
+  "dataset": "max",
+  "confidence_threshold": 0.05,
+  "padding": 0.1
+}

@@ -63,7 +63,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
       Infra]** để chia lại (ví dụ train trên `Test`, benchmark chỉ dùng `Valid`).
     - Ghi rõ dataset, split và số ảnh đã dùng để train vào `engine/docs/`, để báo cáo nêu được là kết quả đo trên dữ liệu model chưa từng thấy.
 - [ ] Fine-tune YOLOv8n. Báo cáo mAP@50 tổng và **theo từng lớp**, precision/recall (đặc biệt recall: bỏ sót là lộ thông tin). Mục tiêu mAP@50 ≥ 85%.
-- [ ] So sánh với `yolov8n-oiv7` trên cùng tập test (nhất là biển số VN 2 dòng, góc nghiêng, ngược sáng): chạy benchmark của Infra (`infra/bench`, `run.sh --save-detections` + `accuracy/evaluate.py`) với `YOLO_MODEL_NAME` trỏ tới trọng số mới, để so cùng quy tắc với model gốc và deface.
+- [ ] So sánh với `yolov8n-oiv7` trên cùng tập test (nhất là biển số VN 2 dòng, góc nghiêng, ngược sáng): chạy benchmark (`infra/bench/run.sh --save-detections` + `engine/training/accuracy/evaluate.py`, hoặc `engine/training/bench.py` không cần cluster) với `YOLO_MODEL_NAME` trỏ tới trọng số mới, để so cùng quy tắc với model gốc và deface.
 - [ ] Đạt ngưỡng → đổi model qua env `YOLO_MODEL_NAME` + bảng map lớp. Field `model` trong `resultSummary` ghi tên model mới.
 
 ---

@@ -1,0 +1,8 @@
+{
+  "mode": "local",
+  "weights": "runs/yolo11-1280/e5-crowd/weights/best.pt",
+  "imgsz": 1280,
+  "dataset": "max",
+  "confidence_threshold": 0.05,
+  "padding": 0.1
+}

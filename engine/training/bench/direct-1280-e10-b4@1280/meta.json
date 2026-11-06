@@ -1,0 +1,8 @@
+{
+  "mode": "local",
+  "weights": "runs/direct-1280/e10-b4/weights/best.pt",
+  "imgsz": 1280,
+  "dataset": "max",
+  "confidence_threshold": 0.05,
+  "padding": 0.1
+}

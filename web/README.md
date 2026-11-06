@@ -312,7 +312,7 @@ Batch creation and image processing use a three-step flow:
    - **Request**: JSON body with `{ name }` (required):
      - `name`: 1–100 characters after trimming, no control characters. An empty or whitespace-only string resets the name to server default `Batch <YYYY-MM-DD HH:mm>` (UTC).
      - Strict schema: unknown properties in the JSON body return `400 VALIDATION_ERROR`.
-   - **Behavior**: Renames the batch in PostgreSQL and returns the updated batch representation. Works across all batch states (`DRAFT`, `PROCESSING`, `COMPLETED`, `PARTIAL`).
+   - **Behavior**: Renames the batch in PostgreSQL and returns the updated batch representation. Works across all batch states (`DRAFT`, `PROCESSING`, `COMPLETED`, `PARTIAL`, `FAILED`).
    - **Response**: `200 OK` with `{ batch }` containing the updated `name`.
    - **Errors**:
      - `400 VALIDATION_ERROR`: missing `name`, name exceeding 100 characters, control characters present, or unknown keys in request body.

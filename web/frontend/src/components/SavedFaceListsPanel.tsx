@@ -230,7 +230,7 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
                   />
                   <div className="library-card-meta saved-face-list-card-meta">
                     <span>
-                      {list.faceCount} {list.faceCount === 1 ? "face" : "faces"}
+                      {list.faceCount} {list.faceCount === 1 ? "file" : "files"}
                     </span>
                     <span>{new Date(list.createdAt).toLocaleDateString()}</span>
                   </div>
@@ -257,7 +257,11 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
                   type="button"
                   className="secondary-button"
                   disabled={list.faceCount >= MAX_FACE_LIST_FILES || Boolean(uploadingListId)}
-                  title={list.faceCount >= MAX_FACE_LIST_FILES ? "Allow list is full (maximum 5 faces)" : undefined}
+                  title={
+                    list.faceCount >= MAX_FACE_LIST_FILES
+                      ? `Allow list is full (maximum ${MAX_FACE_LIST_FILES} files)`
+                      : undefined
+                  }
                   onClick={() => handleTriggerAddFaces(list.id)}
                 >
                   {uploadingListId === list.id ? "Adding…" : "Add faces"}

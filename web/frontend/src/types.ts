@@ -131,7 +131,7 @@ export type BatchReport = {
 /**
  * Lifecycle status of a processing batch.
  */
-export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL";
+export type BatchStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "PARTIAL" | "FAILED";
 
 export type BatchSummaryItem = {
   id: string;

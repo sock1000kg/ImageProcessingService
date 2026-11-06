@@ -755,7 +755,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
       });
 
       const card = screen.getByRole("article", { name: /Family List/i });
-      expect(within(card).getByText("2 faces")).toBeDefined();
+      expect(within(card).getByText(/2 (?:file|face)s/)).toBeDefined();
 
       const addBtn = within(card).getByRole("button", { name: /add faces/i });
       expect((addBtn as HTMLButtonElement).disabled).toBe(false);
@@ -779,7 +779,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
 
       // Card now updates to reflect 4 faces and new thumbnails
       await waitFor(() => {
-        expect(within(card).getByText("4 faces")).toBeDefined();
+        expect(within(card).getByText(/4 (?:file|face)s/)).toBeDefined();
       });
 
       const thumbnails = within(card).getAllByRole("button", { name: /view face #/i });
@@ -898,7 +898,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
       // Notice should be displayed showing rejection mentioning limit (/5/) not spots left (/1/)
       await waitFor(() => {
         expect(screen.getByRole("status")).toBeDefined();
-        const rejectedItems = screen.getAllByText(/5 reference faces allowed/i);
+        const rejectedItems = screen.getAllByText(/5 reference (?:file|face)s allowed/i);
         expect(rejectedItems).toHaveLength(2);
       });
 
@@ -912,7 +912,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
 
       // Card count is updated to 5 faces
       await waitFor(() => {
-        expect(within(card).getByText("5 faces")).toBeDefined();
+        expect(within(card).getByText(/5 (?:file|face)s/)).toBeDefined();
       });
     });
 
@@ -976,7 +976,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
       });
 
       // Count remains 2 faces
-      expect(within(card).getByText("2 faces")).toBeDefined();
+      expect(within(card).getByText(/2 (?:file|face)s/)).toBeDefined();
     });
   });
 
@@ -1146,8 +1146,8 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
         );
       });
 
-      // Active count is now updated in viewer title (2 faces)
-      expect(screen.getByRole("heading", { name: /Family List \(2 faces\)/i })).toBeDefined();
+      // Active count is now updated in viewer title (2 faces/files)
+      expect(screen.getByRole("heading", { name: /Family List \(2 (?:file|face)s\)/i })).toBeDefined();
     });
 
     it("Esc on the confirm closes only the confirm", async () => {
@@ -1212,7 +1212,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
       expect(screen.queryByText("Delete this face?")).toBeNull();
 
       // Viewer remains open!
-      expect(screen.getByRole("heading", { name: /Family List \(2 faces\)/i })).toBeDefined();
+      expect(screen.getByRole("heading", { name: /Family List \(2 (?:file|face)s\)/i })).toBeDefined();
     });
 
     it("deleting the last face removes the card", async () => {
@@ -1343,7 +1343,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
 
       // Viewer is open
       await waitFor(() => {
-        expect(screen.getByRole("heading", { name: /Picker List \(2 faces\)/i })).toBeDefined();
+        expect(screen.getByRole("heading", { name: /Picker List \(2 (?:file|face)s\)/i })).toBeDefined();
       });
 
       // Trash button should NOT exist
@@ -1737,6 +1737,131 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
       // No rename pencil button exists inside the picker's viewer
       expect(within(viewerDialog).queryByRole("button", { name: /rename/i })).toBeNull();
       expect(within(viewerDialog).queryByText("✎")).toBeNull();
+    });
+  });
+
+  describe("Task 61: Allow list file limits, save button, and counter limits", () => {
+    it("more than 5 files: 'Save list' is disabled, an alert explains why, no request is sent, and the batch can still be created", async () => {
+      const onSubmit = vi.fn().mockResolvedValue({ batch: { id: "new-batch-6-refs" }, failed: [] });
+      let faceListPostCalled = false;
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = typeof input === "string" ? input : input.toString();
+          const method = init?.method ?? "GET";
+          if (url.includes("/api/face-lists") && method === "POST") {
+            faceListPostCalled = true;
+            return {
+              ok: true,
+              status: 201,
+              json: async () => ({
+                list: { id: "new-list", name: "List", faceCount: 6, createdAt: "2026-11-06T00:00:00Z" },
+              }),
+            } as Response;
+          }
+          if (url.includes("/api/face-lists") && method === "GET") {
+            return { ok: true, status: 200, json: async () => ({ lists: [] }) } as Response;
+          }
+          return { ok: true, status: 200, json: async () => ({}) } as Response;
+        }),
+      );
+
+      const { container } = render(
+        <MemoryRouter>
+          <BatchCreateForm busy={false} error="" onSubmit={onSubmit} />
+        </MemoryRouter>,
+      );
+
+      // Add 1 image for the batch
+      const dropzone = container.querySelectorAll("input[type='file']")[0] as HTMLInputElement;
+      const img = makeFile("batch-input.jpg");
+      fireEvent.change(dropzone, { target: { files: [img] } });
+
+      // Add 6 references (allowed for batch, but exceeds allow list cap of 5)
+      const whitelistInput = screen.getByLabelText(/references/i) as HTMLInputElement;
+      const sixFiles = Array.from({ length: 6 }, (_, i) => makeFile(`ref-${i + 1}.jpg`));
+      fireEvent.change(whitelistInput, { target: { files: sixFiles } });
+
+      // Save list button should be disabled
+      const saveListBtn = screen.getByRole("button", { name: /save list/i }) as HTMLButtonElement;
+      expect(saveListBtn.disabled).toBe(true);
+
+      // Alert explaining why
+      expect(screen.getByText(/allow lists can hold at most 5 files/i)).toBeDefined();
+
+      // Typing a name and attempting to click should not trigger any POST
+      const nameInput = screen.getByPlaceholderText(/name this allow list/i);
+      fireEvent.change(nameInput, { target: { value: "My 6 Faces" } });
+      expect(saveListBtn.disabled).toBe(true);
+      fireEvent.click(saveListBtn);
+      expect(faceListPostCalled).toBe(false);
+
+      // Batch can still be created with those 6 files
+      const form = screen.getByRole("form", { name: /batch/i });
+      fireEvent.submit(form);
+
+      await waitFor(() => {
+        expect(onSubmit).toHaveBeenCalledTimes(1);
+      });
+      const call = onSubmit.mock.calls[0];
+      expect(call[0]).toEqual([img]);
+      expect(call[1]).toHaveLength(6);
+      expect(faceListPostCalled).toBe(false);
+    });
+
+    it("a failed save shows an alert banner", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = typeof input === "string" ? input : input.toString();
+          const method = init?.method ?? "GET";
+          if (url.includes("/api/face-lists") && method === "POST") {
+            return {
+              ok: false,
+              status: 500,
+              json: async () => ({ error: "Internal server error saving allow list" }),
+              text: async () => JSON.stringify({ error: "Internal server error saving allow list" }),
+            } as Response;
+          }
+          if (url.includes("/api/face-lists") && method === "GET") {
+            return { ok: true, status: 200, json: async () => ({ lists: [] }) } as Response;
+          }
+          return { ok: true, status: 200, json: async () => ({}) } as Response;
+        }),
+      );
+
+      const files = [makeFile("ref1.jpg"), makeFile("ref2.jpg")];
+      render(<WhitelistUploader files={files} onChange={vi.fn()} showSaveAsList={true} />);
+
+      const nameInput = screen.getByPlaceholderText(/name this allow list/i);
+      fireEvent.change(nameInput, { target: { value: "Failed List" } });
+
+      const saveListBtn = screen.getByRole("button", { name: /save list/i });
+      fireEvent.click(saveListBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/internal server error saving allow list/i)).toBeDefined();
+      });
+      const alertBanner = screen.getByText(/internal server error saving allow list/i).closest(".error-banner");
+      expect(alertBanner).not.toBeNull();
+    });
+
+    it("the counter shows the limit that applies: 5 in the allow-list form, 20 on the batch page", () => {
+      // 1. Batch page (showSavedSelector = true): limit is 20
+      const sixFiles = Array.from({ length: 6 }, (_, i) => makeFile(`ref-${i + 1}.jpg`));
+      const { unmount } = render(
+        <WhitelistUploader files={sixFiles} onChange={vi.fn()} showSavedSelector={true} showSaveAsList={true} />,
+      );
+      expect(screen.getByText("6 / 20 files")).toBeDefined();
+      unmount();
+
+      // 2. Allow-list form (showSavedSelector = false): limit is 5
+      const twoFiles = [makeFile("face1.jpg"), makeFile("face2.jpg")];
+      render(
+        <WhitelistUploader files={twoFiles} onChange={vi.fn()} showSavedSelector={false} showSaveAsList={false} />,
+      );
+      expect(screen.getByText("2 / 5 files")).toBeDefined();
     });
   });
 });

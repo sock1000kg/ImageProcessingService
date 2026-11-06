@@ -544,7 +544,7 @@ export function addWhitelistFiles(
     } else {
       issues.push({
         file,
-        reason: `only ${max} reference faces allowed`,
+        reason: `only ${max} reference files allowed`,
       });
     }
   }

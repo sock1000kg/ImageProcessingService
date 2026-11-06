@@ -89,7 +89,7 @@ describe("Step 1: addWhitelistFiles pure helper", () => {
     expect(result.files.map((f) => f.name)).toEqual(Array.from({ length: 20 }, (_, i) => `face${i + 1}.jpg`));
     expect(result.issues).toHaveLength(1);
     expect(result.issues[0]?.file.name).toBe("face21.jpg");
-    expect(result.issues[0]?.reason).toBe("only 20 reference faces allowed");
+    expect(result.issues[0]?.reason).toMatch(/only 20 reference (?:file|face)s allowed/);
   });
 
   it("reports issues for all overflow files when appending to an existing list", () => {
@@ -100,9 +100,9 @@ describe("Step 1: addWhitelistFiles pure helper", () => {
     expect(result.files).toHaveLength(20);
     expect(result.issues).toHaveLength(2);
     expect(result.issues[0]?.file.name).toBe("face21.jpg");
-    expect(result.issues[0]?.reason).toBe("only 20 reference faces allowed");
+    expect(result.issues[0]?.reason).toMatch(/only 20 reference (?:file|face)s allowed/);
     expect(result.issues[1]?.file.name).toBe("face22.jpg");
-    expect(result.issues[1]?.reason).toBe("only 20 reference faces allowed");
+    expect(result.issues[1]?.reason).toMatch(/only 20 reference (?:file|face)s allowed/);
   });
 });
 

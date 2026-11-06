@@ -15,6 +15,7 @@ import { createFaceList, listFaceLists } from "../api";
 import { Dialog } from "./ui/Dialog";
 import { FaceListViewer } from "./FaceListViewer";
 import { FaceListThumbnails } from "./FaceListThumbnails";
+import { Banner } from "./ui/Banner";
 
 export interface WhitelistUploaderProps {
   files: File[];
@@ -119,7 +120,8 @@ export function WhitelistUploader({
 
   const handleSaveList = async () => {
     const trimmed = listName.trim();
-    if (!trimmed || !files.length || savingList) return;
+    // Why: Prevent submitting if name is empty, already saving, or if files count exceeds allow list capacity
+    if (!trimmed || !files.length || savingList || files.length > MAX_FACE_LIST_FILES) return;
     setSavingList(true);
     setSaveError(null);
     try {
@@ -161,7 +163,11 @@ export function WhitelistUploader({
               />
             </label>
           </div>
-          {totalFaces > 0 && <span className="file-count">{totalFaces} / 20 faces</span>}
+          {totalFaces > 0 && (
+            <span className="file-count">
+              {totalFaces} / {maxCap} files
+            </span>
+          )}
         </div>
       </div>
 
@@ -176,7 +182,7 @@ export function WhitelistUploader({
                 <div className="file-row-info">
                   <strong>{list.name}</strong>
                   <span>
-                    {list.faceCount} {list.faceCount === 1 ? "face" : "faces"}
+                    {list.faceCount} {list.faceCount === 1 ? "file" : "files"}
                   </span>
                 </div>
                 <button
@@ -211,7 +217,7 @@ export function WhitelistUploader({
             <button
               type="button"
               className="secondary-button"
-              disabled={!listName.trim() || savingList}
+              disabled={!listName.trim() || savingList || files.length > MAX_FACE_LIST_FILES}
               onClick={() => void handleSaveList()}
             >
               {savingList ? "Saving…" : "Save list"}
@@ -219,7 +225,10 @@ export function WhitelistUploader({
           </div>
           <p className="subtitle">Allow lists are kept under your account until deleted.</p>
           <p className="subtitle">If a job fails, faces not saved to an Allow List won't be used for retries.</p>
-          {saveError && <p className="field-error">{saveError}</p>}
+          {files.length > MAX_FACE_LIST_FILES && (
+            <Banner variant="error">Allow lists can hold at most {MAX_FACE_LIST_FILES} files.</Banner>
+          )}
+          {saveError && <Banner variant="error">{saveError}</Banner>}
         </div>
       )}
 
@@ -242,6 +251,7 @@ export function WhitelistUploader({
               {savedLists.map((list) => {
                 const isAdded = activeListIds.includes(list.id);
                 const wouldExceed = totalFaces + list.faceCount > MAX_WHITELIST_FILES;
+                const exceedReason = `Exceeds ${maxCap} files cap`;
                 return (
                   <article key={list.id} className="library-card" aria-label={list.name}>
                     <div className="library-card-header">
@@ -250,7 +260,7 @@ export function WhitelistUploader({
                         <h3>{list.name}</h3>
                         <div className="library-card-meta saved-face-list-card-meta">
                           <span>
-                            {list.faceCount} {list.faceCount === 1 ? "face" : "faces"}
+                            {list.faceCount} {list.faceCount === 1 ? "file" : "files"}
                           </span>
                           <span>{new Date(list.createdAt).toLocaleDateString()}</span>
                         </div>
@@ -268,7 +278,7 @@ export function WhitelistUploader({
                         type="button"
                         className={isAdded ? "secondary-button" : "primary-button"}
                         disabled={!isAdded && wouldExceed}
-                        title={!isAdded && wouldExceed ? "Exceeds 20 faces cap" : undefined}
+                        title={!isAdded && wouldExceed ? exceedReason : undefined}
                         onClick={() => {
                           if (isAdded) {
                             updateListIds(activeListIds.filter((id) => id !== list.id));
@@ -280,7 +290,7 @@ export function WhitelistUploader({
                         {isAdded ? "Added" : "Add"}
                       </button>
                     </div>
-                    {!isAdded && wouldExceed && <span className="field-error">Exceeds 20 faces cap</span>}
+                    {!isAdded && wouldExceed && <span className="field-error">{exceedReason}</span>}
                   </article>
                 );
               })}

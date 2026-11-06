@@ -108,7 +108,7 @@ export function FaceListViewer({
 
   if (!open) return null;
 
-  const countLabel = `${list.faceCount} ${list.faceCount === 1 ? "face" : "faces"}`;
+  const countLabel = `${list.faceCount} ${list.faceCount === 1 ? "file" : "files"}`;
   // Why: When onRename is provided, embed InlineRename with dialog's titleAs="div" to avoid
   // invalid nested headings while keeping accessible name and card/viewer synchronisation.
   const title = onRename ? (

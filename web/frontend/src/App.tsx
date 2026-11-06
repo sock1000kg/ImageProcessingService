@@ -13,7 +13,8 @@ import { Banner } from "./components/ui/Banner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
-import { BATCH_SYNC_MS, STATS_SYNC_MS } from "./sync";
+import { SyncStatus } from "./components/SyncStatus";
+import { BATCH_SYNC_MS, STATS_SYNC_MS, useSyncStatus } from "./sync";
 import { MessageHandler, NoticeOptions } from "./types";
 
 /**
@@ -22,6 +23,7 @@ import { MessageHandler, NoticeOptions } from "./types";
 function Topbar() {
   const { user, signOut } = useAuth();
   const location = useLocation();
+  const syncStatus = useSyncStatus();
   const isCreate = location.pathname === "/batches/new";
   const isRerun = Boolean(location.pathname.match(/^\/batches\/[^/]+\/rerun$/));
   const isLibrary = location.pathname === "/library";
@@ -53,7 +55,9 @@ function Topbar() {
         </p>
       </div>
       <div className="topbar-actions">
-        {syncIntervalMs !== null && <span className="last-sync">{`Live sync · ${syncIntervalMs / 1000}s`}</span>}
+        {syncIntervalMs !== null && syncStatus !== "lost" && (
+          <span className="last-sync">{`Live sync · ${syncIntervalMs / 1000}s`}</span>
+        )}
         {user && (
           <>
             <span className="user-email">{user.email}</span>
@@ -166,6 +170,7 @@ function AuthenticatedApp() {
             </Banner>
           </div>
         )}
+        <SyncStatus />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />

@@ -705,6 +705,33 @@ output {
   padding: 0 4px;
   line-height: 1;
 }
+/* Connection sync status pill overlay */
+.sync-status-pill {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  /* Above regular page content and overlays (z-index 2-3) but below modal dialog backdrop (z-index 5) */
+  z-index: 4;
+  padding: 8px 14px;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(23, 35, 61, 0.08);
+  animation: toast-fade-in 0.15s ease-out;
+  transition: opacity 0.15s ease-out;
+  max-width: calc(100vw - 32px);
+}
+.sync-status-lost {
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+}
+.sync-status-recovered {
+  color: var(--success);
+  background: #eaf8f1;
+  border: 1px solid rgba(33, 132, 91, 0.25);
+}
 .details-card {
   margin-top: 24px;
   padding: 25px;
@@ -1181,6 +1208,11 @@ output {
     right: auto;
     transform: translateX(-50%);
     width: fit-content;
+    max-width: calc(100vw - 32px);
+  }
+  .sync-status-pill {
+    bottom: 16px;
+    right: 16px;
     max-width: calc(100vw - 32px);
   }
   .stats-grid {
@@ -1736,7 +1768,8 @@ output {
 
 /* Respect user preference to disable motion */
 @media (prefers-reduced-motion: reduce) {
-  .toast {
+  .toast,
+  .sync-status-pill {
     animation: none;
     transition: none;
   }

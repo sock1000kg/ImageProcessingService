@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { BatchDetails } from "../src/components/BatchDetails";
+import { BatchPage } from "../src/pages/BatchPage";
 import { WhitelistUploader } from "../src/components/WhitelistUploader";
 import * as api from "../src/api";
 import { Batch } from "../src/types";
@@ -184,5 +185,87 @@ describe("Task 53: Frontend batch retry missing faces confirmation and warning n
     // Overview's new-list form (showSaveAsList=false) with files -> note NOT shown
     rerender(<WhitelistUploader files={[mockFaceFile]} onChange={vi.fn()} showSaveAsList={false} />);
     expect(screen.queryByText(warningNote)).toBeNull();
+  });
+
+  it("a successful retry followed by a failed refresh shows no error alert", async () => {
+    const onMessage = vi.fn();
+
+    const mockReport: any = {
+      batchId: "batch-1",
+      batchName: "Test Batch",
+      status: "FAILED",
+      totals: {
+        images: 1,
+        completed: 0,
+        failed: 1,
+        faces: 0,
+        plates: 0,
+        redacted: 0,
+        whitelisted: 0,
+        lowConfidence: 0,
+      },
+      reviewImages: [],
+      reviewDetections: [],
+      lowConfidenceDetections: [],
+      images: [],
+      whitelistPeople: [],
+      models: [],
+      processingTimeMs: null,
+    };
+
+    vi.spyOn(api, "getBatchReport").mockResolvedValue({
+      report: mockReport,
+    });
+
+    let refreshShouldFail = false;
+    vi.spyOn(api, "getBatch").mockImplementation(async () => {
+      if (refreshShouldFail) {
+        throw new TypeError("Failed to fetch");
+      }
+      return { batch: mockBatch };
+    });
+
+    const retrySpy = vi.spyOn(api, "retryJob").mockImplementation(async () => {
+      // Retry succeeds, but subsequent refreshBatch will fail with network error
+      refreshShouldFail = true;
+      return {
+        job: {
+          ...mockBatch.jobs[0],
+          id: "job-1",
+          status: "PENDING",
+        },
+      };
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/batches/batch-1"]}>
+        <Routes>
+          <Route path="/batches/:id" element={<BatchPage onMessage={onMessage} />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // Initial batch details load
+    const retryBtn = await screen.findByRole("button", { name: /retry job/i });
+    expect(retryBtn).toBeDefined();
+
+    // Click retry
+    fireEvent.click(retryBtn);
+
+    // Wait for retryJob to be called
+    await waitFor(() => {
+      expect(retrySpy).toHaveBeenCalledTimes(1);
+    });
+
+    // onMessage was called with "Retry queued"
+    expect(onMessage).toHaveBeenCalledWith("Retry queued");
+
+    // No error alert notice was sent to onMessage
+    const errorCalls = onMessage.mock.calls.filter(([_, opts]) => opts?.variant === "error");
+    expect(errorCalls.length).toBe(0);
+
+    // No alert banner exists and no "Retry failed" message is shown
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/retry failed/i)).toBeNull();
   });
 });

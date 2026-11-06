@@ -135,7 +135,7 @@ This document outlines the complete plan to deploy the foundational infrastructu
 ## Operational notes (Task 8, web deploy)
 * **Web deployment & routing:** Web application deployed via `infra/app/web/` (`Deployment`, `Service`, `HTTPRoute` `web`). Replicas: 1, image `socknot1000kg/imgproc-web:main`, `imagePullPolicy: Always`. Container port 3000. `:main` tracks the latest build of `main`, picking up changes on restart. Exact commit SHAs can be pinned manually when needed.
 * **Database URL assembly:** Secrets `PGPASSWORD` from `imgproc-postgres` (key `password`), then `DATABASE_URL=postgresql://imgproc:$(PGPASSWORD)@postgresql:5432/imgproc` using Kubernetes `$(VAR)` expansion (`PGPASSWORD` declared before `DATABASE_URL`). This assumes a URL-safe password (generated as hex by `seal.sh`).
-* **Resource limits & steady-state budget:** Container requests 128Mi / 100m, limits 512Mi / 500m (uploads buffered in memory via multer `memoryStorage`). Component is `web` (not `worker`), counting toward the platform steady-state budget (steady-state total 2208Mi, staying well under the 2560Mi ceiling).
+* **Resource limits & steady-state budget:** Container requests 128Mi / 100m, limits 512Mi / 1 CPU (uploads buffered in memory via multer `memoryStorage`). Component is `web` (not `worker`), counting toward the platform steady-state budget (steady-state total 2208Mi, staying well under the 2560Mi ceiling).
 * **HTTPRoute precedence:** HTTPRoute `web` matches `PathPrefix /` on `imgproc.sock1000kg.io.vn`. The existing `minio-results` HTTPRoute (`PathPrefix /results/`) on the same hostname wins by longest-prefix match under Gateway API route matching rules.
 
 ## Operational notes (Task 9, CI image builds and rollout)

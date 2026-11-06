@@ -37,7 +37,7 @@ spec:
               cpu: 100m
               memory: 128Mi
             limits:
-              cpu: 500m
+              cpu: "1"
               memory: 512Mi
           # The container runs `prisma migrate deploy` before the server starts, which is slow on
           # the lab node. Liveness/readiness only begin once the startup probe passes (up to 150s).

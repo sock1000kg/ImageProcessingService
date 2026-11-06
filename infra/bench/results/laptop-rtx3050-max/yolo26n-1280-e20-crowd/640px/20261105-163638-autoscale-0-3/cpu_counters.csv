@@ -1,0 +1,4 @@
+phase,timestamp,node,pod,cpu_seconds
+end,1793896776.555,laptop-9uqcccr9,image-worker-58fdd56f49-k72nj,85.528647
+end,1793896775.900,laptop-9uqcccr9,image-worker-58fdd56f49-r66xd,85.424753
+end,1793896779.319,laptop-9uqcccr9,image-worker-58fdd56f49-w9tk5,84.97155

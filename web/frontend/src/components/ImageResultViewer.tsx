@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { Detection, Job, ReviewReason } from "../types";
 import { usePrivateImage } from "../hooks/usePrivateImage";
+import { formatJobErrorMessage } from "../utils/format";
 import { DetectionList } from "./DetectionList";
 import { boxToPercent, ImageStage } from "./ui/ImageStage";
 import { StatusBadge } from "./ui/StatusBadge";
@@ -96,7 +97,7 @@ export function ImageResultViewer({
             </div>
           )}
         </div>
-        {job.status === "FAILED" && (
+        {job.status === "FAILED" && job.error?.code !== "WHITELIST_REFERENCE_ERROR" && (
           <button type="button" className="secondary-button" onClick={() => onRetry(job)}>
             Retry job
           </button>
@@ -191,8 +192,8 @@ export function ImageResultViewer({
               {job.error && (
                 <p className="failure-detail">
                   {job.error.code && <span>{job.error.code}</span>}
-                  {job.error.code && job.error.message ? ": " : ""}
-                  {job.error.message}
+                  {job.error.code && formatJobErrorMessage(job.error) ? ": " : ""}
+                  {formatJobErrorMessage(job.error)}
                 </p>
               )}
             </>

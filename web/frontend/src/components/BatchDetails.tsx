@@ -2,14 +2,16 @@
  * Comprehensive batch workspace view displaying header, image navigator, viewer, and report.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ApiError, getBatchReport, getBatchZipUrl, retryJob } from "../api";
 import { Batch, BatchReport as Report, Job, MessageHandler } from "../types";
+import { formatJobErrorMessage } from "../utils/format";
 import { BatchHeader } from "./BatchHeader";
 import { BatchImageList } from "./BatchImageList";
 import { BatchReport } from "./BatchReport";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { ImageResultViewer } from "./ImageResultViewer";
+import { Banner } from "./ui/Banner";
 
 export interface BatchDetailsProps {
   batch: Batch;
@@ -69,6 +71,19 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
   const hasWhitelist = Boolean(batch.whitelistKeys && batch.whitelistKeys.length > 0);
   const completedJobs = useMemo(() => batch.jobs.filter((job) => job.status === "COMPLETED"), [batch.jobs]);
 
+  const whitelistErrors = useMemo(() => {
+    const messages = new Set<string>();
+    for (const job of batch.jobs) {
+      if (job.error?.code === "WHITELIST_REFERENCE_ERROR") {
+        const formatted = formatJobErrorMessage(job.error);
+        if (formatted) {
+          messages.add(formatted);
+        }
+      }
+    }
+    return Array.from(messages);
+  }, [batch.jobs]);
+
   const handleDownloadReport = () => {
     if (!report) return;
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
@@ -96,6 +111,22 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
   return (
     <section className="details-card">
       <BatchHeader batch={batch} onDelete={() => setConfirm(true)} onBatchUpdated={() => void onRefresh()} />
+
+      {whitelistErrors.length > 0 && (
+        <Banner variant="error" role="alert">
+          <div className="banner-action-row">
+            <div>
+              {whitelistErrors.map((msg) => (
+                <div key={msg}>{msg}</div>
+              ))}
+              <div>Please choose a better reference and rerun the batch.</div>
+            </div>
+            <Link to={`/batches/${batch.id}/rerun`} className="secondary-button">
+              Rerun batch
+            </Link>
+          </div>
+        </Banner>
+      )}
 
       <div className="details-layout">
         <div>

@@ -33,7 +33,7 @@ describe("Task 53: Frontend batch retry missing faces confirmation and warning n
         stage: "DETECTING",
         resultUrl: null,
         resultSummary: null,
-        error: { code: "WHITELIST_REFERENCE_ERROR", message: "Face missing" },
+        error: { code: "MODEL_INFERENCE_ERROR", message: "Face missing" },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },

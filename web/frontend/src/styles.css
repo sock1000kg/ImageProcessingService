@@ -661,6 +661,20 @@ output {
   background: var(--warn-bg);
   border: 1px solid var(--warn-border);
 }
+.banner-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.banner-action-row > div:first-child {
+  min-width: 0;
+}
+.banner-action-row .secondary-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 /* Fade-in keyframes for transient toast notices */
 @keyframes toast-fade-in {
   from {

@@ -152,6 +152,10 @@ def analyze_dir(res_dir: str) -> Dict[str, Any]:
     if os.path.isfile(meta_path):
         with open(meta_path, "r", encoding="utf-8") as f:
             meta = json.load(f)
+    # name rows after the model too: run folders sit in results/<machine>-<set>/<model>/<px>px/, so the folder name
+    # alone does not say which model ran (the base model's older runs have no "model" in meta.json)
+    if meta.get("model"):
+        dir_name = f"{os.path.splitext(os.path.basename(meta['model']))[0]}/{dir_name}"
 
     mode = meta.get("mode", "unknown")
     worker_count = meta.get("worker_count")

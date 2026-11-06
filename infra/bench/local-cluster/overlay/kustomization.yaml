@@ -26,6 +26,16 @@ patches:
     target:
       kind: SealedSecret
       name: imgproc-postgres
+  - patch: |-
+      apiVersion: bitnami.com/v1alpha1
+      kind: SealedSecret
+      metadata:
+        name: imgproc-web-auth
+        namespace: imgproc
+      $patch: delete
+    target:
+      kind: SealedSecret
+      name: imgproc-web-auth
 
   # Delete HTTPRoutes (lab gateway routes)
   - patch: |-
@@ -47,6 +57,30 @@ patches:
       $patch: delete
     target:
       kind: HTTPRoute
+      name: web
+
+  # Web: the benchmark uploads thousands of images as fast as it can, so lift the per-account rate limits, and run the
+  # locally built image (build-web.sh: the working tree's web/, imported into k3s) instead of pulling :main.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: web
+        namespace: imgproc
+      spec:
+        template:
+          spec:
+            containers:
+              - name: web
+                image: imgproc-web:bench
+                imagePullPolicy: Never
+                env:
+                  - name: RATE_LIMIT_BATCHES_PER_MINUTE
+                    value: "100000"
+                  - name: RATE_LIMIT_UPLOADS_PER_MINUTE
+                    value: "1000000"
+    target:
+      kind: Deployment
       name: web
 
   # Remove nodeSelector: kubernetes.io/hostname: home-server
@@ -101,3 +135,6 @@ patches:
 
   # GPU mode patch for image-worker (default: GPU mode)
   - path: gpu-patch.yaml
+
+  # engine/models mounted read-only over image-worker's /app/models, for run.sh --model (up.sh fills in the path)
+  - path: models-mount-patch.yaml

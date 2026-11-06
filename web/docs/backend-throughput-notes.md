@@ -24,8 +24,8 @@ Scratch notes (2026-11-05), not a plan. Found while benchmarking the picked mode
 
 ## Why (job-event path, `web/backend/src/messaging.ts`)
 
-Events are handled strictly one at a time (`for await … await handleEventMessage(message)`), and the workers send several
-events per image. Per event:
+Events are handled strictly one at a time (`for await … await handleEventMessage(message)`), and the workers send 4 events
+per image (3 progress + COMPLETED). Per event:
 
 1. `getJob` in `handleEventMessage`, then `getJob` again in `applyJobEvent` (`services/batch.service.ts`).
 2. On COMPLETED: `storage.statObject` on the result (size tracking for the media library, new since 31 Oct).
@@ -33,7 +33,8 @@ events per image. Per event:
 4. On COMPLETED / FAILED: `checkAndCleanBatchWhitelist` = `getBatch` + `getJobsByBatchId` (all jobs of the batch), for
    every finished image, even when the batch has no whitelist.
 
-That is 4–6 sequential DB / MinIO round trips per image in a single Node process capped at 0.5 CPU.
+That is about 15 sequential DB / MinIO round trips per image (3 × 3 for the progress events, 6 for COMPLETED) in a single
+Node process capped at 0.5 CPU. Full analysis with the measured gains: `infra/bench/results/comparison.md`.
 
 ## Options (cheapest first)
 
@@ -47,4 +48,4 @@ That is 4–6 sequential DB / MinIO round trips per image in a single Node proce
 | Upload path: `multer` memory storage and one request per file; batched or streamed uploads                                              | faster batch upload (end-to-end throughput)            | Web          |
 
 Also seen: the hard-coded per-account rate limits (20 batches / 300 uploads per minute) blocked the benchmark; they are now
-`RATE_LIMIT_BATCHES_PER_MINUTE` / `RATE_LIMIT_UPLOADS_PER_MINUTE` (defaults unchanged), raised in the laptop overlay only.
+governed by `RATE_LIMIT_MULTIPLIER` (default 1, raised to 100 in the laptop overlay).

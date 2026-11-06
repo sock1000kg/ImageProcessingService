@@ -4,9 +4,16 @@ name: images
   push:
     branches:
       - main
+    # Same paths as the filters below, so the workflow doesn't start at all for docs-only changes.
     paths:
       - 'web/**'
-      - 'engine/**'
+      - '!web/docs/**'
+      - 'engine/src/**'
+      - 'engine/models/**'
+      - 'engine/tests/**'
+      - 'engine/Dockerfile'
+      - 'engine/requirements.txt'
+      - 'engine/ruff.toml'
       - '.github/workflows/images.yml'
   workflow_dispatch:
 
@@ -31,7 +38,8 @@ jobs:
         with:
           filters: |
             changed:
-              - 'web/**'
+              - 'web/*'
+              - 'web/!(docs)/**'
               - '.github/workflows/images.yml'
 
       - name: Set up Docker Buildx
@@ -75,7 +83,12 @@ jobs:
         with:
           filters: |
             changed:
-              - 'engine/**'
+              - 'engine/src/**'
+              - 'engine/models/**'
+              - 'engine/tests/**'
+              - 'engine/Dockerfile'
+              - 'engine/requirements.txt'
+              - 'engine/ruff.toml'
               - '.github/workflows/images.yml'
 
       - name: Set up Docker Buildx

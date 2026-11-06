@@ -1,0 +1,11 @@
+# the training zips (2.4 GB) and everything derived from them stay local (copies: team Drive, Kaggle dataset)
+datasets/*
+!datasets/.gitkeep
+datasets-pl/
+# weights and checkpoints stay local; picked models go to engine/models/, training records to results/
+runs/
+kaggle-out/
+logs/
+__pycache__/
+*.pt
+*.log

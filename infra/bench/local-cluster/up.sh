@@ -257,23 +257,31 @@ if ! "${KUBECTL_CMD[@]}" -n imgproc get secret imgproc-postgres >/dev/null 2>&1;
     --from-literal=password="$pg_user_pass"
 fi
 
+# web login (since phase 2 auth): JWT signing secret + the registration key run.sh registers its bench user with
+if ! "${KUBECTL_CMD[@]}" -n imgproc get secret imgproc-web-auth >/dev/null 2>&1; then
+  "${KUBECTL_CMD[@]}" -n imgproc create secret generic imgproc-web-auth \
+    --from-literal=jwtSecret="$(openssl rand -hex 32)" \
+    --from-literal=registerKey="bench-$(openssl rand -hex 8)"
+fi
+
 # -----------------------------------------------------------------------------
 # 7. Apply application overlay and wait for readiness
 # -----------------------------------------------------------------------------
 echo "==> Applying app manifests from overlay ($OVERLAY_DIR)..."
 "${KUBECTL_CMD[@]}" delete job -n imgproc -l app.kubernetes.io/part-of=imgproc-setup --ignore-not-found=true
 
+# Temporary copy of the overlay: fill in the engine/models path (hostPath must be absolute) and, in CPU mode,
+# drop the GPU patch
+MODELS_DIR="$(cd "$SCRIPT_DIR/../../../engine/models" && pwd)"
+tmp_overlay="$SCRIPT_DIR/.overlay-$$"
+mkdir -p "$tmp_overlay"
+cp -r "$OVERLAY_DIR"/* "$tmp_overlay"/
+sed -i "s|__MODELS_DIR__|$MODELS_DIR|" "$tmp_overlay/models-mount-patch.yaml"
 if [ "$CPU_MODE" -eq 1 ]; then
-  # Skip the GPU patch by creating a temporary overlay without gpu-patch.yaml
-  tmp_overlay="$SCRIPT_DIR/.overlay-cpu-$$"
-  mkdir -p "$tmp_overlay"
-  cp -r "$OVERLAY_DIR"/* "$tmp_overlay"/
   sed -i '/gpu-patch\.yaml/d' "$tmp_overlay/kustomization.yaml"
-  kubectl kustomize --enable-helm "$tmp_overlay" | "${KUBECTL_CMD[@]}" apply -f -
-  rm -rf "$tmp_overlay"
-else
-  kubectl kustomize --enable-helm "$OVERLAY_DIR" | "${KUBECTL_CMD[@]}" apply -f -
 fi
+kubectl kustomize --enable-helm "$tmp_overlay" | "${KUBECTL_CMD[@]}" apply -f -
+rm -rf "$tmp_overlay"
 
 echo "==> Waiting for core workloads to be ready..."
 "${KUBECTL_CMD[@]}" -n imgproc rollout status statefulset/nats --timeout=300s

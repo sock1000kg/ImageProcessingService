@@ -88,8 +88,8 @@ import sys, os, re, hashlib
 
 images_txt, images_dir = sys.argv[1], sys.argv[2]
 bench_root = os.path.abspath(os.path.join(os.path.dirname(images_dir), ".."))
-sys.path.insert(0, os.path.join(bench_root, "accuracy"))
-from evaluate import manifest_path_to_filename
+sys.path.insert(0, os.path.join(bench_root, "dataset"))
+from dataset_utils import manifest_path_to_filename
 
 missing = []
 corrupted = []
@@ -203,8 +203,8 @@ import sys, os, re, urllib.request, shutil
 
 images_txt, images_dir, vn_dir, raw_base = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 bench_root = os.path.abspath(os.path.join(os.path.dirname(images_dir), ".."))
-sys.path.insert(0, os.path.join(bench_root, "accuracy"))
-from evaluate import manifest_path_to_filename
+sys.path.insert(0, os.path.join(bench_root, "dataset"))
+from dataset_utils import manifest_path_to_filename
 
 vn_targets = []
 
@@ -287,8 +287,8 @@ import sys, os, re, urllib.request, shutil
 
 images_txt, vn_labels_cache, vn_dir, raw_base, images_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 bench_root = os.path.abspath(os.path.join(os.path.dirname(images_dir), ".."))
-sys.path.insert(0, os.path.join(bench_root, "accuracy"))
-from evaluate import manifest_path_to_filename
+sys.path.insert(0, os.path.join(bench_root, "dataset"))
+from dataset_utils import manifest_path_to_filename
 
 vn_targets = []
 
@@ -355,8 +355,8 @@ from PIL import Image
 
 images_txt, images_dir, wider_zip_path, vn_labels_dir, labels_out = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 bench_root = os.path.abspath(os.path.join(os.path.dirname(images_dir), ".."))
-sys.path.insert(0, os.path.join(bench_root, "accuracy"))
-from evaluate import manifest_path_to_filename, compute_sharpness
+sys.path.insert(0, os.path.join(bench_root, "dataset"))
+from dataset_utils import manifest_path_to_filename, compute_sharpness
 
 def get_image_size(path):
     with open(path, "rb") as f:

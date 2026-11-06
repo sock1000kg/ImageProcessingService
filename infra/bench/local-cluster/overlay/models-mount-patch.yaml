@@ -1,0 +1,22 @@
+# engine/models mounted read-only over the image workers' /app/models, so `run.sh --model <file>` can point
+# YOLO_MODEL_NAME at any committed model without rebuilding the engine image. Laptop cluster only (single node).
+# up.sh replaces __MODELS_DIR__ with the absolute path of engine/models.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: image-worker
+  namespace: imgproc
+spec:
+  template:
+    spec:
+      volumes:
+        - name: models
+          hostPath:
+            path: __MODELS_DIR__
+            type: Directory
+      containers:
+        - name: image-worker
+          volumeMounts:
+            - name: models
+              mountPath: /app/models
+              readOnly: true

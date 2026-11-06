@@ -63,21 +63,31 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
       Infra]** để chia lại (ví dụ train trên `Test`, benchmark chỉ dùng `Valid`).
     - Ghi rõ dataset, split và số ảnh đã dùng để train vào `engine/docs/`, để báo cáo nêu được là kết quả đo trên dữ liệu model chưa từng thấy.
 - [ ] Fine-tune YOLOv8n. Báo cáo mAP@50 tổng và **theo từng lớp**, precision/recall (đặc biệt recall: bỏ sót là lộ thông tin). Mục tiêu mAP@50 ≥ 85%.
-- [ ] So sánh với `yolov8n-oiv7` trên cùng tập test (nhất là biển số VN 2 dòng, góc nghiêng, ngược sáng): chạy benchmark của Infra (`infra/bench`, `run.sh --save-detections` + `accuracy/evaluate.py`) với `YOLO_MODEL_NAME` trỏ tới trọng số mới, để so cùng quy tắc với model gốc và deface.
+- [ ] So sánh với `yolov8n-oiv7` trên cùng tập test (nhất là biển số VN 2 dòng, góc nghiêng, ngược sáng): chạy benchmark (`infra/bench/run.sh --save-detections` + `engine/training/accuracy/evaluate.py`, hoặc `engine/training/bench.py` không cần cluster) với `YOLO_MODEL_NAME` trỏ tới trọng số mới, để so cùng quy tắc với model gốc và deface.
 - [ ] Đạt ngưỡng → đổi model qua env `YOLO_MODEL_NAME` + bảng map lớp. Field `model` trong `resultSummary` ghi tên model mới.
 
 ---
 
 # Phase 2: Video + tối ưu (16/11 → 29/11)
+- [ ] **[Must, làm trước video]** `strength` **tương đối theo kích thước box** (contract §2, đang ghi "đề xuất, chờ Engine xác nhận"). Hiện `_apply_redaction_style` (`src/processors/image_redact.py`) dùng px cố định: blur `ksize = strength`, pixelate `block_size = strength`, nên mặt càng to càng che yếu (blur 25 px trên mặt 600 px vẫn nhận ra người). Đổi sang: blur bán kính Gaussian = `strength`% chiều rộng box sau khi nới `padding` (1–50), pixelate = `strength` ô theo chiều rộng box (3–32, càng nhỏ càng thô). Default theo contract (blur 15, pixelate 8). Unit test: cùng `strength` cho mặt 60 px và 600 px thì mức che tương đương (ví dụ số ô pixelate bằng nhau). Video dùng chung hàm này. Xong thì bỏ chữ "đề xuất" trong contract §2 và báo Web (Web đồng bộ preview, xem `web/docs/plan.md` Phase 2).
+- [ ] **[Must]** Cho cache embedding whitelist hết hạn: `WhitelistManager._cache` (`src/processors/whitelist.py`) giữ vector 512-d trong RAM worker tới khi restart hoặc đủ 1000 mục (không nơi nào gọi `clear_cache()`), nên dữ liệu sinh trắc vẫn còn, và vẫn khớp được, sau khi ảnh mẫu hoặc danh sách đã bị xoá (contract §5). Khi Web chuyển sang gửi thẳng key `lists/...` (không copy theo batch), key không đổi giữa các batch nên càng dễ gặp. Đổi sang cache có TTL ngắn (env, ví dụ `WHITELIST_CACHE_TTL_SECONDS`, mặc định 10–15 phút), vẫn giới hạn kích thước. Unit test: quá TTL thì tải và tính lại; ảnh đã bị xoá thì trả `WHITELIST_REFERENCE_ERROR`.
 - [ ] **[Must]** `video-redact` trên pool `jobs.video` (worker riêng, contract §2B, §3 B2): tách khung hình (FFmpeg/OpenCV), phát hiện + **ByteTrack** để giữ id đối tượng giữa các khung (vết che không nhấp nháy, có thể nội suy khi mất phát hiện vài khung), che, ghép lại MP4 H.264 (CRF map từ `params.output.quality`, giữ độ phân giải + fps gốc), **copy nguyên audio gốc** bằng FFmpeg. Gửi progress theo % khung hình. Heartbeat `in_progress()` (ack_wait 5m), `JOB_DEADLINE_SECONDS` cho video (gợi ý 3600). **[Đổi contract]** chốt `resultSummary` video với Web (số đối tượng duy nhất theo track id, khoảng khung hình/thời gian của từng track, đoạn có confidence thấp để Web đánh dấu và tua tới...).
 - [ ] **[Must]** Whitelist khuôn mặt cho video: so embedding theo **track**, không theo từng khung (một lần mỗi track, ổn định hơn và nhanh hơn).
 - [ ] **[Should]** ONNX + OpenVINO trên CPU Intel. Benchmark với PyTorch CPU: throughput, latency, RAM, mAP. INT8 chỉ dùng nếu nhanh hơn rõ rệt (mục tiêu 2–3 lần) mà mAP/recall vẫn đạt.
 - [ ] **[Should]** Whitelist biển số: OCR biển VN 2 dòng (ví dụ PaddleOCR/EasyOCR), so khớp với `whitelist.plates`. **[Đổi contract]** **[Cần Web]**.
-- [ ] **[Could]** **[Đổi contract]** **[Cần Web]** Chế độ blockList cho `params.whitelist`: chỉ che khuôn mặt khớp mẫu. Fail-open nên dùng ngưỡng thấp hơn và đánh dấu khuôn mặt sát ngưỡng.
+- [~] ~~**[Could]** **[Đổi contract]** **[Cần Web]** Chế độ blockList cho `params.whitelist`: chỉ che khuôn mặt khớp mẫu. Fail-open nên dùng ngưỡng thấp hơn và đánh dấu khuôn mặt sát ngưỡng.~~ **Bỏ** (cả nhóm quyết định: không đáng công, không có use case).
 - [ ] **[Could]** **[Đổi contract]** **[Cần Web]** Job chỉ render (`image-render`): nhận danh sách box cuối cùng + style, che rồi xuất ảnh, không chạy model. Dùng cho nút "Sửa ảnh" của Web.
 - [ ] **[Could]** Build arg `TORCH=cpu|cuda` cho `engine/Dockerfile`: bản `cpu` nhỏ hơn nhiều cho lab (không GPU), bản `cuda` giữ khả năng chạy GPU. Ultralytics tự chọn GPU nếu torch thấy GPU, không cần đổi code.
 - [ ] **[Could]** Benchmark xử lý video monolith (một process xử lý cả video) vs phân tán (chia đoạn video ra nhiều job). **[Cần Infra]** để đưa vào phần đo đạc của báo cáo.
-- [ ] **[Could, sau khi xong các tính năng chính]** **[Đổi contract]** **[Cần Web]** Chọn chế độ theo job: `params.detection.mode` (`fast` | `accurate` | `max_privacy`) map sang model + `imgsz` + ngưỡng qua env (ví dụ `MODE_FAST=yolo26n-1280-e20-crowd.pt@1280:0.15`; `max_privacy` = ngưỡng thấp, có thể padding lớn hơn). Model cho từng chế độ chưa chốt (chờ kết quả train và quyết định của nhóm). Nạp mỗi model một lần rồi giữ trong worker; thiếu field thì dùng `fast`. `resultSummary.model` ghi model và ngưỡng thật đã chạy. Kiểm tra memory limit của image-worker khi nạp nhiều model. Model: `engine/models/`; số liệu: `engine/training/bench/comparison.md`, `infra/bench/results/comparison.md`.
+- [ ] **[Should, sau khi xong các tính năng chính]** **[Đổi contract]** **[Cần Web]** Chọn chế độ theo job: `params.detection.mode` (`fast` | `accurate` | `max_privacy`, thiếu thì `fast`) map sang model + `imgsz` + **ngưỡng riêng cho từng class** qua env (ví dụ `MODE_FAST=yolo26n-1280-e20-crowd.pt@1280:face=0.17,plate=0.11`). Model đã chọn (`engine/models/`, đề xuất ngưỡng từ `engine/training/bench/`):
+
+  | Chế độ | Model | Ngưỡng mặt | Ngưỡng biển số |
+  | --- | --- | --- | --- |
+  | `fast` | `yolo26n-1280-e20-crowd.pt` | 0.17 | 0.11 |
+  | `accurate` | `yolo26s-1280-e5-plates-frozen-x3.pt` | 0.13 | 0.09 |
+  | `max_privacy` | `yolo26s-1280-e5-plates-frozen-x3.pt` | 0.06 | 0.05 |
+
+  Ngưỡng theo class trong `processors/image_redact.py`: `model.predict(conf=` ngưỡng thấp nhất `)`, rồi lọc từng box theo ngưỡng của class đó (label đã có trong vòng lặp). `confidenceThreshold` của batch (nếu gửi) ghi đè cả hai. Worker chỉ nạp model mà job cần, lúc dùng lần đầu (`accurate` và `max_privacy` dùng chung một model), giữ một model và đổi khi job sau dùng chế độ khác (nạp lại ~1-2 s); giữ cả hai thì phải nâng memory limit (một model ở 1280 đã dùng ~1.2 GB / 1.5 GB), chốt sau khi đo. `resultSummary.model` ghi model và ngưỡng thật đã chạy. Image engine cần Ultralytics >= 8.4 (YOLO26).
 
 ---
 

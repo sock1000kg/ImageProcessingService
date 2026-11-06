@@ -31,12 +31,19 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3
         with:
+          # Only paths that affect the build or checks. Excludes web/docs and everything else in engine/ (docs, README).
           filters: |
             web:
-              - 'web/**'
+              - 'web/*'
+              - 'web/!(docs)/**'
               - '.github/workflows/ci.yml'
             engine:
-              - 'engine/**'
+              - 'engine/src/**'
+              - 'engine/models/**'
+              - 'engine/tests/**'
+              - 'engine/Dockerfile'
+              - 'engine/requirements.txt'
+              - 'engine/ruff.toml'
               - '.github/workflows/ci.yml'
 
   web:

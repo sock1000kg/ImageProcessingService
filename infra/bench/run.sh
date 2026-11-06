@@ -21,7 +21,7 @@
 #   --machine NAME      Machine/node name for results directory (default: worker pod node name).
 #   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
 #   --out DIR           Output directory for benchmark results
-#                       (default: infra/bench/results/<machine>-<YYYYMMDD>[-1000|-max]/<UTC>-<mode>/).
+#                       (default: infra/bench/results/<machine>-<set>/<model>/<imgsz>px/<UTC>-<mode>/).
 #   --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800, large dataset: 7200, max dataset: 27000).
 #   -h, --help          Show this help message and exit.
 set -euo pipefail
@@ -36,7 +36,7 @@ BATCH_SIZE=20
 usage() {
   cat <<'EOF'
 Usage: run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large|max] [--parallel P] [--preload]
-              [--confidence X] [--imgsz N] [--save-detections] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
+              [--confidence X] [--imgsz N] [--model PATH] [--save-detections] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 
 Runs the baseline image pipeline benchmark (batches of 20 images: small = 100 images / 5 batches, large = 1000 images / 50 batches, max = 3726 images).
 
@@ -52,11 +52,16 @@ Options:
                       then release N workers. Measures how fast the workers drain a full queue.
   --confidence X      Detection confidence threshold (0.0 to 1.0; passes confidenceThreshold in batch config).
   --imgsz N           YOLO input size (multiple of 32, e.g. 640, 960, 1280; default: leave deployment as-is = 640).
+  --model FILE        A model in engine/models (e.g. yolo26n-1280-e20-crowd.pt), without rebuilding the engine. Laptop
+                      cluster only: local-cluster/up.sh mounts engine/models read-only over the workers' /app/models.
+                      Results go to a folder per model and meta.json records it. Default: the engine image's
+                      own model.
   --save-detections   Export bounding boxes and scores into detections.jsonl via PostgreSQL.
   --machine NAME      Machine/node name for results directory (default: worker pod node name).
   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
   --out DIR           Output directory for benchmark results
-                      (default: infra/bench/results/<machine>-<set>/<imgsz>px/<UTC>-<mode>/).
+                      (default: infra/bench/results/<machine>-<set>/<model>/<imgsz>px/<UTC>-<mode>/;
+                      <model> = --model's file, else the deployment's YOLO_MODEL_NAME, else yolov8n-oiv7).
   --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800, large dataset: 7200, max dataset: 27000).
   -h, --help          Show this help message and exit.
 EOF
@@ -81,6 +86,11 @@ SAVE_DETECTIONS=0
 IMGSZ=""
 PREV_YOLO_IMGSZ=""
 PATCHED_IMGSZ=0
+MODEL=""
+MODEL_IN_POD=""
+MODEL_TAG=""
+PREV_YOLO_MODEL=""
+PATCHED_MODEL=0
 
 print_node_cpu_warning() {
   local count="$1"
@@ -205,6 +215,11 @@ while [ "$#" -gt 0 ]; do
       IMGSZ="$val"
       shift 2
       ;;
+    --model)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --model" >&2; exit 1; }
+      MODEL="$2"
+      shift 2
+      ;;
     --save-detections)
       SAVE_DETECTIONS=1
       shift 1
@@ -320,6 +335,17 @@ if [ -z "$MACHINE" ]; then
 fi
 
 EFFECTIVE_IMGSZ="${IMGSZ:-640}"
+
+if [ -n "$MODEL" ]; then
+  # same file on the laptop (engine/models/<file>) and in the worker (/app/models/<file>, hostPath mount)
+  MODELS_DIR="$(cd "$SCRIPT_DIR/../../engine/models" && pwd)"
+  if [[ "$MODEL" == */* ]] || [ ! -f "$MODELS_DIR/$MODEL" ]; then
+    echo "ERROR: --model $MODEL: no such file in $MODELS_DIR (give the file name; ls engine/models)" >&2
+    exit 1
+  fi
+  MODEL_IN_POD="/app/models/$MODEL"
+  MODEL_TAG="$(basename "$MODEL" .pt)"
+fi
 SET_TAG="100"
 if [ "$DATASET" = "large" ]; then
   SET_TAG="1000"
@@ -328,10 +354,17 @@ elif [ "$DATASET" = "max" ]; then
 fi
 
 if [ -z "$OUT_DIR" ]; then
+  # model folder: --model's file, else what the deployment runs (YOLO_MODEL_NAME), else the engine's default model
+  MODEL_DIR="$MODEL_TAG"
+  if [ -z "$MODEL_DIR" ]; then
+    MODEL_DIR="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].env[?(@.name=="YOLO_MODEL_NAME")].value}' 2>/dev/null || true)"
+    MODEL_DIR="$(basename "${MODEL_DIR:-yolov8n-oiv7.pt}" .pt)"
+  fi
+  RUN_ROOT="$SCRIPT_DIR/results/${MACHINE}-${SET_TAG}/${MODEL_DIR}/${EFFECTIVE_IMGSZ}px"
   if [ "$MODE" = "fixed" ]; then
-    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${SET_TAG}/${EFFECTIVE_IMGSZ}px/${TIMESTAMP_UTC}-fixed-${WORKERS}w"
+    OUT_DIR="$RUN_ROOT/${TIMESTAMP_UTC}-fixed-${WORKERS}w"
   else
-    OUT_DIR="$SCRIPT_DIR/results/${MACHINE}-${SET_TAG}/${EFFECTIVE_IMGSZ}px/${TIMESTAMP_UTC}-autoscale-${AUTOSCALE_MIN}-${AUTOSCALE_MAX}"
+    OUT_DIR="$RUN_ROOT/${TIMESTAMP_UTC}-autoscale-${AUTOSCALE_MIN}-${AUTOSCALE_MAX}"
   fi
 fi
 
@@ -385,6 +418,16 @@ cleanup() {
     fi
   fi
 
+  # 3a. Restore or unset YOLO_MODEL_NAME on deployment/image-worker if patched
+  if [ "$PATCHED_MODEL" -eq 1 ]; then
+    if [ -n "$PREV_YOLO_MODEL" ]; then
+      echo "Restoring deployment/image-worker YOLO_MODEL_NAME to $PREV_YOLO_MODEL..."
+      "${KUBECTL[@]}" set env deployment/image-worker "YOLO_MODEL_NAME=$PREV_YOLO_MODEL" 2>/dev/null || true
+    else
+      echo "Unsetting YOLO_MODEL_NAME on deployment/image-worker..."
+      "${KUBECTL[@]}" set env deployment/image-worker YOLO_MODEL_NAME- 2>/dev/null || true
+    fi
+  fi
   # 3b. Restore or unset YOLO_IMGSZ on deployment/image-worker if patched
   if [ "$PATCHED_IMGSZ" -eq 1 ]; then
     if [ -n "$PREV_YOLO_IMGSZ" ]; then
@@ -399,8 +442,10 @@ cleanup() {
   # 4. Delete benchmark and warm-up batches via API (while port-forward is still alive!)
   if [ -n "$API_URL" ] && [ "${#ALL_BATCH_IDS[@]}" -gt 0 ]; then
     echo "Deleting ${#ALL_BATCH_IDS[@]} benchmark/warm-up batches via API..."
+    # reuse the token while it is valid (each login counts against web's auth rate limit)
+    if [ -z "$API_TOKEN" ] || [ $((SECONDS - API_TOKEN_AT)) -gt 600 ]; then api_login 2>/dev/null || true; fi
     for b_id in "${ALL_BATCH_IDS[@]}"; do
-      if ! curl -fsS -X DELETE "$API_URL/api/batches/$b_id" >/dev/null 2>&1; then
+      if ! api_curl -fsS -X DELETE "$API_URL/api/batches/$b_id" >/dev/null 2>&1; then
         echo "WARNING: Failed to delete batch $b_id via $API_URL/api/batches/$b_id" >&2
       fi
     done
@@ -431,7 +476,7 @@ IMAGE_FILES=()
 while IFS= read -r f || [ -n "$f" ]; do
   [ -z "$f" ] && continue
   IMAGE_FILES+=("$f")
-done < <(python3 "$SCRIPT_DIR/accuracy/evaluate.py" --list-images "$IMAGES_TXT")
+done < <(python3 "$SCRIPT_DIR/dataset/dataset_utils.py" --list-images "$IMAGES_TXT")
 
 if [ "${#IMAGE_FILES[@]}" -ne "$EXPECTED_IMAGES" ]; then
   echo "ERROR: Expected $EXPECTED_IMAGES files from $IMAGES_TXT, found ${#IMAGE_FILES[@]}." >&2
@@ -442,9 +487,12 @@ fi
 # 4. Port forward if API URL was not provided
 # -----------------------------------------------------------------------------
 if [ -z "$API_URL" ]; then
+  # first free local port: another run.sh (e.g. one against the lab) may already forward 3000 or 33000
   PORT=3000
-  if command -v nc >/dev/null 2>&1 && nc -z 127.0.0.1 3000 2>/dev/null; then
-    PORT=33000
+  if command -v nc >/dev/null 2>&1; then
+    for candidate in 3000 $(seq 33000 33020); do
+      if ! nc -z 127.0.0.1 "$candidate" 2>/dev/null; then PORT=$candidate; break; fi
+    done
   fi
   echo "Starting kubectl port-forward for svc/web on port $PORT..."
   "${KUBECTL[@]}" port-forward svc/web "$PORT:3000" >/dev/null 2>&1 &
@@ -465,6 +513,49 @@ if [ -z "$API_URL" ]; then
     exit 1
   fi
   echo "Web API is ready."
+fi
+
+# The batch API needs a login (Bearer access token, valid 15 min). The benchmark uses its own user, registered with the
+# cluster's registration key (secret imgproc-web-auth) and a password derived from it, so no credentials are stored.
+API_TOKEN=""
+API_TOKEN_AT=0
+BENCH_EMAIL="bench@imgproc.local"
+api_login() {
+  local key pass resp
+  key="$("${KUBECTL[@]}" get secret imgproc-web-auth -o jsonpath='{.data.registerKey}' 2>/dev/null | base64 -d)" || key=""
+  if [ -z "$key" ]; then
+    echo "ERROR: no registerKey in secret imgproc-web-auth (laptop cluster: local-cluster/up.sh creates it)." >&2
+    return 1
+  fi
+  pass="bench-$(printf '%s' "$key" | sha256sum | cut -c1-24)"
+  # web allows 10 auth requests a minute per IP (all of a port-forward's traffic is 127.0.0.1): retry after a pause
+  local attempt
+  for attempt in 1 2 3 4; do
+    resp="$(curl -fsS -X POST "$API_URL/api/auth/login" -H 'Content-Type: application/json' \
+      -d "{\"email\":\"$BENCH_EMAIL\",\"password\":\"$pass\"}" 2>/dev/null)" ||
+      resp="$(curl -fsS -X POST "$API_URL/api/auth/register" -H 'Content-Type: application/json' \
+        -d "{\"email\":\"$BENCH_EMAIL\",\"password\":\"$pass\",\"registerKey\":\"$key\"}" 2>/dev/null)" && break
+    resp=""
+    [ "$attempt" -lt 4 ] && { echo "Web API login refused (attempt $attempt), retrying in 30 s..." >&2; sleep 30; }
+  done
+  if [ -z "$resp" ]; then
+    echo "ERROR: could not log in to (or register with) the Web API at $API_URL." >&2
+    return 1
+  fi
+  API_TOKEN="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["accessToken"])' <<< "$resp")"
+  API_TOKEN_AT=$SECONDS
+}
+# Log in again when the token is older than 10 min. Call it in this shell (not inside $(...)), before API calls.
+api_fresh() {
+  if [ -z "$API_TOKEN" ] || [ $((SECONDS - API_TOKEN_AT)) -gt 600 ]; then
+    api_login || exit 1
+  fi
+}
+api_curl() {
+  curl -H "Authorization: Bearer $API_TOKEN" "$@"
+}
+if [ -n "$API_URL" ]; then
+  api_fresh
 fi
 
 # Waits until the deployment has exactly $1 Ready pods and no others (incl. Terminating); $2 = number of 2s tries.
@@ -522,6 +613,19 @@ read_cpu_counters() {
 # -----------------------------------------------------------------------------
 START_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
+if [ -n "$MODEL" ]; then
+  mounted="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.volumes[?(@.name=="models")].hostPath.path}' 2>/dev/null || true)"
+  if [ -z "$mounted" ]; then
+    echo "ERROR: --model needs engine/models mounted at /app/models in image-worker (laptop cluster: local-cluster/up.sh)." >&2
+    echo "       On the lab, the model has to be in the engine image instead." >&2
+    exit 1
+  fi
+  echo "Configuring YOLO_MODEL_NAME=$MODEL_IN_POD on deployment/image-worker..."
+  PREV_YOLO_MODEL="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].env[?(@.name=="YOLO_MODEL_NAME")].value}' 2>/dev/null || true)"
+  PATCHED_MODEL=1
+  "${KUBECTL[@]}" set env deployment/image-worker "YOLO_MODEL_NAME=$MODEL_IN_POD"
+fi
+
 if [ -n "$IMGSZ" ]; then
   echo "Configuring YOLO_IMGSZ=$IMGSZ on deployment/image-worker..."
   PREV_YOLO_IMGSZ="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].env[?(@.name=="YOLO_IMGSZ")].value}' 2>/dev/null || true)"
@@ -532,7 +636,7 @@ fi
 create_batch() {
   local files=("$@")
   local draft_resp b_id
-  draft_resp="$(curl -fsS -X POST "$API_URL/api/batches" -F "config=$BATCH_CONFIG_JSON")" || {
+  draft_resp="$(api_curl -fsS -X POST "$API_URL/api/batches" -F "config=$BATCH_CONFIG_JSON")" || {
     echo "ERROR: Failed to create draft batch via $API_URL/api/batches" >&2
     exit 1
   }
@@ -541,12 +645,12 @@ create_batch() {
     exit 1
   }
   for f in "${files[@]}"; do
-    curl -fsS -X POST "$API_URL/api/batches/$b_id/files" -F "file=@$f" >/dev/null || {
+    api_curl -fsS -X POST "$API_URL/api/batches/$b_id/files" -F "file=@$f" >/dev/null || {
       echo "ERROR: Failed to upload file $f to batch $b_id" >&2
       exit 1
     }
   done
-  curl -fsS -X POST "$API_URL/api/batches/$b_id/start" >/dev/null || {
+  api_curl -fsS -X POST "$API_URL/api/batches/$b_id/start" >/dev/null || {
     echo "ERROR: Failed to start batch $b_id" >&2
     exit 1
   }
@@ -554,7 +658,7 @@ create_batch() {
 }
 
 verify_worker_imgsz() {
-  if [ -z "$IMGSZ" ]; then
+  if [ -z "$IMGSZ" ] && [ -z "$MODEL" ]; then
     return 0
   fi
   local wait_seconds="${1:-0}"
@@ -577,11 +681,14 @@ verify_worker_imgsz() {
     fi
   fi
   # The engine logs "input size <N>px" when it finishes loading YOLO, a few seconds after the pod is Ready, so keep looking for a while.
-  echo "Verifying worker input size in image-worker logs (up to 120s)..."
-  local found_log=0 t
+  # It also logs the weights path it loaded; a missing file makes it fall back to the base model silently, so check that too.
+  echo "Verifying worker model / input size in image-worker logs (up to 120s)..."
+  local found_log=0 t logs
   for ((t = 0; t < 120 && found_log == 0; t += 3)); do
     for p in $("${KUBECTL[@]}" get pod -l app.kubernetes.io/name=image-worker -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-      if "${KUBECTL[@]}" logs "$p" -c image-worker 2>/dev/null | grep "input size ${IMGSZ}px" >/dev/null; then
+      logs="$("${KUBECTL[@]}" logs "$p" -c image-worker 2>/dev/null || true)"
+      if { [ -z "$IMGSZ" ] || grep -q "input size ${IMGSZ}px" <<< "$logs"; } &&
+        { [ -z "$MODEL" ] || grep -qF "from: $MODEL_IN_POD" <<< "$logs"; }; then
         found_log=1
         break
       fi
@@ -589,10 +696,11 @@ verify_worker_imgsz() {
     [ "$found_log" -eq 1 ] || sleep 3
   done
   if [ "$found_log" -ne 1 ]; then
-    echo "ERROR: image-worker does not log 'input size ${IMGSZ}px'. The engine image may be outdated and not support YOLO_IMGSZ." >&2
+    [ -n "$IMGSZ" ] && echo "ERROR: image-worker does not log 'input size ${IMGSZ}px' (engine image too old for YOLO_IMGSZ?)." >&2
+    [ -n "$MODEL" ] && echo "ERROR: image-worker did not load $MODEL_IN_POD (missing mount or file: it falls back to the base model)." >&2
     exit 1
   fi
-  echo "Verified image-worker input size ${IMGSZ}px in logs."
+  echo "Verified image-worker ${IMGSZ:+input size ${IMGSZ}px }${MODEL:+model $MODEL }in logs."
 }
 
 if [ "$PRELOAD" -eq 1 ]; then
@@ -642,13 +750,15 @@ elif [ "$MODE" = "fixed" ]; then
   for ((i = 0; i < WARMUP_COUNT; i++)); do
     warmup_files+=("$IMAGES_DIR/${IMAGE_FILES[i]}")
   done
+  api_fresh
   WARMUP_ID="$(create_batch "${warmup_files[@]}")"
   ALL_BATCH_IDS+=("$WARMUP_ID")
   echo "Warm-up batch created: $WARMUP_ID. Waiting for it to reach terminal state..."
 
   warmup_ok=0
   for _ in {1..300}; do
-    batch_info="$(curl -fsS "$API_URL/api/batches/$WARMUP_ID")"
+    api_fresh
+    batch_info="$(api_curl -fsS "$API_URL/api/batches/$WARMUP_ID")"
     pending_jobs="$(python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -714,13 +824,15 @@ else
     for ((i = 0; i < WARMUP_COUNT; i++)); do
       warmup_files+=("$IMAGES_DIR/${IMAGE_FILES[i]}")
     done
+    api_fresh
     WARMUP_ID="$(create_batch "${warmup_files[@]}")"
     ALL_BATCH_IDS+=("$WARMUP_ID")
     echo "Warm-up batch created: $WARMUP_ID. Waiting for it to reach terminal state..."
 
     warmup_ok=0
     for _ in {1..300}; do
-      batch_info="$(curl -fsS "$API_URL/api/batches/$WARMUP_ID")"
+      api_fresh
+      batch_info="$(api_curl -fsS "$API_URL/api/batches/$WARMUP_ID")"
       pending_jobs="$(python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -750,12 +862,16 @@ fi
 echo "Starting resource and replica metrics sampler (every 5s)..."
 sample_metrics() {
   echo "timestamp,pod,cpu,memory" > "$OUT_DIR/top.csv"
+  echo "timestamp,pod,cpu,memory" > "$OUT_DIR/web_top.csv"
   echo "timestamp,desired,ready" > "$OUT_DIR/replicas.csv"
 
   while true; do
     ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
     # top.csv
+    # web_top.csv: the web pods, separately (summarize.py's worker statistics read top.csv)
+    "${KUBECTL[@]}" top pod -l app.kubernetes.io/name=web --no-headers 2>/dev/null |
+      awk -v ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)" 'NF >= 3 {print ts "," $1 "," $2 "," $3}' >> "$OUT_DIR/web_top.csv" || true
     top_out="$("${KUBECTL[@]}" top pod -l app.kubernetes.io/name=image-worker --no-headers 2>/dev/null || true)"
     if [ -n "$top_out" ]; then
       while read -r pod cpu mem; do
@@ -812,6 +928,7 @@ submit_batch() {
 echo "Submitting $EXPECTED_IMAGES images as $NUM_BATCHES batches of $BATCH_SIZE (up to $PARALLEL at a time)..."
 upload_failed=0
 for ((b = 0; b < NUM_BATCHES; b++)); do
+  api_fresh
   if [ "$PARALLEL" -le 1 ]; then
     submit_batch "$b"
   else
@@ -862,7 +979,7 @@ if [ "$PRELOAD" -eq 1 ]; then
   read_cpu_counters start
 fi
 
-if [ "$MODE" = "autoscale" ] && [ "$AUTOSCALE_MIN" -eq 0 ] && [ -n "$IMGSZ" ]; then
+if [ "$MODE" = "autoscale" ] && [ "$AUTOSCALE_MIN" -eq 0 ] && { [ -n "$IMGSZ" ] || [ -n "$MODEL" ]; }; then
   verify_worker_imgsz 300
 fi
 
@@ -880,8 +997,9 @@ while true; do
   fi
 
   total_pending=0
+  api_fresh
   for b_id in "${BENCH_BATCH_IDS[@]}"; do
-    b_info="$(curl -fsS "$API_URL/api/batches/$b_id")"
+    b_info="$(api_curl -fsS "$API_URL/api/batches/$b_id")"
     pending="$(python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -1043,7 +1161,7 @@ CPU_LIMIT="$CPU_LIMIT" MEM_LIMIT="$MEM_LIMIT" NODE_NAME="$NODE_NAME" NODE_CPU_CO
 GPU="$GPU" IMAGES_TXT_HASH="$IMAGES_TXT_HASH" START_TIME="$START_TIME" END_TIME="$END_TIME" \
 DATASET="$DATASET" PARALLEL="$PARALLEL" PRELOAD="$PRELOAD" RELEASE_TIME="$RELEASE_TIME" \
 CONFIDENCE="$CONFIDENCE" SAVE_DETECTIONS="$SAVE_DETECTIONS" EFFECTIVE_IMGSZ="$EFFECTIVE_IMGSZ" \
-OUT_DIR="$OUT_DIR" python3 - <<'EOF'
+MODEL="$MODEL" OUT_DIR="$OUT_DIR" python3 - <<'EOF'
 import json
 import os
 
@@ -1081,6 +1199,8 @@ meta = {
     "confidence_threshold": confidence_threshold,
     "save_detections": save_det,
     "imgsz": num("EFFECTIVE_IMGSZ") or 640,
+    # model file the workers ran (from engine/models); None = the engine image's own model
+    "model": os.environ.get("MODEL") or None,
 }
 with open(os.path.join(os.environ["OUT_DIR"], "meta.json"), "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)

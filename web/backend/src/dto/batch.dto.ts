@@ -162,6 +162,7 @@ export interface ReportFailedImageDTO {
 export interface ReportWhitelistPersonDTO {
   whitelistRef: number;
   whitelistKey: string;
+  name: string | null;
   images: Array<{
     jobId: string;
     originalFilename: string;
@@ -451,13 +452,23 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
     }));
 
   const whitelistKeys = Array.isArray(batch.whitelistKeys) ? batch.whitelistKeys : [];
-  const whitelistPeople: ReportWhitelistPersonDTO[] = whitelistKeys.map((key, index) => ({
-    whitelistRef: index,
-    whitelistKey: key,
-    images: [],
-    imageCount: 0,
-    detectionCount: 0,
-  }));
+  const whitelistNamesMap =
+    typeof batch.whitelistNames === "object" && batch.whitelistNames !== null && !Array.isArray(batch.whitelistNames)
+      ? (batch.whitelistNames as Record<string, unknown>)
+      : {};
+
+  const whitelistPeople: ReportWhitelistPersonDTO[] = whitelistKeys.map((key, index) => {
+    const rawName = whitelistNamesMap[key];
+    const name = typeof rawName === "string" && rawName.trim().length > 0 ? rawName : null;
+    return {
+      whitelistRef: index,
+      whitelistKey: key,
+      name,
+      images: [],
+      imageCount: 0,
+      detectionCount: 0,
+    };
+  });
 
   for (const image of perImage) {
     const seenRefs = new Set<number>();

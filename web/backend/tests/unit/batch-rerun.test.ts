@@ -116,7 +116,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
         name: `${validSourceBatch.name} (re-run)`,
         config: { targets: ["face"], style: "pixelate", format: "png" },
         whitelistKeys: [],
-        startedAt: new Date(),
+        startedAt: null,
         createdAt: new Date(),
       } as any;
     });
@@ -127,6 +127,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
     });
 
     expect(result.skipped).toBe(0);
+    expect(result.batch.status).toBe("DRAFT");
     // Distinct inputs: photo1 and photo2 -> exactly 2 copies
     expect(copySpy).toHaveBeenCalledTimes(2);
     expect(addedJobs).toHaveLength(2);
@@ -142,8 +143,8 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
       expect(job.outputKey).toMatch(new RegExp(`^${createdBatchId}/[^/]+/result\\.png$`));
     }
 
-    // Verify job published per original
-    expect(publishSpy).toHaveBeenCalledTimes(2);
+    // Verify draft batch is not started yet (jobs not published yet)
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   it("handles fresh whitelist files under the new batch id without reusing old keys", async () => {
@@ -198,7 +199,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
           name: "New",
           config: { targets: ["face"] },
           whitelistKeys: [`${bId}/whitelist/face-1.png`],
-          startedAt: new Date(),
+          startedAt: null,
           createdAt: new Date(),
         }) as any,
     );
@@ -390,7 +391,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
       name: "Source Batch (re-run)",
       config: { targets: ["face"], style: "blur" },
       whitelistKeys: [],
-      startedAt: new Date(),
+      startedAt: null,
       createdAt: new Date(),
     } as any);
 
@@ -469,7 +470,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
       name: "Custom Rerun Name",
       config: { targets: ["face"] },
       whitelistKeys: [],
-      startedAt: new Date(),
+      startedAt: null,
       createdAt: new Date(),
     } as any);
 

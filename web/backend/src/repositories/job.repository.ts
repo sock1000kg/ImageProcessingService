@@ -17,6 +17,7 @@ export async function createDraftBatch(batch: {
   name: string;
   config: BatchConfig;
   whitelistKeys: string[];
+  whitelistNames?: Record<string, string>;
 }) {
   return prisma.batch.create({
     data: {
@@ -25,6 +26,7 @@ export async function createDraftBatch(batch: {
       name: batch.name,
       config: batch.config as unknown as Prisma.InputJsonValue,
       whitelistKeys: batch.whitelistKeys,
+      whitelistNames: (batch.whitelistNames ?? {}) as unknown as Prisma.InputJsonValue,
       startedAt: null,
     },
   });
@@ -184,6 +186,7 @@ export async function insertRetryJob(job: {
   inputKey: string;
   outputKey: string;
   inputBytes?: number | null;
+  whitelistRefs?: number[];
 }) {
   return prisma.job.create({
     data: {
@@ -194,6 +197,7 @@ export async function insertRetryJob(job: {
       outputKey: job.outputKey,
       inputBytes: job.inputBytes ?? null,
       status: JobStatus.PENDING,
+      whitelistRefs: job.whitelistRefs ?? [],
     },
   });
 }

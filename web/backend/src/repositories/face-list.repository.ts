@@ -16,6 +16,7 @@ export async function createFaceList(data: {
   userId: string;
   name: string;
   keys: string[];
+  faceNames?: Record<string, string>;
 }): Promise<FaceList> {
   return prisma.faceList.create({
     data: {
@@ -23,6 +24,7 @@ export async function createFaceList(data: {
       userId: data.userId,
       name: data.name,
       keys: data.keys,
+      faceNames: data.faceNames ?? {},
     },
   });
 }
@@ -62,4 +64,61 @@ export async function deleteFaceListRow(id: string, userId: string): Promise<boo
     where: { id, userId },
   });
   return result.count > 0;
+}
+
+/**
+ * Atomically appends new keys and names to an existing face list if the total count does not exceed max.
+ *
+ * Why atomic SQL: Prevents race conditions from multi-tab or concurrent uploads by checking
+ * cardinality(keys) + new_count <= max in the same statement as the update. Merges face_names JSONB.
+ */
+export async function appendFaceListKeys(
+  id: string,
+  userId: string,
+  keys: string[],
+  faceNames: Record<string, string>,
+  max: number = 5,
+): Promise<FaceList | null> {
+  const namesJson = JSON.stringify(faceNames);
+
+  const rows = await prisma.$queryRaw<FaceList[]>`
+    UPDATE face_lists
+    SET keys = keys || ${keys}::text[],
+        face_names = face_names || ${namesJson}::jsonb
+    WHERE id = ${id}::uuid
+      AND user_id = ${userId}::uuid
+      AND cardinality(keys) + ${keys.length} <= ${max}
+    RETURNING id, user_id AS "userId", name, keys, face_names AS "faceNames", created_at AS "createdAt"
+  `;
+  return rows[0] ?? null;
+}
+
+/**
+ * Updates the display name of an existing face list record.
+ *
+ * Why centralized update: Encapsulates database mutations and mirrors updateBatchName.
+ */
+export async function updateFaceListName(id: string, name: string): Promise<FaceList> {
+  return prisma.faceList.update({
+    where: { id },
+    data: { name },
+  });
+}
+
+/**
+ * Atomically removes a specific storage key and its display name from a face list.
+ *
+ * Why remove by key: Removes the exact storage key rather than an array index so a repeated request
+ * or concurrent modification cannot inadvertently remove a different enrolled face. Strips name from JSONB map.
+ */
+export async function removeFaceListKey(id: string, userId: string, key: string): Promise<FaceList | null> {
+  const rows = await prisma.$queryRaw<FaceList[]>`
+    UPDATE face_lists
+    SET keys = array_remove(keys, ${key}::text),
+        face_names = face_names - ${key}::text
+    WHERE id = ${id}::uuid
+      AND user_id = ${userId}::uuid
+    RETURNING id, user_id AS "userId", name, keys, face_names AS "faceNames", created_at AS "createdAt"
+  `;
+  return rows[0] ?? null;
 }

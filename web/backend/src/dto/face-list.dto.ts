@@ -4,12 +4,13 @@
 import { z } from "zod";
 import { config } from "../config";
 import { badRequest, payloadTooLarge } from "../errors";
-import { CONTROL_CHAR_REGEX } from "./validation.dto";
+import { CONTROL_CHAR_REGEX, MAX_FACE_LIST_FILES } from "./validation.dto";
 
 export interface FaceListItemDTO {
   id: string;
   name: string;
   faceCount: number;
+  faceNames: (string | null)[];
   createdAt: string;
 }
 
@@ -63,8 +64,8 @@ export function validateFaceListFiles(files: Express.Multer.File[]): void {
   if (!files || files.length === 0) {
     throw badRequest("At least one face image is required", "VALIDATION_ERROR");
   }
-  if (files.length > 5) {
-    throw badRequest("Too many face files: maximum allowed is 5", "VALIDATION_ERROR");
+  if (files.length > MAX_FACE_LIST_FILES) {
+    throw badRequest(`Too many face files: maximum allowed is ${MAX_FACE_LIST_FILES}`, "VALIDATION_ERROR");
   }
 
   for (const file of files) {

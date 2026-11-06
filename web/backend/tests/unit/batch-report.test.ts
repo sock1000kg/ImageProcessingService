@@ -162,6 +162,7 @@ describe("advanced batch report features (Task 30)", () => {
     expect(person0).toEqual({
       whitelistRef: 0,
       whitelistKey: "uploads/batch-1/whitelist/person0.jpg",
+      name: null,
       images: [
         { jobId: "job-1", originalFilename: "img1.jpg" },
         { jobId: "job-2", originalFilename: "img2.jpg" },
@@ -174,6 +175,7 @@ describe("advanced batch report features (Task 30)", () => {
     expect(person1).toEqual({
       whitelistRef: 1,
       whitelistKey: "uploads/batch-1/whitelist/person1.jpg",
+      name: null,
       images: [],
       imageCount: 0,
       detectionCount: 0,

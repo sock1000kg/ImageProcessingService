@@ -5,7 +5,7 @@ import "dotenv/config";
 
 import { z } from "zod";
 
-const configSchema = z.object({
+export const configSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().min(1).default("postgresql://imgproc:CHANGE_ME_imgproc_local@localhost:5432/imgproc"),
   NATS_URL: z.string().min(1).default("nats://localhost:4222"),
@@ -24,10 +24,8 @@ const configSchema = z.object({
     .positive()
     .default(50 * 1024 * 1024),
   BATCH_MAX_FILES: z.coerce.number().int().positive().default(100),
-  // Per-account request limits per minute on batch creation and file uploads. The defaults cap a runaway client; the
-  // throughput benchmark's throwaway cluster raises them (it uploads thousands of images as fast as it can).
-  RATE_LIMIT_BATCHES_PER_MINUTE: z.coerce.number().int().positive().default(20),
-  RATE_LIMIT_UPLOADS_PER_MINUTE: z.coerce.number().int().positive().default(300),
+  // Global multiplier scaling all per-minute base limits (1 = defaults, 100 = load tests, 0.5 = stricter).
+  RATE_LIMIT_MULTIPLIER: z.coerce.number().positive().default(1),
   CLEANUP_INTERVAL_MS: z.coerce
     .number()
     .int()

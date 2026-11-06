@@ -5,8 +5,8 @@ import { Router } from "express";
 import multer from "multer";
 import { config } from "../config";
 import { requireAuth } from "../middleware/auth.middleware";
-import { rateLimit, userKey } from "../middleware/rate-limit.middleware";
-import { validateBatchCreation, validateIdParam } from "../dto";
+import { RATE_LIMIT_BASES, rateLimit, userKey } from "../middleware/rate-limit.middleware";
+import { MAX_WHITELIST_FILES, parseFaceListIds, validateBatchCreation, validateIdParam } from "../dto";
 import { NextFunction, Request, Response } from "express";
 import {
   addBatchFileHandler,
@@ -16,23 +16,30 @@ import {
   downloadBatchZipHandler,
   getBatchHandler,
   getBatchReportHandler,
+  getBatchWhitelistPhotoHandler,
   listBatchesHandler,
   rerunBatchHandler,
   startBatchHandler,
   updateBatchHandler,
 } from "../controllers/batches.controller";
 
-const upload = multer({
+/**
+ * Multer multipart upload parser for batch image files and whitelist images.
+ *
+ * Why defParamCharset utf8: Preserves non-ASCII (e.g. Vietnamese) characters in originalFilename
+ * for display in the UI, report generation, and zip exports.
+ */
+export const batchesUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.UPLOAD_MAX_BYTES },
+  defParamCharset: "utf8",
 });
 
 export const batchesRouter = Router();
-// Moderate, per account: a 100-image batch uploads one file per request, so this leaves room for a few batches a
-// minute while capping a runaway client.
-const createBatchLimit = rateLimit(60_000, config.RATE_LIMIT_BATCHES_PER_MINUTE, userKey);
-const uploadLimit = rateLimit(60_000, config.RATE_LIMIT_UPLOADS_PER_MINUTE, userKey);
-const downloadTokenLimit = rateLimit(60_000, 30, userKey);
+// Moderate, per account: caps runaway clients creating batches or uploading files while leaving room for normal usage.
+export const createBatchLimit = rateLimit(RATE_LIMIT_BASES.createBatch, userKey);
+export const uploadLimit = rateLimit(RATE_LIMIT_BASES.upload, userKey);
+export const downloadTokenLimit = rateLimit(RATE_LIMIT_BASES.downloadToken, userKey);
 function validateId(request: Request, _response: Response, next: NextFunction): void {
   try {
     validateIdParam(request.params);
@@ -45,14 +52,11 @@ function validateId(request: Request, _response: Response, next: NextFunction): 
 function validateCreateRequest(request: Request, _response: Response, next: NextFunction): void {
   try {
     const filesMap = request.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
-    const faceListId =
-      typeof request.body?.faceListId === "string" && request.body.faceListId.trim().length > 0
-        ? request.body.faceListId.trim()
-        : undefined;
+    const faceListIds = parseFaceListIds(request.body);
     validateBatchCreation({
       filesPresent: (filesMap?.files?.length ?? 0) > 0 || request.body?.files !== undefined,
       whitelist: filesMap?.whitelist ?? [],
-      faceListId,
+      faceListIds,
     });
     next();
   } catch (error) {
@@ -70,7 +74,7 @@ batchesRouter.get("/", requireAuth, listBatchesHandler);
 
 /**
  * POST /api/batches
- * Request: multipart/form-data with optional files, whitelist (max 5), config JSON, name
+ * Request: multipart/form-data with optional files, whitelist (max 20), config JSON, name
  * Response: 201 { batch: BatchResponseDTO }
  * Errors: 400 VALIDATION_ERROR, 409 BATCH_FULL, 503 SERVICE_UNAVAILABLE
  */
@@ -79,9 +83,9 @@ batchesRouter.post(
   // Auth runs before multer so an anonymous request is rejected before its files are buffered in memory.
   requireAuth,
   createBatchLimit,
-  upload.fields([
+  batchesUpload.fields([
     { name: "files", maxCount: config.BATCH_MAX_FILES },
-    { name: "whitelist", maxCount: 5 },
+    { name: "whitelist", maxCount: MAX_WHITELIST_FILES },
   ]),
   validateCreateRequest,
   createBatchHandler,
@@ -93,7 +97,14 @@ batchesRouter.post(
  * Response: 201 { batch: BatchResponseDTO }
  * Errors: 400 VALIDATION_ERROR / INVALID_UUID, 404 NOT_FOUND, 409 BATCH_STARTED / BATCH_FULL, 503 SERVICE_UNAVAILABLE
  */
-batchesRouter.post("/:id/files", requireAuth, uploadLimit, validateId, upload.single("file"), addBatchFileHandler);
+batchesRouter.post(
+  "/:id/files",
+  requireAuth,
+  uploadLimit,
+  validateId,
+  batchesUpload.single("file"),
+  addBatchFileHandler,
+);
 
 /**
  * POST /api/batches/:id/start
@@ -105,7 +116,7 @@ batchesRouter.post("/:id/start", requireAuth, validateId, startBatchHandler);
 
 /**
  * POST /api/batches/:id/rerun
- * Request: multipart/form-data with optional whitelist (max 5), config JSON, name
+ * Request: multipart/form-data with optional whitelist (max 20), config JSON, name
  * Response: 201 { batch: BatchResponseDTO, skipped: number }
  * Errors: 400 VALIDATION_ERROR / INVALID_UUID, 404 NOT_FOUND, 409 BATCH_NOT_STARTED, 410 NO_ORIGINALS, 503 SERVICE_UNAVAILABLE
  */
@@ -114,7 +125,7 @@ batchesRouter.post(
   requireAuth,
   createBatchLimit,
   validateId,
-  upload.fields([{ name: "whitelist", maxCount: 5 }]),
+  batchesUpload.fields([{ name: "whitelist", maxCount: MAX_WHITELIST_FILES }]),
   rerunBatchHandler,
 );
 
@@ -141,6 +152,14 @@ batchesRouter.patch("/:id", requireAuth, validateId, updateBatchHandler);
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
 batchesRouter.get("/:id/report", requireAuth, validateId, getBatchReportHandler);
+
+/**
+ * GET /api/batches/:id/whitelist/:n
+ * Request: None
+ * Response: 200 (image stream with Cache-Control: private, no-store)
+ * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
+ */
+batchesRouter.get("/:id/whitelist/:n", requireAuth, getBatchWhitelistPhotoHandler);
 
 /**
  * DELETE /api/batches/:id

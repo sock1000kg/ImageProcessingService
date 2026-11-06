@@ -10,17 +10,19 @@ import {
   deleteBatchById,
   getBatchById,
   getBatchReportById,
+  getBatchWhitelistStream,
   listBatches,
   renameBatch,
   rerunBatch,
   startBatch,
 } from "../services/batch.service";
 import { notFound, unauthorized } from "../errors";
-import { listBatchesQuerySchema, patchBatchBodySchema, validateIdParam } from "../dto";
+import { listBatchesQuerySchema, parseFaceListIds, patchBatchBodySchema, validateIdParam } from "../dto";
 import { createBatchDownloadToken, verifyBatchDownloadToken } from "../auth";
 import { RESULTS_BUCKET, storage } from "../storage";
 import { getBatch, getBatchOwnedByUser, getJobsByBatchId } from "../repositories/job.repository";
 import { JobStatus } from "../generated/prisma/client";
+import { streamPrivateObject } from "./private-stream";
 
 export async function listBatchesHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
@@ -39,14 +41,12 @@ export async function createBatchHandler(request: Request, response: Response, n
     const files = filesMap?.files ?? [];
     const whitelist = filesMap?.whitelist ?? [];
     const filesPresent = files.length > 0 || request.body?.files !== undefined;
-    const faceListId =
-      typeof request.body?.faceListId === "string" && request.body.faceListId.trim().length > 0
-        ? request.body.faceListId.trim()
-        : undefined;
+    const faceListIds = parseFaceListIds(request.body);
 
     const batch = await createDraftBatch({
       whitelist,
-      faceListId,
+      faceListIds,
+      faceListId: faceListIds?.[0],
       rawConfig: request.body.config,
       filesPresent,
       name: request.body.name,
@@ -90,14 +90,12 @@ export async function rerunBatchHandler(request: Request, response: Response, ne
     const id = validateIdParam(request.params);
     const filesMap = request.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     const whitelist = filesMap?.whitelist ?? [];
-    const faceListId =
-      typeof request.body?.faceListId === "string" && request.body.faceListId.trim().length > 0
-        ? request.body.faceListId.trim()
-        : undefined;
+    const faceListIds = parseFaceListIds(request.body);
 
     const result = await rerunBatch(id, {
       whitelist,
-      faceListId,
+      faceListIds,
+      faceListId: faceListIds?.[0],
       rawConfig: request.body.config,
       name: request.body.name,
       userId: request.authUser!.id,
@@ -410,6 +408,41 @@ export async function downloadBatchZipHandler(request: Request, response: Respon
       response.destroy(error as Error);
       return;
     }
+    next(error);
+  }
+}
+
+/**
+ * GET /api/batches/:id/whitelist/:n
+ * Streams the batch's nth reference photo (1-based index) with private no-store headers.
+ *
+ * Why 404 on malformed index: Mirroring face list endpoint behaviour, non-numeric or non-positive indices
+ * are treated as resource not found rather than bad request.
+ */
+export async function getBatchWhitelistPhotoHandler(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const rawId = request.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (typeof id !== "string" || !id) {
+      throw notFound("Batch not found");
+    }
+
+    const nParam = request.params.n;
+    const rawN = Array.isArray(nParam) ? nParam[0] : nParam;
+    const n = typeof rawN === "string" ? parseInt(rawN, 10) : NaN;
+    if (Number.isNaN(n) || n < 1) {
+      throw notFound("Whitelist photo not found");
+    }
+
+    const userId = request.authUser!.id;
+    const streamInfo = await getBatchWhitelistStream(id, n, userId);
+
+    streamPrivateObject(response, next, streamInfo);
+  } catch (error) {
     next(error);
   }
 }

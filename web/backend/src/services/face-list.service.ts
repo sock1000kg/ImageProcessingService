@@ -8,14 +8,84 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { storage, UPLOADS_BUCKET } from "../storage";
-import { notFound } from "../errors";
-import { FaceListItemDTO, FaceListsResponseDTO, parseFaceListName, validateFaceListFiles } from "../dto";
+import { conflict, notFound } from "../errors";
+import { FaceList } from "../generated/prisma/client";
 import {
+  CONTROL_CHAR_REGEX,
+  FaceListItemDTO,
+  FaceListsResponseDTO,
+  MAX_FACE_LIST_FILES,
+  parseFaceListName,
+  UUID_REGEX,
+  validateFaceListFiles,
+} from "../dto";
+import {
+  appendFaceListKeys,
   createFaceList as createFaceListRepo,
   deleteFaceListRow,
   getFaceListOwnedByUser,
   listFaceListsByUserId,
+  removeFaceListKey,
+  updateFaceListName,
 } from "../repositories/face-list.repository";
+
+/**
+ * Sanitizes an uploaded face file originalname for storage and display.
+ *
+ * Why: Removes path segments (traversal prevention and cross-platform consistency),
+ * strips control characters that could break terminal logs or HTTP headers, and caps at 255 chars.
+ * Returns null if the sanitized name is empty so no map entry is saved.
+ */
+export function sanitizeFaceFileName(rawName?: string): string | null {
+  if (!rawName) return null;
+  const base = path.basename(rawName.replace(/\\/g, "/"));
+  const cleaned = base.replace(new RegExp(CONTROL_CHAR_REGEX.source, "g"), "");
+  if (!cleaned) return null;
+  const truncated = cleaned.slice(0, 255);
+  return truncated.length > 0 ? truncated : null;
+}
+
+/**
+ * Extracts a key-to-name lookup map from a FaceList's raw faceNames Json field.
+ */
+export function parseFaceNamesMap(raw: unknown): Record<string, string> {
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        return parsed as Record<string, string>;
+      }
+    } catch {
+      return {};
+    }
+  } else if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+    return raw as Record<string, string>;
+  }
+  return {};
+}
+
+/**
+ * Converts a database FaceList record into a FaceListItemDTO.
+ *
+ * Why centralized mapping: Consolidates the four DTO projections in face-list.service into a single function,
+ * ensuring the faceNames array is strictly aligned with the keys order while preventing internal storage keys
+ * from leaking into API responses.
+ */
+export function toFaceListItemDTO(list: FaceList): FaceListItemDTO {
+  const nameMap = parseFaceNamesMap(list.faceNames);
+  const faceNames = (list.keys ?? []).map((key) => {
+    const val = nameMap[key];
+    return typeof val === "string" && val.length > 0 ? val : null;
+  });
+
+  return {
+    id: list.id,
+    name: list.name,
+    faceCount: list.keys.length,
+    faceNames,
+    createdAt: list.createdAt instanceof Date ? list.createdAt.toISOString() : String(list.createdAt),
+  };
+}
 
 /**
  * Creates a new saved face reference list, uploading images into the user's isolated MinIO path.
@@ -35,6 +105,7 @@ export async function createFaceList(
 
   const listId = randomUUID();
   const keys: string[] = [];
+  const faceNames: Record<string, string> = {};
 
   try {
     for (let i = 0; i < files.length; i++) {
@@ -43,6 +114,10 @@ export async function createFaceList(
       const key = `lists/${userId}/${listId}/face-${i + 1}${ext}`;
       await storage.putObject(UPLOADS_BUCKET, key, file.buffer, file.mimetype);
       keys.push(key);
+      const displayName = sanitizeFaceFileName(file.originalname);
+      if (displayName) {
+        faceNames[key] = displayName;
+      }
     }
 
     const created = await createFaceListRepo({
@@ -50,14 +125,10 @@ export async function createFaceList(
       userId,
       name,
       keys,
+      faceNames,
     });
 
-    return {
-      id: created.id,
-      name: created.name,
-      faceCount: created.keys.length,
-      createdAt: created.createdAt.toISOString(),
-    };
+    return toFaceListItemDTO(created);
   } catch (error) {
     if (keys.length > 0) {
       try {
@@ -76,12 +147,7 @@ export async function createFaceList(
 export async function listFaceLists(userId: string): Promise<FaceListsResponseDTO> {
   const lists = await listFaceListsByUserId(userId);
   return {
-    lists: lists.map((item) => ({
-      id: item.id,
-      name: item.name,
-      faceCount: item.keys.length,
-      createdAt: item.createdAt.toISOString(),
-    })),
+    lists: lists.map((item) => toFaceListItemDTO(item)),
   };
 }
 
@@ -131,4 +197,145 @@ export async function deleteFaceList(id: string, userId: string): Promise<void> 
   // is preserved, allowing the user to retry deletion without leaving orphaned biometric objects in storage.
   await storage.deletePrefix(UPLOADS_BUCKET, `lists/${userId}/${id}/`);
   await deleteFaceListRow(id, userId);
+}
+
+/**
+ * Purges a list of specific storage keys, ignoring individual deletion errors.
+ * Used during rollback to ensure only this request's uploaded objects are cleaned up.
+ */
+async function cleanupUploadedKeys(keys: string[]): Promise<void> {
+  for (const key of keys) {
+    try {
+      await storage.deleteObject(UPLOADS_BUCKET, key);
+    } catch (cleanErr) {
+      console.error("Failed to clean up uploaded face list object", cleanErr);
+    }
+  }
+}
+
+/**
+ * Appends new reference photos to an existing saved face list.
+ *
+ * Why atomic SQL append: Prevents race conditions from multi-tab or concurrent additions
+ * and strictly bounds total faces to MAX_FACE_LIST_FILES at the database layer.
+ * Why selective cleanup: Deletes only the objects uploaded during this request if the operation fails,
+ * preserving existing reference faces.
+ */
+export async function addFacesToList(
+  id: string,
+  userId: string,
+  files: Express.Multer.File[],
+): Promise<FaceListItemDTO> {
+  if (!UUID_REGEX.test(id)) {
+    throw notFound("Face list not found");
+  }
+
+  const existing = await getFaceListOwnedByUser(id, userId);
+  if (!existing) {
+    throw notFound("Face list not found");
+  }
+
+  validateFaceListFiles(files);
+
+  if (existing.keys.length + files.length > MAX_FACE_LIST_FILES) {
+    throw conflict(`Allow list cannot exceed ${MAX_FACE_LIST_FILES} faces`, "FACE_LIST_FULL");
+  }
+
+  const uploadedKeys: string[] = [];
+  const uploadedNames: Record<string, string> = {};
+  try {
+    for (const file of files) {
+      const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
+      const key = `lists/${userId}/${id}/face-${randomUUID()}${ext}`;
+      await storage.putObject(UPLOADS_BUCKET, key, file.buffer, file.mimetype);
+      uploadedKeys.push(key);
+      const displayName = sanitizeFaceFileName(file.originalname);
+      if (displayName) {
+        uploadedNames[key] = displayName;
+      }
+    }
+
+    const updated = await appendFaceListKeys(id, userId, uploadedKeys, uploadedNames, MAX_FACE_LIST_FILES);
+    if (!updated) {
+      await cleanupUploadedKeys(uploadedKeys);
+      uploadedKeys.length = 0;
+
+      const current = await getFaceListOwnedByUser(id, userId);
+      if (!current) {
+        throw notFound("Face list not found");
+      }
+      throw conflict(`Allow list cannot exceed ${MAX_FACE_LIST_FILES} faces`, "FACE_LIST_FULL");
+    }
+
+    return toFaceListItemDTO(updated);
+  } catch (error) {
+    if (uploadedKeys.length > 0) {
+      await cleanupUploadedKeys(uploadedKeys);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Deletes a single biometric face from a saved face list.
+ *
+ * Why object deletion first: Removes the biometric storage object before altering the database row.
+ * If MinIO deletion fails, the error propagates without catching so the database row remains intact,
+ * allowing the user to retry without leaving orphaned biometric objects (S3 deletes are idempotent).
+ * Why atomic key removal: Removes the key via array_remove so repeated requests cannot delete
+ * a second face if indices shifted.
+ * Why null when last face: When the list's only face is deleted, purges the entire list record and prefix,
+ * returning { list: null } identical to deleting a batch's final job.
+ */
+export async function deleteFaceFromList(
+  id: string,
+  faceIndex: number,
+  userId: string,
+): Promise<{ list: FaceListItemDTO | null }> {
+  if (!UUID_REGEX.test(id)) {
+    throw notFound("Face list not found");
+  }
+
+  const list = await getFaceListOwnedByUser(id, userId);
+  if (!list) {
+    throw notFound("Face list not found");
+  }
+
+  if (faceIndex < 1 || faceIndex > list.keys.length) {
+    throw notFound("Face reference not found");
+  }
+
+  if (list.keys.length === 1) {
+    await deleteFaceList(id, userId);
+    return { list: null };
+  }
+
+  const key = list.keys[faceIndex - 1]!;
+  // Delete storage object first without catching errors
+  await storage.deleteObject(UPLOADS_BUCKET, key);
+
+  const updated = await removeFaceListKey(id, userId, key);
+  if (!updated) {
+    throw notFound("Face list not found");
+  }
+
+  return {
+    list: toFaceListItemDTO(updated),
+  };
+}
+
+/**
+ * Renames an existing saved face reference list owned by the authenticated user.
+ *
+ * Why owner-scoped: Prevents users from modifying lists owned by other accounts.
+ * Leaves keys and faceNames untouched.
+ */
+export async function renameFaceList(id: string, rawName: unknown, userId: string): Promise<FaceListItemDTO> {
+  const existing = await getFaceListOwnedByUser(id, userId);
+  if (!existing) {
+    throw notFound("Face list not found");
+  }
+  const name = parseFaceListName(rawName);
+  const updated = await updateFaceListName(id, name);
+  return toFaceListItemDTO(updated);
 }

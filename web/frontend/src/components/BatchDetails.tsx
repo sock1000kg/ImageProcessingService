@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, getBatchReport, getBatchZipUrl, retryJob } from "../api";
-import { Batch, BatchReport as Report, Job } from "../types";
+import { Batch, BatchReport as Report, Job, MessageHandler } from "../types";
 import { BatchHeader } from "./BatchHeader";
 import { BatchImageList } from "./BatchImageList";
 import { BatchReport } from "./BatchReport";
@@ -15,7 +15,7 @@ export interface BatchDetailsProps {
   batch: Batch;
   onRefresh: () => Promise<void>;
   onDelete: () => Promise<void> | void;
-  onMessage: (message: string) => void;
+  onMessage: MessageHandler;
 }
 
 /**
@@ -60,7 +60,7 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
         setMissingFacesConfirm({ job, missing, total });
         return;
       }
-      onMessage(error instanceof Error ? error.message : "Retry failed");
+      onMessage(error instanceof Error ? error.message : "Retry failed", { variant: "error" });
     }
   };
 
@@ -82,14 +82,14 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
 
   const handleDownloadZip = async () => {
     if (completedJobs.length === 0) {
-      onMessage("No completed results are available to download.");
+      onMessage("No completed results are available to download.", { variant: "error" });
       return;
     }
     try {
       const url = await getBatchZipUrl(batch.id);
       window.location.href = url;
     } catch (error) {
-      onMessage(error instanceof Error ? error.message : "Failed to start zip download");
+      onMessage(error instanceof Error ? error.message : "Failed to start zip download", { variant: "error" });
     }
   };
 
@@ -105,7 +105,7 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
             selected={selected?.id ?? null}
             onSelect={(job) => setSelectedId(job.id)}
             onJobDeleted={() => void onRefresh()}
-            onError={onMessage}
+            onError={(message) => onMessage(message, { variant: "error" })}
           />
         </div>
 

@@ -6,9 +6,10 @@ import { BatchCreateForm } from "../components/BatchCreateForm";
 import { FormConfig } from "../components/RedactionConfigForm";
 import { useCreateBatch } from "../hooks/useCreateBatch";
 import { UploadProgress } from "../api";
+import { MessageHandler } from "../types";
 
 export interface CreateBatchPageProps {
-  onMessage?: (message: string) => void;
+  onMessage?: MessageHandler;
 }
 
 /**

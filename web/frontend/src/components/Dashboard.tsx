@@ -2,7 +2,7 @@
  * Dashboard overview component displaying workspace welcome banner, system metrics, and saved face lists.
  */
 import React from "react";
-import { Batch } from "../types";
+import { Batch, MessageHandler } from "../types";
 import { StatTile } from "./ui/StatTile";
 import { SavedFaceListsPanel } from "./SavedFaceListsPanel";
 
@@ -10,7 +10,7 @@ export interface DashboardProps {
   stats: Record<string, number>;
   batch?: Batch | null;
   onCreate: () => void;
-  onMessage?: (message: string) => void;
+  onMessage?: MessageHandler;
 }
 
 /**

@@ -10,11 +10,11 @@ import { Banner } from "../components/ui/Banner";
 import { StatTile } from "../components/ui/StatTile";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { TrashIcon } from "../components/ui/TrashIcon";
-import { AccountUsage, BatchSummaryItem } from "../types";
+import { AccountUsage, BatchSummaryItem, MessageHandler } from "../types";
 import { formatBytes } from "../utils/format";
 
 export interface LibraryPageProps {
-  onMessage?: (message: string) => void;
+  onMessage?: MessageHandler;
 }
 
 export function LibraryPage({ onMessage }: LibraryPageProps) {
@@ -55,7 +55,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
       setUsage(data.usage);
       setNextCursor(data.nextCursor);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load more batches");
+      onMessage?.(err instanceof Error ? err.message : "Failed to load more batches", { variant: "error" });
     } finally {
       setLoadingMore(false);
     }
@@ -85,7 +85,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
       );
       onMessage?.("Batch deleted");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete batch");
+      onMessage?.(err instanceof Error ? err.message : "Failed to delete batch", { variant: "error" });
     }
   };
 
@@ -95,8 +95,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
       window.location.href = url;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to download zip";
-      setError(message);
-      onMessage?.(message);
+      onMessage?.(message, { variant: "error" });
     }
   };
 

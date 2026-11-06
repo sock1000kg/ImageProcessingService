@@ -692,6 +692,19 @@ output {
   /* Clear default banner block margin when wrapped inside the fixed-position toast container */
   margin: 0;
 }
+.toast .error-banner {
+  /* Error notices are interactive and contain a dismiss button */
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.toast .error-banner .icon-button {
+  color: inherit;
+  padding: 0 4px;
+  line-height: 1;
+}
 .details-card {
   margin-top: 24px;
   padding: 25px;

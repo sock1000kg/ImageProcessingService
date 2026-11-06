@@ -8,10 +8,10 @@
  * How errors surface: Initial fetch failures populate `error`, while subsequent background polling or
  * deletion failures are forwarded to `onMessage` without unmounting the active batch view.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { deleteBatch, getBatch } from "../api";
 import { BATCH_SYNC_MS } from "../sync";
-import { Batch } from "../types";
+import { Batch, MessageHandler } from "../types";
 
 /**
  * Manages active batch state, automated 3-second polling, and batch deletion.
@@ -20,10 +20,11 @@ import { Batch } from "../types";
  * @param onMessage Optional callback to receive error notifications on polling or deletion failures
  * @returns State object containing the active batch, loading indicator, errors, and refresh/delete handlers
  */
-export function useBatch(batchId: string | undefined, onMessage?: (message: string) => void) {
+export function useBatch(batchId: string | undefined, onMessage?: MessageHandler) {
   const [batch, setBatch] = useState<Batch | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const pollFailedRef = useRef(false);
 
   const refreshBatch = useCallback(async () => {
     if (!batchId) return;
@@ -31,15 +32,20 @@ export function useBatch(batchId: string | undefined, onMessage?: (message: stri
       const response = await getBatch(batchId);
       setBatch(response.batch);
       setError(null);
+      pollFailedRef.current = false;
     } catch (reason) {
-      const text = reason instanceof Error ? reason.message : "Unable to refresh batch";
-      onMessage?.(text);
+      if (!pollFailedRef.current) {
+        pollFailedRef.current = true;
+        const text = reason instanceof Error ? reason.message : "Unable to refresh batch";
+        onMessage?.(text, { variant: "error" });
+      }
     }
   }, [batchId, onMessage]);
 
   useEffect(() => {
     // Immediately clear previous batch data when batchId changes so outdated details are not shown
     setBatch(null);
+    pollFailedRef.current = false;
 
     if (!batchId) {
       setError(null);
@@ -52,6 +58,7 @@ export function useBatch(batchId: string | undefined, onMessage?: (message: stri
       .then((res) => {
         setBatch(res.batch);
         setError(null);
+        pollFailedRef.current = false;
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Batch not found");
@@ -76,7 +83,7 @@ export function useBatch(batchId: string | undefined, onMessage?: (message: stri
       return true;
     } catch (reason) {
       const text = reason instanceof Error ? reason.message : "Delete failed";
-      onMessage?.(text);
+      onMessage?.(text, { variant: "error" });
       return false;
     }
   }, [batch, onMessage]);

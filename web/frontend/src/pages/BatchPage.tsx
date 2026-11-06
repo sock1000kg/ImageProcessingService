@@ -5,9 +5,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { BatchDetails } from "../components/BatchDetails";
 import { Banner } from "../components/ui/Banner";
 import { useBatch } from "../hooks/useBatch";
+import { MessageHandler } from "../types";
 
 export interface BatchPageProps {
-  onMessage?: (message: string) => void;
+  onMessage?: MessageHandler;
 }
 
 /**

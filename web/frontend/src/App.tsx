@@ -14,6 +14,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { BATCH_SYNC_MS, STATS_SYNC_MS } from "./sync";
+import { MessageHandler, NoticeOptions } from "./types";
 
 /**
  * Topbar header component reflecting the active view's context and sync telemetry.
@@ -79,16 +80,33 @@ export function App() {
 
 const MESSAGE_TIMEOUT_MS = 3000;
 
+type NoticeState = {
+  text: string;
+  variant: "success" | "error";
+  id: number;
+};
+
 function AuthenticatedApp() {
   const { status } = useAuth();
   const location = useLocation();
   // The id makes a repeated message ("Batch renamed" twice) restart the timer instead of being ignored.
-  const [message, setMessageState] = useState<{ text: string; id: number } | null>(null);
-  const setMessage = useCallback((text: string) => setMessageState(text ? { text, id: Date.now() } : null), []);
+  const [message, setMessageState] = useState<NoticeState | null>(null);
+  const setMessage: MessageHandler = useCallback((text: string, options?: NoticeOptions) => {
+    setMessageState(
+      text
+        ? {
+            text,
+            variant: options?.variant ?? "success",
+            id: Date.now(),
+          }
+        : null,
+    );
+  }, []);
 
   // Notices like "Batch renamed" are confirmations, not state: hide them after a few seconds.
+  // Error notices stay until dismissed.
   useEffect(() => {
-    if (!message) return;
+    if (!message || message.variant !== "success") return;
     const timer = setTimeout(() => setMessageState(null), MESSAGE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [message]);
@@ -133,8 +151,18 @@ function AuthenticatedApp() {
         {/* Render overlay toast wrapper so transient confirmations take no layout space and avoid page jumps */}
         {message && (
           <div className="toast">
-            <Banner variant="success" role="status">
-              {message.text}
+            <Banner variant={message.variant} role={message.variant === "error" ? "alert" : "status"}>
+              <span>{message.text}</span>
+              {message.variant === "error" && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Dismiss"
+                  onClick={() => setMessageState(null)}
+                >
+                  ×
+                </button>
+              )}
             </Banner>
           </div>
         )}

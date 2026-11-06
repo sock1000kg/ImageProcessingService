@@ -184,7 +184,7 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
       fireEvent.click(downloadBtn);
 
       await waitFor(() => {
-        expect(onMessage).toHaveBeenCalledWith("Download token generation failed");
+        expect(onMessage).toHaveBeenCalledWith("Download token generation failed", { variant: "error" });
       });
       expect(navigatedUrl).toBe("");
     });
@@ -316,9 +316,11 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
       });
 
+      const onMessage = vi.fn();
+
       render(
         <MemoryRouter>
-          <LibraryPage />
+          <LibraryPage onMessage={onMessage} />
         </MemoryRouter>,
       );
 
@@ -331,7 +333,7 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
       fireEvent.click(zipBtn);
 
       await waitFor(() => {
-        expect(screen.getByText("Failed to create download token")).toBeDefined();
+        expect(onMessage).toHaveBeenCalledWith("Failed to create download token", { variant: "error" });
       });
       expect(navigatedUrl).toBe("");
     });

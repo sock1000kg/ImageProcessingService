@@ -7,10 +7,10 @@ import { getBatch, rerunBatch, startBatch, uploadBatch, UploadProgress } from ".
 import { BatchCreateForm } from "../components/BatchCreateForm";
 import { batchConfigToFormConfig, FormConfig } from "../components/RedactionConfigForm";
 import { Banner } from "../components/ui/Banner";
-import { Batch } from "../types";
+import { Batch, MessageHandler } from "../types";
 
 export interface RerunBatchPageProps {
-  onMessage?: (message: string) => void;
+  onMessage?: MessageHandler;
 }
 
 /**

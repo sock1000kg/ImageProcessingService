@@ -4,9 +4,10 @@
 import { useNavigate } from "react-router-dom";
 import { Dashboard } from "../components/Dashboard";
 import { useSystemStats } from "../hooks/useSystemStats";
+import { MessageHandler } from "../types";
 
 export interface DashboardPageProps {
-  onMessage?: (message: string) => void;
+  onMessage?: MessageHandler;
 }
 
 /**

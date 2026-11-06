@@ -13,7 +13,7 @@ import {
   listFaceLists,
   renameFaceList,
 } from "../api";
-import { FaceListItem } from "../types";
+import { FaceListItem, MessageHandler } from "../types";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { FaceListViewer } from "./FaceListViewer";
 import { WhitelistUploader } from "./WhitelistUploader";
@@ -27,7 +27,7 @@ import { FaceListThumbnails, SavedFaceThumbnail } from "./FaceListThumbnails";
 export { SavedFaceThumbnail };
 
 export interface SavedFaceListsPanelProps {
-  onMessage?: (message: string) => void;
+  onMessage?: MessageHandler;
 }
 
 /**
@@ -79,8 +79,8 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
       await deleteFaceList(target.id);
       setFaceLists((prev) => prev.filter((item) => item.id !== target.id));
       onMessage?.("Allow list deleted");
-    } catch {
-      // Ignore
+    } catch (err) {
+      onMessage?.(err instanceof Error ? err.message : "Failed to delete allow list", { variant: "error" });
     }
   };
 

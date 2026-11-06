@@ -200,3 +200,21 @@ export function faceLabel(list: FaceListItem | null | undefined, n: number): str
   const name = list?.faceNames?.[n - 1];
   return typeof name === "string" && name.trim().length > 0 ? name : `Face #${n}`;
 }
+
+/**
+ * Options configuring app-wide notice banner display.
+ *
+ * Why: Allows callers to specify whether a notice is a transient success
+ * confirmation or a persistent error alert requiring manual dismissal.
+ */
+export type NoticeOptions = {
+  variant?: "success" | "error";
+};
+
+/**
+ * Global message handler callback invoked by pages and components to display app-wide notices.
+ *
+ * Why: Centralizes toast message dispatching with optional variant metadata (success vs error),
+ * replacing repeated `(message: string) => void` declarations across components.
+ */
+export type MessageHandler = (message: string, options?: NoticeOptions) => void;

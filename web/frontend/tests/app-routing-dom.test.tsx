@@ -229,11 +229,18 @@ describe("App Routing and Page Headings", () => {
     fireEvent.click(confirmDeleteBtn);
 
     await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeDefined();
       expect(screen.getByText(/delete failed/i)).toBeDefined();
     });
 
-    // The top notice is a confirmation, not state: it hides itself after about 3 seconds.
-    await waitFor(() => expect(screen.queryByText(/delete failed/i)).toBeNull(), { timeout: 4000 });
+    // Error alert stays until dismissed: dismissing removes it.
+    const dismissBtn = screen.getByRole("button", { name: /dismiss/i });
+    fireEvent.click(dismissBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.queryByText(/delete failed/i)).toBeNull();
+    });
   }, 10_000);
 
   it("displays toast overlay after an action and hides it after timeout", async () => {

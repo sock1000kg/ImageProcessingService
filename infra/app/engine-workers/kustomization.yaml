@@ -11,4 +11,4 @@ resources:
 # To upgrade: pick a tag from Docker Hub (socknot1000kg/imgproc-engine) and change newTag.
 images:
   - name: socknot1000kg/imgproc-engine
-    newTag: 1f4e9f1dbb0a44ab1259ad94ec16058c9f3116d7
+    newTag: a6cd1e473f97c6d74742d29ba98e8cb4c0be45ce

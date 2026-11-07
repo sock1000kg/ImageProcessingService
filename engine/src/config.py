@@ -33,7 +33,22 @@ class Settings(BaseModel):
 
     # Resilience & Fault Tolerance
     max_attempts: int = int(os.getenv("MAX_ATTEMPTS", "3"))
-    job_deadline_seconds: int = int(os.getenv("JOB_DEADLINE_SECONDS", "300"))
+    job_deadline_seconds: int = int(
+        os.getenv(
+            "JOB_DEADLINE_SECONDS",
+            "3600" if "video" in os.getenv("NATS_CONSUMER_NAME", "image-workers").lower() else "300",
+        )
+    )
+
+    # Phase 2: Video Processing & Tracking Configuration
+    ffmpeg_bin: str = os.getenv("FFMPEG_BIN", "ffmpeg")
+    ffprobe_bin: str = os.getenv("FFPROBE_BIN", "ffprobe")
+    video_tracker: str = os.getenv("VIDEO_TRACKER", "bytetrack.yaml")
+
+    @property
+    def is_video_pool(self) -> bool:
+        """Check if this worker instance is dedicated to the video pool."""
+        return "video" in self.nats_consumer_name.lower() or "video" in self.nats_stream_name.lower()
 
 
 settings = Settings()

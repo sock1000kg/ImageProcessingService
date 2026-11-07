@@ -166,9 +166,17 @@ class WhitelistManager:
                 )
 
             # Check if raw bytes or precomputed embedding was passed directly (useful for tests)
-            if "embedding" in spec and isinstance(spec["embedding"], np.ndarray):
-                embeddings.append(spec["embedding"])
-                continue
+            if "embedding" in spec:
+                if isinstance(spec["embedding"], np.ndarray):
+                    embeddings.append(spec["embedding"])
+                    continue
+                elif isinstance(spec["embedding"], (list, tuple)):
+                    emb_arr = np.array(spec["embedding"], dtype=np.float32)
+                    norm = np.linalg.norm(emb_arr)
+                    if norm > 0:
+                        emb_arr /= norm
+                    embeddings.append(emb_arr)
+                    continue
 
             if "bytes" in spec and isinstance(spec["bytes"], (bytes, bytearray)):
                 cache_key = spec.get("key", f"direct_bytes_{idx}")

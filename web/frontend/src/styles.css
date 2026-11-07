@@ -413,11 +413,6 @@ input[type="number"] {
   background: var(--surface-2);
   border-top-right-radius: var(--radius-lg);
   border-bottom-right-radius: var(--radius-lg);
-  position: sticky;
-  top: var(--space-5);
-  align-self: start;
-  max-height: calc(100dvh - 2 * var(--space-5));
-  overflow-y: auto;
 }
 .config-card h3 {
   margin: 0 0 20px;
@@ -1687,11 +1682,6 @@ input[type="range"].comparison-range::-moz-range-thumb {
     grid-template-columns: 1fr;
   }
   .config-card {
-    position: static;
-    top: auto;
-    align-self: auto;
-    max-height: none;
-    overflow-y: visible;
     border-top: 1px solid var(--border);
     border-left: 0;
     border-top-right-radius: 0;
@@ -2035,13 +2025,11 @@ input[type="range"].comparison-range::-moz-range-thumb {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--stage-bg);
-  color: var(--stage-text);
+  background: var(--surface);
 }
 .create-preview-panel .section-kicker,
 .create-preview-panel p {
   margin: 0;
-  color: var(--stage-text);
   font-size: var(--text-xs);
   line-height: 1.5;
 }

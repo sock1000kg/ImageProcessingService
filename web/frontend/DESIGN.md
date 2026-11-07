@@ -27,6 +27,9 @@ This redesign changes appearance and layout. It does not change what the app doe
 `api.ts`, `auth.ts`, `sync.ts`, `types.ts`, `hooks/*` (existing hooks), `context/AuthContext.tsx`,
 `utils/format.ts`, `components/file-selection.ts`, anything in `web/backend`.
 
+The upload limit work (2026-11-07) changed `api.ts`, `file-selection.ts` and the backend's defaults on purpose: the
+frontend has no batch limit of its own, and the backend's 409 `BATCH_FULL` response is the source of it.
+
 ### Behaviour to preserve
 
 | Area           | Must stay true                                                                                                                                                                                                     |
@@ -390,7 +393,8 @@ styles. Render it only in that state, so the words don't appear in the page by d
 
 ### 8.1 Batch review (the core screen)
 
-Drop the outer `.details-card` border and padding (keep the class, it's the `:has()` hook) and give the stage the room.
+Drop the outer `.details-card` border and padding (keep the class, it's the `:has()` hook, so **only this page may use
+it**) and give the stage the room.
 
 ```
 ≥ 1360 px (sidebar collapsed to the 64 px rail)
@@ -454,7 +458,9 @@ list as direct children of `.result-viewer`, so CSS grid can do it. `hoveredInde
 ```
 
 Mocking this up at 1440 × 1000 gave a 784 × 517 stage, with a 16:10 photo at 784 × 490. The trade-off is portrait photos:
-they are limited by that height, so they show smaller. `.image-list.scroll-list` matches the stage height on desktop.
+they are limited by that height, so they show smaller. Above 980 px the image list fills the
+height of the viewer column, and at 1360 px and up the detection list does too, so both side lists line up and scroll on
+their own. Neither scrolls sideways.
 
 **Opens on the redacted image.** `split` starts at 0 and `showBoxes` stays off, so opening an image never reveals
 faces. At 0% the divider sits on the stage edge, where `.comparison` would clip half its handle, so add a class to the
@@ -544,23 +550,22 @@ Dragging anywhere moves the split, and the keyboard works natively.
 Two columns: what to process on the left, how to process it on the right.
 
 ```
-┌──────────────────────────────┬─────────────────────┐
-│ Batch name                   │ Preview (dark stage)│
-│ ┌──────────────────────────┐ │ Credit line         │
-│ │ Dropzone                 │ │ Targets             │
-│ └──────────────────────────┘ │ Style · Strength    │
-│ Selected files               │ Padding             │
-│ Face allow list              │ Quality · Format    │
-│                              │ > Advanced          │
-│                              │ [ Create batch    ] │
-└──────────────────────────────┴─────────────────────┘
+┌────────────────────────────────────┬───────────────┐
+│ Preview                            │ Credit line   │
+│ Batch name                         │ Targets       │
+│ ┌────────────────────────────────┐ │ Style         │
+│ │ Dropzone                       │ │ Strength      │
+│ └────────────────────────────────┘ │ Padding       │
+│ Selected files                     │ Quality       │
+│ Face allow list                    │ > Advanced    │
+│                                    │ [ Create    ] │
+└────────────────────────────────────┴───────────────┘
 ```
 
-- **Move `.create-preview-panel` into the aside**, above the config form, with the same props. Then the preview sits
-  next to the sliders that change it. Today it's in the other column and pushes the dropzone down the page.
-- Remove `overflow: hidden` from `.create-form`, and make the aside `position: sticky; top: var(--space-5);
-align-self: start` above 980 px. Below that it stacks under the main column.
-- Remove the tinted gradient on the preview panel and use `--stage-bg` around the canvas.
+- **The preview stays at the top of the left column,** above the batch name (decided 2026-11-07). In the narrow right
+  column it was too small to judge a style.
+- The config column scrolls with the page. It isn't sticky and has no scroll box of its own.
+- The preview panel uses `--surface`, so its frame follows the theme. The canvas pixels don't change.
 - Style the currently bare `.rerun-source-info` and `.folder-selection` as helper text.
 - `RerunBatchPage` reuses the same form and inherits all of this.
 

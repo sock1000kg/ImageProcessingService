@@ -26,7 +26,7 @@ export const RATE_LIMIT_BASES = {
   refresh: 60,
   // Per account. Caps runaway clients creating draft batches while leaving room for normal usage.
   createBatch: 20,
-  // Per account. A 100-image batch uploads 1 file per request; leaves headroom for multiple concurrent batches/min.
+  // Per account speed limit (300 files/min). Larger batches wait on rate limits instead of failing.
   upload: 300,
   // Per account. Allow list creation extracts face embeddings and writes storage; matches batch create rate.
   createFaceList: 20,

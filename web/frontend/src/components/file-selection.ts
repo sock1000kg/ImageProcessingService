@@ -2,7 +2,6 @@
  * File selection, validation, directory traversal, and MIME normalisation utilities.
  */
 
-export const MAX_BATCH_FILES = 100;
 /** Maximum reference face photos allowed for biometric whitelist matching in batches. */
 export const MAX_WHITELIST_FILES = 20;
 /** Maximum reference face photos allowed for creating a single saved allow list. */
@@ -340,23 +339,6 @@ export function formatFolderSummary(result: FolderSelectionResult): string {
     text += `, ${k} over the ${maxMb} MB limit: ${shown}${more}`;
   }
   return text;
-}
-
-/**
- * Returns error text when folder images exceed maximum batch capacity.
- */
-export function getFolderLimitMessage(imageCount: number): string {
-  return `The folder has ${imageCount} images; the limit is ${MAX_BATCH_FILES} per batch. Pick a smaller folder or split it.`;
-}
-
-/**
- * Returns error text when selected images exceed batch capacity.
- */
-export function getSelectionLimitMessage(incomingCount: number, currentCount = 0): string {
-  if (currentCount > 0) {
-    return `You already have ${currentCount} images selected. Adding ${incomingCount} more would exceed the limit of ${MAX_BATCH_FILES} per batch.`;
-  }
-  return `The selection has ${incomingCount} images; the limit is ${MAX_BATCH_FILES} per batch. Pick fewer images.`;
 }
 
 /**

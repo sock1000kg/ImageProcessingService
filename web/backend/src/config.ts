@@ -23,7 +23,7 @@ export const configSchema = z.object({
     .int()
     .positive()
     .default(50 * 1024 * 1024),
-  BATCH_MAX_FILES: z.coerce.number().int().positive().default(100),
+  BATCH_MAX_FILES: z.coerce.number().int().positive().default(1000),
   // Global multiplier scaling all per-minute base limits (1 = defaults, 100 = load tests, 0.5 = stricter).
   RATE_LIMIT_MULTIPLIER: z.coerce.number().positive().default(1),
   CLEANUP_INTERVAL_MS: z.coerce

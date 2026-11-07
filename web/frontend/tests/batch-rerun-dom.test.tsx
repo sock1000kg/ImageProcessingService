@@ -468,8 +468,8 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
     expect(onMessage).toHaveBeenCalledWith("Batch created successfully (2 skipped)");
   });
 
-  it("re-run button on BatchDetails is disabled while batch is a draft", () => {
-    const draftBatch: Batch = {
+  it("run button on BatchDetails is disabled for empty drafts, enabled for drafts with jobs, and shows Rerun when started", () => {
+    const emptyDraftBatch: Batch = {
       id: "draft-batch-1",
       name: "Draft Batch",
       status: "DRAFT",
@@ -483,16 +483,40 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
 
     const { rerender } = render(
       <MemoryRouter>
-        <BatchDetails batch={draftBatch} onRefresh={async () => {}} onDelete={() => {}} onMessage={() => {}} />
+        <BatchDetails batch={emptyDraftBatch} onRefresh={async () => {}} onDelete={() => {}} onMessage={() => {}} />
       </MemoryRouter>,
     );
 
-    const rerunBtn = screen.getByRole("button", { name: /run/i }) as HTMLButtonElement;
-    expect(rerunBtn.disabled).toBe(true);
+    const emptyRunBtn = screen.getByRole("button", { name: /^run$/i }) as HTMLButtonElement;
+    expect(emptyRunBtn.disabled).toBe(true);
 
-    // When started and completed, button becomes enabled
+    // A draft with jobs has the Run button enabled
+    const draftWithJobs: Batch = {
+      ...emptyDraftBatch,
+      jobs: [
+        {
+          id: "job-1",
+          batchId: "draft-batch-1",
+          originalFilename: "test.jpg",
+          inputKey: "uploads/draft-batch-1/job-1/input.jpg",
+          status: "PENDING",
+          createdAt: "2026-11-04T10:00:00Z",
+        },
+      ],
+    };
+
+    rerender(
+      <MemoryRouter>
+        <BatchDetails batch={draftWithJobs} onRefresh={async () => {}} onDelete={() => {}} onMessage={() => {}} />
+      </MemoryRouter>,
+    );
+
+    const draftRunBtn = screen.getByRole("button", { name: /^run$/i }) as HTMLButtonElement;
+    expect(draftRunBtn.disabled).toBe(false);
+
+    // When started and completed, button shows Rerun and is enabled
     const completedBatch: Batch = {
-      ...draftBatch,
+      ...draftWithJobs,
       status: "COMPLETED",
       startedAt: "2026-11-04T10:01:00Z",
     };
@@ -503,11 +527,11 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
       </MemoryRouter>,
     );
 
-    const updatedRerunBtn = screen.getByRole("button", { name: /run/i }) as HTMLButtonElement;
+    const updatedRerunBtn = screen.getByRole("button", { name: /^rerun$/i }) as HTMLButtonElement;
     expect(updatedRerunBtn.disabled).toBe(false);
   });
 
-  it("re-run buttons on LibraryPage cards are disabled for draft batches", async () => {
+  it("re-run buttons on LibraryPage cards show Run and are enabled for drafts with jobs, disabled when empty", async () => {
     const mockLibraryResponse = {
       batches: [
         {
@@ -528,9 +552,18 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
           thumbnailUrl: null,
           bytes: 500,
         },
+        {
+          id: "batch-empty-draft",
+          name: "Empty Draft Batch",
+          status: "DRAFT" as const,
+          createdAt: "2026-11-04T10:00:00Z",
+          jobCounts: { total: 0, completed: 0, failed: 0 },
+          thumbnailUrl: null,
+          bytes: 0,
+        },
       ],
       nextCursor: null,
-      usage: { bytes: 1500, batches: 2, jobs: 3 },
+      usage: { bytes: 1500, batches: 3, jobs: 3 },
     };
 
     vi.stubGlobal(
@@ -557,14 +590,21 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
     await waitFor(() => {
       expect(screen.getByText("Ready Batch")).toBeDefined();
       expect(screen.getByText("Unstarted Batch")).toBeDefined();
+      expect(screen.getByText("Empty Draft Batch")).toBeDefined();
     });
 
     const readyCard = screen.getByRole("article", { name: /Ready Batch/i });
-    const readyRerunBtn = within(readyCard).getByRole("button", { name: /run/i }) as HTMLButtonElement;
+    const readyRerunBtn = within(readyCard).getByRole("button", { name: /^rerun$/i }) as HTMLButtonElement;
     expect(readyRerunBtn.disabled).toBe(false);
 
+    // Draft with jobs has enabled "Run" button
     const draftCard = screen.getByRole("article", { name: /Unstarted Batch/i });
-    const draftRerunBtn = within(draftCard).getByRole("button", { name: /run/i }) as HTMLButtonElement;
-    expect(draftRerunBtn.disabled).toBe(true);
+    const draftRunBtn = within(draftCard).getByRole("button", { name: /^run$/i }) as HTMLButtonElement;
+    expect(draftRunBtn.disabled).toBe(false);
+
+    // Draft with 0 jobs has disabled "Run" button
+    const emptyDraftCard = screen.getByRole("article", { name: /Empty Draft Batch/i });
+    const emptyDraftRunBtn = within(emptyDraftCard).getByRole("button", { name: /^run$/i }) as HTMLButtonElement;
+    expect(emptyDraftRunBtn.disabled).toBe(true);
   });
 });

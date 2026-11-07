@@ -21,6 +21,7 @@ import {
 } from "./file-selection";
 import { Batch } from "../types";
 import { UploadProgress } from "../api";
+import { useWarnBeforeUnload } from "../hooks/useWarnBeforeUnload";
 
 export interface BatchCreateFormProps {
   busy: boolean;
@@ -65,6 +66,8 @@ export function BatchCreateForm({
   rerunSource,
   onRerunSubmit,
 }: BatchCreateFormProps) {
+  useWarnBeforeUnload(busy);
+
   const [files, setFiles] = useState<File[]>([]);
   const [whitelist, setWhitelist] = useState<File[]>([]);
   const [faceListIds, setFaceListIds] = useState<string[]>([]);

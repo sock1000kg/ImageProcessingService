@@ -3,7 +3,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ApiError, getBatchReport, getBatchZipUrl, retryJob } from "../api";
+import { ApiError, getBatchReport, getBatchZipUrl, retryJob, startBatch } from "../api";
 import { Batch, BatchReport as Report, Job, MessageHandler } from "../types";
 import { formatJobErrorMessage } from "../utils/format";
 import { BatchHeader } from "./BatchHeader";
@@ -34,6 +34,7 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
     missing: number;
     total: number;
   } | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const handleSelectReportImage = (jobId: string) => {
     setSelectedId(jobId);
@@ -117,6 +118,18 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
     }
   };
 
+  const handleRunDraft = async () => {
+    setStarting(true);
+    try {
+      await startBatch(batch.id);
+      await onRefresh();
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : "Failed to start batch", { variant: "error" });
+    } finally {
+      setStarting(false);
+    }
+  };
+
   return (
     <section className="details-card">
       <BatchHeader batch={batch} onDelete={() => setConfirm(true)} onBatchUpdated={() => void onRefresh()} />
@@ -179,10 +192,10 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
             <button
               type="button"
               className="secondary-button"
-              disabled={isDraft}
-              onClick={() => navigate(`/batches/${batch.id}/rerun`)}
+              disabled={isDraft ? batch.jobs.length === 0 || starting : false}
+              onClick={isDraft ? () => void handleRunDraft() : () => navigate(`/batches/${batch.id}/rerun`)}
             >
-              Rerun
+              {isDraft ? "Run" : "Rerun"}
             </button>
           </div>
         </div>

@@ -3,7 +3,7 @@
  */
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { deleteBatch, getBatchZipUrl, listBatches, renameBatch } from "../api";
+import { deleteBatch, getBatchZipUrl, listBatches, renameBatch, startBatch } from "../api";
 import { DeleteBatchDialog } from "../components/DeleteBatchDialog";
 import { InlineRename } from "../components/InlineRename";
 import { Banner } from "../components/ui/Banner";
@@ -26,6 +26,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingBatch, setDeletingBatch] = useState<BatchSummaryItem | null>(null);
+  const [startingBatchId, setStartingBatchId] = useState<string | null>(null);
 
   const fetchInitialBatches = async () => {
     setLoading(true);
@@ -96,6 +97,19 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to download zip";
       onMessage?.(message, { variant: "error" });
+    }
+  };
+
+  const handleRunDraft = async (batchId: string) => {
+    setStartingBatchId(batchId);
+    try {
+      await startBatch(batchId);
+      navigate(`/batches/${batchId}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to start batch";
+      onMessage?.(message, { variant: "error" });
+    } finally {
+      setStartingBatchId(null);
     }
   };
 
@@ -178,10 +192,16 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                   <button
                     type="button"
                     className="secondary-button"
-                    disabled={batch.status === "DRAFT"}
-                    onClick={() => navigate(`/batches/${batch.id}/rerun`)}
+                    disabled={
+                      batch.status === "DRAFT" ? batch.jobCounts.total === 0 || startingBatchId === batch.id : false
+                    }
+                    onClick={
+                      batch.status === "DRAFT"
+                        ? () => void handleRunDraft(batch.id)
+                        : () => navigate(`/batches/${batch.id}/rerun`)
+                    }
                   >
-                    Rerun
+                    {batch.status === "DRAFT" ? "Run" : "Rerun"}
                   </button>
                   <button
                     type="button"

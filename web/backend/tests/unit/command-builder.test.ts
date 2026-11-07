@@ -48,8 +48,8 @@ describe("Command Builder and Extension Mapping (§2A & §5)", () => {
           padding: 0.1,
         },
         output: { quality: "high" },
-        confidenceThreshold: 0.35,
-        reviewThreshold: 0.5,
+        confidenceThresholds: { face: 0.17, plate: 0.11 },
+        reviewThreshold: 0.35,
       },
     });
   });
@@ -87,8 +87,8 @@ describe("Command Builder and Extension Mapping (§2A & §5)", () => {
           padding: 0.2,
         },
         output: { quality: "max" },
-        confidenceThreshold: 0.35,
-        reviewThreshold: 0.5,
+        confidenceThresholds: { face: 0.17, plate: 0.11 },
+        reviewThreshold: 0.35,
         whitelist: {
           faces: [
             { bucket: "uploads", key: "batch-456/whitelist/face-1.jpg" },
@@ -112,5 +112,22 @@ describe("Command Builder and Extension Mapping (§2A & §5)", () => {
 
     expect(command.params.redaction.style).toBe("blackout");
     expect(command.params.redaction.strength).toBeUndefined();
+  });
+
+  it("builds command with custom per-class confidence thresholds", () => {
+    const config = parseBatchConfig({
+      faceConfidenceThreshold: 0.25,
+      plateConfidenceThreshold: 0.15,
+      reviewThreshold: 0.4,
+    });
+    const command = buildImageRedactCommand({
+      jobId: "job-custom",
+      batchId: "batch-custom",
+      inputKey: "input.jpg",
+      outputKey: "result.jpg",
+      config,
+    });
+    expect(command.params.confidenceThresholds).toEqual({ face: 0.25, plate: 0.15 });
+    expect(command.params.reviewThreshold).toBe(0.4);
   });
 });

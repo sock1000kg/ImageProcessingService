@@ -10,7 +10,8 @@ export type FormConfig = {
   padding: number;
   quality: "standard" | "high" | "max";
   format: "original" | "jpg" | "png" | "webp";
-  confidenceThreshold: number;
+  faceConfidenceThreshold: number;
+  plateConfidenceThreshold: number;
   reviewThreshold: number;
   similarityThreshold: number;
 };
@@ -22,8 +23,9 @@ export const DEFAULT_FORM_CONFIG: FormConfig = {
   padding: 0.1,
   quality: "high",
   format: "original",
-  confidenceThreshold: 0.35,
-  reviewThreshold: 0.5,
+  faceConfidenceThreshold: 0.17,
+  plateConfidenceThreshold: 0.11,
+  reviewThreshold: 0.35,
   similarityThreshold: 0.45,
 };
 
@@ -53,8 +55,16 @@ export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): F
       : c.format === "png" || c.format === "webp" || c.format === "original"
         ? c.format
         : DEFAULT_FORM_CONFIG.format;
-  const confidenceThreshold =
-    typeof c.confidenceThreshold === "number" ? c.confidenceThreshold : DEFAULT_FORM_CONFIG.confidenceThreshold;
+
+  const faceConfidenceThreshold =
+    typeof c.faceConfidenceThreshold === "number"
+      ? c.faceConfidenceThreshold
+      : DEFAULT_FORM_CONFIG.faceConfidenceThreshold;
+  const plateConfidenceThreshold =
+    typeof c.plateConfidenceThreshold === "number"
+      ? c.plateConfidenceThreshold
+      : DEFAULT_FORM_CONFIG.plateConfidenceThreshold;
+
   const reviewThreshold =
     typeof c.reviewThreshold === "number" ? c.reviewThreshold : DEFAULT_FORM_CONFIG.reviewThreshold;
   const similarityThreshold =
@@ -67,7 +77,8 @@ export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): F
     padding,
     quality,
     format,
-    confidenceThreshold,
+    faceConfidenceThreshold,
+    plateConfidenceThreshold,
     reviewThreshold,
     similarityThreshold,
   };
@@ -75,8 +86,13 @@ export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): F
 
 const THRESHOLD_FIELDS = [
   {
-    key: "confidenceThreshold",
-    label: "Confidence Threshold",
+    key: "faceConfidenceThreshold",
+    label: "Face confidence",
+    hint: "which detections get redacted",
+  },
+  {
+    key: "plateConfidenceThreshold",
+    label: "Plate confidence",
     hint: "which detections get redacted",
   },
   {

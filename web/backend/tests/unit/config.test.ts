@@ -11,9 +11,22 @@ describe("Batch Config Schema and Defaults", () => {
     expect(config.padding).toBe(0.1);
     expect(config.quality).toBe("high");
     expect(config.format).toBe("original");
-    expect(config.confidenceThreshold).toBe(0.35);
-    expect(config.reviewThreshold).toBe(0.5);
+    expect(config.faceConfidenceThreshold).toBe(0.17);
+    expect(config.plateConfidenceThreshold).toBe(0.11);
+    expect(config.reviewThreshold).toBe(0.35);
     expect(config.similarityThreshold).toBe(0.45);
+  });
+
+  it("parses stored config containing only legacy confidenceThreshold without error and gets new defaults", () => {
+    const config = parseBatchConfig({ confidenceThreshold: 0.25 });
+    expect(config.faceConfidenceThreshold).toBe(0.17);
+    expect(config.plateConfidenceThreshold).toBe(0.11);
+  });
+
+  it("allows overriding specific thresholds while leaving others at default", () => {
+    const config = parseBatchConfig({ faceConfidenceThreshold: 0.2 });
+    expect(config.faceConfidenceThreshold).toBe(0.2);
+    expect(config.plateConfidenceThreshold).toBe(0.11);
   });
 
   it("applies pixelate default strength of 12 when style is pixelate", () => {
@@ -74,8 +87,20 @@ describe("Batch Config Schema and Defaults", () => {
     expect(() => parseBatchConfig({ padding: -0.1 })).toThrow(/padding/);
   });
 
-  it("throws validation error for confidenceThreshold > 1", () => {
-    expect(() => parseBatchConfig({ confidenceThreshold: 1.5 })).toThrow(/confidenceThreshold/);
+  it("throws validation error for faceConfidenceThreshold > 1", () => {
+    expect(() => parseBatchConfig({ faceConfidenceThreshold: 1.5 })).toThrow(/faceConfidenceThreshold/);
+  });
+
+  it("throws validation error for faceConfidenceThreshold < 0", () => {
+    expect(() => parseBatchConfig({ faceConfidenceThreshold: -0.1 })).toThrow(/faceConfidenceThreshold/);
+  });
+
+  it("throws validation error for plateConfidenceThreshold > 1", () => {
+    expect(() => parseBatchConfig({ plateConfidenceThreshold: 1.5 })).toThrow(/plateConfidenceThreshold/);
+  });
+
+  it("throws validation error for plateConfidenceThreshold < 0", () => {
+    expect(() => parseBatchConfig({ plateConfidenceThreshold: -0.1 })).toThrow(/plateConfidenceThreshold/);
   });
 
   it("throws validation error for invalid quality", () => {

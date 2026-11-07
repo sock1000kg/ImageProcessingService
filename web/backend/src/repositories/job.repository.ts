@@ -347,12 +347,41 @@ export async function markBatchWhitelistDeleted(batchId: string): Promise<void> 
   });
 }
 
+/**
+ * Returns batches whose jobs have all reached terminal state but whose whitelist photos
+ * have not yet been successfully deleted from storage.
+ *
+ * Why query criteria: Draft batches still accept files, and batches with non-terminal jobs
+ * still need their reference photos. Only batches that have started, have at least one job,
+ * and have no remaining running or queued jobs are eligible for whitelist cleanup retry.
+ */
+export async function getBatchesPendingWhitelistCleanup(): Promise<Array<{ id: string }>> {
+  return prisma.batch.findMany({
+    where: {
+      startedAt: { not: null },
+      whitelistDeletedAt: null,
+      jobs: {
+        some: {},
+        none: {
+          status: { notIn: [JobStatus.COMPLETED, JobStatus.FAILED] },
+        },
+      },
+    },
+    select: { id: true },
+  });
+}
+
 export async function getExpiredBatches(retentionDays?: number) {
   const days = retentionDays !== undefined ? retentionDays : config.RETENTION_DAYS;
   if (days !== undefined) {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const draftCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Abandoned drafts hold private originals nobody can use, so expire them after 24 hours
+    // regardless of the retention period configured for completed batches.
     return prisma.batch.findMany({
-      where: { createdAt: { lt: cutoff } },
+      where: {
+        OR: [{ createdAt: { lt: cutoff } }, { startedAt: null, createdAt: { lt: draftCutoff } }],
+      },
       select: { id: true },
     });
   }

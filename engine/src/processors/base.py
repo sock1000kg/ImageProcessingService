@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Tuple, Dict, Any, Optional, Callable
 
 DEFAULT_CONFIDENCE_THRESHOLDS: Dict[str, float] = {"face": 0.17, "plate": 0.11}
-DEFAULT_REVIEW_THRESHOLD: float = 0.35
+DEFAULT_REVIEW_THRESHOLD: float = 0.25
 
 
 def parse_confidence_thresholds(params: Optional[Dict[str, Any]] = None) -> Dict[str, float]:

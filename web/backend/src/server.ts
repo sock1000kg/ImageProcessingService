@@ -6,7 +6,7 @@ import { config } from "./config";
 import { closeDatabase, pendingMigrations, verifyDatabase } from "./db";
 import { closeMessaging, connectMessaging } from "./messaging";
 import { verifyBuckets } from "./storage";
-import { cleanupExpiredBatches } from "./services/batch.service";
+import { cleanupExpiredBatches, retryPendingWhitelistCleanups } from "./services/batch.service";
 
 let cleanupTimer: NodeJS.Timeout | null = null;
 
@@ -14,6 +14,9 @@ function startCleanupTimer(): void {
   cleanupTimer = setInterval(() => {
     cleanupExpiredBatches().catch((error) => {
       console.error("Cleanup expired batches failed", error);
+    });
+    retryPendingWhitelistCleanups().catch((error) => {
+      console.error("Retry pending whitelist cleanups failed", error);
     });
   }, config.CLEANUP_INTERVAL_MS);
 }

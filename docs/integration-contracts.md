@@ -78,7 +78,7 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
     "redaction": { "targets": ["face", "plate"], "style": "pixelate", "strength": 12, "padding": 0.1 },
     "output": { "quality": "high" },
     "confidenceThresholds": { "face": 0.17, "plate": 0.11 },
-    "reviewThreshold": 0.35,
+    "reviewThreshold": 0.25,
     "whitelist": {
       "faces": [ { "bucket": "uploads", "key": "0f1e2d3c-4b5a-4697-8877-665544332211/whitelist/face-1.jpg" } ],
       "similarityThreshold": 0.6
@@ -87,7 +87,7 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
 }
 ```
 * `confidenceThresholds`: ngưỡng tin cậy riêng biệt cho từng lớp đối tượng (`face`: mặc định 0.17, `plate`: mặc định 0.11); dưới ngưỡng của lớp tương ứng thì bỏ qua phát hiện.
-* `reviewThreshold`: ngưỡng đánh giá (mặc định 0.35); phát hiện có confidence dưới ngưỡng này vẫn được che, nhưng bị đánh dấu `lowConfidence` để người dùng kiểm tra lại.
+* `reviewThreshold`: ngưỡng đánh giá (mặc định 0.25); phát hiện có confidence dưới ngưỡng này vẫn được che, nhưng bị đánh dấu `lowConfidence` để người dùng kiểm tra lại.
 * `whitelist.faces`: ảnh chân dung mẫu (tuỳ chọn). Khuôn mặt có cosine similarity ≥ `similarityThreshold` với **bất kỳ** mẫu nào thì **không** bị che. Ưu tiên tránh nhận nhầm người lạ, nên khi phân vân thì che.
 * `whitelist.plates` *(Phase 2, Should, cần OCR, đề xuất)*: danh sách biển số, ví dụ `["30A12345", "51G-678.90"]`. So khớp sau khi chuẩn hoá cả hai phía (viết hoa, bỏ khoảng trắng, `-`, `.`), phải **trùng hoàn toàn**. OCR không đọc được hoặc không chắc thì coi như không khớp (→ vẫn che). Chỉ có chế độ allow: chế độ block (chỉ che cái khớp mẫu) đã bỏ.
 
@@ -260,7 +260,7 @@ Không dùng file compose riêng của từng team cho NATS/MinIO, vì chúng kh
 **Xoá dữ liệu** (đề tài: "xoá dữ liệu sau khi xử lý theo hạn hoặc khi người dùng yêu cầu"):
 - **Theo hạn:**
     - Phase 1 (chưa có tài khoản, không có chỗ tìm lại batch cũ): MinIO lifecycle xoá mọi object sau 24h. Backend xoá (hoặc đánh dấu `EXPIRED`) batch/job quá 24h trong PostgreSQL, để UI không trỏ tới object đã mất.
-    - Từ Phase 2 (có thư viện media): ảnh gốc và kết quả **giữ tới khi người dùng xoá**. Infra bỏ lifecycle của cả hai bucket. Người quản trị instance có thể đặt env `RETENTION_DAYS` để Backend dọn batch cũ hơn N ngày (cả MinIO và PG); để trống = giữ mãi. Giữ ảnh gốc để người dùng sửa ảnh, thử lại ảnh lỗi, chạy lại batch với cấu hình khác mà không phải tải lên lại.
+    - Từ Phase 2 (có thư viện media): ảnh gốc và kết quả **giữ tới khi người dùng xoá**. Infra bỏ lifecycle của cả hai bucket. Người quản trị instance có thể đặt env `RETENTION_DAYS` để Backend dọn batch cũ hơn N ngày (cả MinIO và PG); để trống = giữ mãi. Riêng draft chưa bắt đầu (`startedAt: null`) luôn được dọn sau 24h kể cả khi có hay không có `RETENTION_DAYS` để tránh đọng ảnh gốc private không ai dùng. Giữ ảnh gốc để người dùng sửa ảnh, thử lại ảnh lỗi, chạy lại batch với cấu hình khác mà không phải tải lên lại.
 - **Khi người dùng yêu cầu:** Backend xoá prefix `uploads/<batchId>/` và `results/<batchId>/` trên MinIO, rồi xoá dòng PG. Phase 1 không có tài khoản, nên ai có link batch (UUID) thì được xoá.
 - **Ảnh mẫu whitelist** là dữ liệu sinh trắc:
     - Ảnh mẫu tải trực tiếp cho batch (dưới `uploads/<batchId>/whitelist/`) được Backend xoá ngay khi mọi job trong batch đã kết thúc, không đợi 24h.

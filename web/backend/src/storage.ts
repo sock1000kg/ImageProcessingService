@@ -125,12 +125,21 @@ export async function deletePrefix(bucket: string, prefix: string): Promise<void
       );
 
       if (objects.length > 0) {
-        await s3Client.send(
+        const deleteResponse = await s3Client.send(
           new DeleteObjectsCommand({
             Bucket: bucket,
             Delete: { Objects: objects, Quiet: true },
           }),
         );
+        // Why: a bulk delete reports per-object failures in the response without throwing, so callers
+        // would otherwise treat leftover files, possibly private originals, as deleted.
+        const failures = deleteResponse.Errors ?? [];
+        if (failures.length > 0) {
+          const first = failures[0];
+          throw new Error(
+            `Failed to delete ${failures.length} object(s) under ${bucket}/${prefix}: first ${first.Key} (${first.Code})`,
+          );
+        }
       }
     }
 

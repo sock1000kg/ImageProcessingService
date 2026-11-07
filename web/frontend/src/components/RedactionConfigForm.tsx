@@ -25,7 +25,7 @@ export const DEFAULT_FORM_CONFIG: FormConfig = {
   format: "original",
   faceConfidenceThreshold: 0.17,
   plateConfidenceThreshold: 0.11,
-  reviewThreshold: 0.35,
+  reviewThreshold: 0.25,
   similarityThreshold: 0.45,
 };
 

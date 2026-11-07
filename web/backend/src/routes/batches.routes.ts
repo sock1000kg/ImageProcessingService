@@ -37,9 +37,9 @@ export const batchesUpload = multer({
 
 export const batchesRouter = Router();
 // Moderate, per account: caps runaway clients creating batches or uploading files while leaving room for normal usage.
-export const createBatchLimit = rateLimit(RATE_LIMIT_BASES.createBatch, userKey);
-export const uploadLimit = rateLimit(RATE_LIMIT_BASES.upload, userKey);
-export const downloadTokenLimit = rateLimit(RATE_LIMIT_BASES.downloadToken, userKey);
+export const createBatchLimit = rateLimit(RATE_LIMIT_BASES.createBatch, userKey, "transfer");
+export const uploadLimit = rateLimit(RATE_LIMIT_BASES.upload, userKey, "transfer");
+export const downloadTokenLimit = rateLimit(RATE_LIMIT_BASES.downloadToken, userKey, "transfer");
 function validateId(request: Request, _response: Response, next: NextFunction): void {
   try {
     validateIdParam(request.params);

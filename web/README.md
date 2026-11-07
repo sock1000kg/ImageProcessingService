@@ -31,7 +31,7 @@ Phase 2 authentication uses email as the unique login identifier. Access tokens 
 
 - The backend refuses to start without `JWT_SECRET` (at least 32 characters), since every API route needs a signed token.
 - Protected routes check the token **before** reading the request body, so anonymous uploads are rejected without buffering files.
-- Rate limiting is scaled by a single global `RATE_LIMIT_MULTIPLIER` environment variable (default `1`): `max = Math.max(1, Math.round(base * RATE_LIMIT_MULTIPLIER))`. Built-in per-minute base limits are defined in code:
+- Rate limiting is scaled by two environment variables (default `1`): `RATE_LIMIT_MULTIPLIER` scales login, refresh and allow list creation, while `TRANSFER_RATE_LIMIT_MULTIPLIER` scales transfer-heavy operations (batch creation, file uploads and download tokens). Limits are computed as `max = Math.max(1, Math.round(base * multiplier))`. Built-in per-minute base limits are defined in code:
 
   | Action / Endpoint                                                            | Base limit (/min) | Key scope   | Purpose                                                              |
   | ---------------------------------------------------------------------------- | ----------------- | ----------- | -------------------------------------------------------------------- |
@@ -131,6 +131,7 @@ PUBLIC_RESULTS_BASE_URL=/results
 UPLOAD_MAX_BYTES=52428800
 BATCH_MAX_FILES=1000
 RATE_LIMIT_MULTIPLIER=1
+TRANSFER_RATE_LIMIT_MULTIPLIER=1
 CLEANUP_INTERVAL_MS=600000
 RETENTION_DAYS=
 JWT_SECRET=replace-with-at-least-32-random-characters

@@ -3,7 +3,7 @@
  * and authenticated workspace environments, plus the initial session loading state.
  */
 import { Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
-import { Images, Plus, SquaresFour, Stack, X } from "@phosphor-icons/react";
+import { Images, Plus, SignOut, SquaresFour, Stack, X } from "@phosphor-icons/react";
 import { useAuth } from "../context/AuthContext";
 import { Banner } from "./ui/Banner";
 import { SyncStatus } from "./SyncStatus";
@@ -17,7 +17,7 @@ function Brand() {
   return (
     <div className="brand">
       <span className="brand-mark" aria-hidden="true" />
-      <span>
+      <span className="brand-wordmark">
         Redact<span>Funnel</span>
       </span>
     </div>
@@ -88,18 +88,32 @@ function Sidebar({ activeBatchId }: SidebarProps) {
     <aside className="sidebar">
       <Brand />
       <nav>
-        <NavLink to="/" end className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
+        <NavLink
+          to="/"
+          end
+          title="Overview"
+          className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}
+        >
           <SquaresFour aria-hidden /> <span>Overview</span>
         </NavLink>
-        <NavLink to="/library" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
+        <NavLink
+          to="/library"
+          title="Library"
+          className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}
+        >
           <Images aria-hidden /> <span>Library</span>
         </NavLink>
-        <NavLink to="/batches/new" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
+        <NavLink
+          to="/batches/new"
+          title="New batch"
+          className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}
+        >
           <Plus aria-hidden /> <span>New batch</span>
         </NavLink>
         {activeBatchId && (
           <NavLink
             to={`/batches/${activeBatchId}`}
+            title="Batch details"
             className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}
           >
             <Stack aria-hidden /> <span>Batch details</span>
@@ -118,7 +132,8 @@ function Sidebar({ activeBatchId }: SidebarProps) {
         </div>
         {user && (
           <button type="button" className="secondary-button" title={user.email} onClick={() => void signOut()}>
-            Sign out
+            <SignOut aria-hidden />
+            <span>Sign out</span>
           </button>
         )}
       </footer>

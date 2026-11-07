@@ -68,6 +68,11 @@ describe("Icons, Focus and Accessibility DOM Tests (Task 69)", () => {
     expect(overviewLink.textContent?.trim()).toBe("Overview");
     expect(libraryLink.textContent?.trim()).toBe("Library");
     expect(newBatchLink.textContent?.trim()).toBe("New batch");
+
+    // Nav links must have a title attribute matching their label at all widths
+    expect(overviewLink.getAttribute("title")).toBe("Overview");
+    expect(libraryLink.getAttribute("title")).toBe("Library");
+    expect(newBatchLink.getAttribute("title")).toBe("New batch");
   });
 
   it("workspace has skip link as first link pointing to the page's only main element", () => {

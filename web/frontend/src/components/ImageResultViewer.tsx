@@ -120,7 +120,19 @@ export function ImageResultViewer({
                   <img src={originalUrl} alt={`Original ${job.originalFilename}`} onLoad={handleImageLoad} />
                 )}
               </div>
-              <div className="comparison-divider" style={{ left: `${split}%` }} />
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={split}
+                onChange={(event) => setSplit(Number(event.target.value))}
+                className="comparison-range"
+                aria-label="Before / after"
+              />
+              <div
+                className={`comparison-divider${split < 3 ? " is-start" : split > 97 ? " is-end" : ""}`}
+                style={{ left: `${split}%` }}
+              />
 
               {isOverlayVisible && effectiveSize && (
                 <div className="detection-overlay" data-testid="detection-overlay">
@@ -169,16 +181,6 @@ export function ImageResultViewer({
             </ImageStage>
           </div>
           <div className="viewer-controls">
-            <label className="slider-label">
-              Before / after
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={split}
-                onChange={(event) => setSplit(Number(event.target.value))}
-              />
-            </label>
             <label className="overlay-toggle">
               <input type="checkbox" checked={showBoxes} onChange={(event) => setShowBoxes(event.target.checked)} />
               Show boxes

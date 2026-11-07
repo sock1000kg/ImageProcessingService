@@ -121,15 +121,29 @@ describe("Step 2 & 3: ImageResultViewer slider and box overlay", () => {
     },
   ];
 
-  it("moving before / after slider updates split percentage value", () => {
+  it("moving before / after slider updates split percentage value and clip inside image-stage", async () => {
     render(<ImageResultViewer job={sampleJob} detections={sampleDetections} reviewReasons={[]} onRetry={() => {}} />);
 
-    const slider = screen.getByLabelText(/before \/ after/i) as HTMLInputElement;
+    const stage = screen.getByTestId("image-stage");
+    const slider = within(stage).getByRole("slider", { name: /before \/ after/i }) as HTMLInputElement;
+    expect(slider).toBeDefined();
     expect(slider.value).toBe("0");
+
+    const originalImg = await screen.findByAltText(new RegExp(`Original ${sampleJob.originalFilename}`, "i"));
+    const clipContainer = originalImg.parentElement;
+    expect(clipContainer?.style.clipPath).toContain("100% - 0%");
 
     // Move slider to 25%
     fireEvent.change(slider, { target: { value: "25" } });
     expect(slider.value).toBe("25");
+    expect(clipContainer?.style.clipPath).toContain("100% - 25%");
+
+    // Turning on Show boxes still shows labels
+    expect(screen.queryByText("#1")).toBeNull();
+    const toggle = screen.getByLabelText(/show boxes/i) as HTMLInputElement;
+    fireEvent.click(toggle);
+    expect(screen.getByText("#1")).toBeDefined();
+    expect(screen.getByText("#2")).toBeDefined();
   });
 
   it("toggling Show boxes renders detection box labels and toggling off hides them", () => {

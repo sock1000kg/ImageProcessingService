@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { deleteJobById, listBatches, retryFailedJob } from "../../src/services/batch.service";
+import { cleanupExpiredBatches, deleteJobById, listBatches, retryFailedJob } from "../../src/services/batch.service";
 import * as jobRepository from "../../src/repositories/job.repository";
 import * as messaging from "../../src/messaging";
-import { storage } from "../../src/storage";
+import { storage, UPLOADS_BUCKET, RESULTS_BUCKET } from "../../src/storage";
 import { JobStatus } from "../../src/generated/prisma/client";
 import { prisma } from "../../src/db/prisma";
 
@@ -281,6 +281,86 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       expect(expiredIds).not.toContain("2-day-started");
       expect(expiredIds).not.toContain("recent-draft");
       expect(expiredIds).toContain("8-day-started");
+    });
+  });
+
+  describe("Batch Retention Cleanup (cleanupExpiredBatches)", () => {
+    it("keeps the row and does not count the batch if deletePrefix fails in either bucket", async () => {
+      // 1. Uploads bucket deletePrefix fails
+      vi.spyOn(jobRepository, "getExpiredBatches").mockResolvedValue([{ id: "batch-uploads-fail" }] as any);
+      const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockImplementation(async (bucket) => {
+        if (bucket === UPLOADS_BUCKET) {
+          throw new Error("MinIO uploads error");
+        }
+      });
+      const deleteBatchRowSpy = vi.spyOn(jobRepository, "deleteBatchRow").mockResolvedValue(true);
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      let count = await cleanupExpiredBatches();
+
+      expect(count).toBe(0);
+      expect(deleteBatchRowSpy).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("batch-uploads-fail"), expect.any(Error));
+
+      // 2. Results bucket deletePrefix fails
+      vi.spyOn(jobRepository, "getExpiredBatches").mockResolvedValue([{ id: "batch-results-fail" }] as any);
+      deletePrefixSpy.mockImplementation(async (bucket) => {
+        if (bucket === RESULTS_BUCKET) {
+          throw new Error("MinIO results error");
+        }
+      });
+      deleteBatchRowSpy.mockClear();
+      consoleErrorSpy.mockClear();
+
+      count = await cleanupExpiredBatches();
+
+      expect(count).toBe(0);
+      expect(deleteBatchRowSpy).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("batch-results-fail"), expect.any(Error));
+    });
+
+    it("deletes and counts the batch on a following run when storage works", async () => {
+      const batch = { id: "batch-retry-success" };
+      vi.spyOn(jobRepository, "getExpiredBatches").mockResolvedValue([batch] as any);
+
+      // Run 1: storage fails
+      const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockImplementation(async (bucket) => {
+        if (bucket === UPLOADS_BUCKET) throw new Error("Storage temporarily unavailable");
+      });
+      const deleteBatchRowSpy = vi.spyOn(jobRepository, "deleteBatchRow").mockResolvedValue(true);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const firstRunCount = await cleanupExpiredBatches();
+      expect(firstRunCount).toBe(0);
+      expect(deleteBatchRowSpy).not.toHaveBeenCalled();
+
+      // Run 2: storage works
+      deletePrefixSpy.mockResolvedValue(undefined as any);
+      deleteBatchRowSpy.mockClear();
+
+      const secondRunCount = await cleanupExpiredBatches();
+      expect(secondRunCount).toBe(1);
+      expect(deleteBatchRowSpy).toHaveBeenCalledWith(batch.id);
+    });
+
+    it("does not stop another batch being deleted when one batch fails", async () => {
+      const failingBatch = { id: "failing-batch" };
+      const healthyBatch = { id: "healthy-batch" };
+      vi.spyOn(jobRepository, "getExpiredBatches").mockResolvedValue([failingBatch, healthyBatch] as any);
+
+      vi.spyOn(storage, "deletePrefix").mockImplementation(async (bucket, prefix) => {
+        if (prefix.startsWith(`${failingBatch.id}/`)) {
+          throw new Error("Storage failure for failing-batch");
+        }
+      });
+      const deleteBatchRowSpy = vi.spyOn(jobRepository, "deleteBatchRow").mockResolvedValue(true);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const count = await cleanupExpiredBatches();
+
+      expect(count).toBe(1);
+      expect(deleteBatchRowSpy).not.toHaveBeenCalledWith(failingBatch.id);
+      expect(deleteBatchRowSpy).toHaveBeenCalledWith(healthyBatch.id);
     });
   });
 

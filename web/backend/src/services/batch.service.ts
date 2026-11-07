@@ -786,12 +786,19 @@ export async function cleanupExpiredBatches(): Promise<number> {
   let deleted = 0;
 
   for (const batch of expiredBatches) {
+    let storageDeleted = true;
     for (const bucket of [UPLOADS_BUCKET, RESULTS_BUCKET]) {
       try {
         await storage.deletePrefix(bucket, `${batch.id}/`);
       } catch (error) {
+        storageDeleted = false;
         console.error(`Failed to clean expired objects for batch ${batch.id} in ${bucket}`, error);
       }
+    }
+
+    // Keep the batch row when storage deletion fails so future cleanup runs can retry removing any remaining files (including private originals).
+    if (!storageDeleted) {
+      continue;
     }
 
     try {

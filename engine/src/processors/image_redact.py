@@ -3,7 +3,7 @@ import io
 import os
 import time
 import logging
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional, Callable
 import numpy as np
 import cv2
 from PIL import Image
@@ -117,6 +117,7 @@ class ImageRedactProcessor(BaseProcessor):
         params: Dict[str, Any],
         output_key: str = "",
         storage_client: Optional[Any] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> Tuple[bytes, Dict[str, Any], str]:
         start_time = time.perf_counter()
 

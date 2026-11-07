@@ -21,10 +21,10 @@ logger = logging.getLogger("worker")
 
 
 class EngineWorker:
-    def __init__(self):
+    def __init__(self, pool_type: str = None):
         self.storage = StorageClient()
         self.messaging = MessagingClient()
-        self.processors = get_processor_registry()
+        self.processors = get_processor_registry(pool_type=pool_type)
         self.running = True
         self.is_processing = False
         self.current_msg = None
@@ -150,11 +150,21 @@ class EngineWorker:
 
             # 5. Process data in worker thread so CPU-heavy inference doesn't block asyncio event loop
             await self.messaging.emit_progress_event(
-                job_id=job_id, progress=40, stage="PROCESSING", batch_id=batch_id
+                job_id=job_id, progress=20, stage="PROCESSING", batch_id=batch_id
             )
+            loop = asyncio.get_running_loop()
+
+            def on_progress(pct: int, stage_name: str = "PROCESSING"):
+                asyncio.run_coroutine_threadsafe(
+                    self.messaging.emit_progress_event(
+                        job_id=job_id, progress=pct, stage=stage_name, batch_id=batch_id
+                    ),
+                    loop,
+                )
+
             try:
                 output_bytes, result_summary, content_type = await asyncio.to_thread(
-                    processor.process, input_bytes, params, out_key, self.storage
+                    processor.process, input_bytes, params, out_key, self.storage, on_progress
                 )
             except InvalidInputFileError as e:
                 logger.warning(f"Invalid input file on job {job_id}: {e}")

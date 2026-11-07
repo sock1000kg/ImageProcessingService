@@ -11,9 +11,12 @@
 | Tác vụ | Lệnh thực thi (PowerShell từ thư mục gốc hoặc `engine/`) | Mục đích |
 | :--- | :--- | :--- |
 | **1. Bật Hạ tầng** | `docker compose -f infra/docker-compose.yaml up -d` | Dựng NATS JetStream, MinIO, Postgres |
-| **2. Chạy Unit Test** | `python tests/test_processors.py` *(trong thư mục `engine/`)* | Test logic che, padding, EXIF (không cần Docker) |
-| **3. Bật Worker** | `python src/main.py` *(trong thư mục `engine/`)* | Khởi động Worker chờ nhận job từ NATS |
-| **4. Bắn Job Test** | `python tests/mock_backend.py image-redact [duong_dan_anh]` | Giả lập Backend gửi job, nhận kết quả vào `output/` |
+| **2. Test Logic Video (Phase 2)** | `python tests/test_video_redact.py` *(trong thư mục `engine/`)* | Test 17 kịch bản video, ByteTrack, ArcFace, OCR |
+| **3. Test Tích hợp Worker E2E** | `python tests/test_worker_e2e.py` *(trong thư mục `engine/`)* | Test 4 kịch bản worker loop, NATS, S3, mã lỗi |
+| **4. Đo Benchmark CPU** | `python tests/benchmark_video_cpu.py` *(trong thư mục `engine/`)* | Đo FPS, RAM, độ trễ 480p/720p/1080p, xuất MD |
+| **5. Test Hồi quy Ảnh (Phase 1)** | `python tests/test_processors.py` *(trong thư mục `engine/`)* | Test 13 kịch bản che ảnh, styles, EXIF, Vlogger |
+| **6. Bật Video Worker** | `$env:NATS_STREAM_NAME="VIDEO_JOBS"; $env:NATS_CONSUMER_NAME="video-workers"; python src/main.py` | Bật worker xử lý video từ NATS |
+| **7. Bắn Video Test qua Mock Backend** | `python tests/mock_backend.py video-redact [duong_dan_video.mp4]` | Bắn job video, nhận file kết quả vào `output/` |
 
 ---
 
@@ -121,6 +124,16 @@ python tests/mock_backend.py image-redact-blur "D:\Photos\test_face.jpg"
 # 2. Test che hộp đen Blackout
 python tests/mock_backend.py image-redact-blackout "D:\Photos\test_car.jpg"
 ```
+
+### Cách 4.4: Test ẩn danh hóa Video (Phase 2 - Video Redact)
+```powershell
+# 1. Test nhanh với video clip tự sinh trong RAM (30 frames)
+python tests/mock_backend.py video-redact
+
+# 2. Test với video MP4 thực tế trên máy tính (giữ 100% audio gốc, nén CRF 23)
+python tests/mock_backend.py video-redact "D:\Videos\my_street_video.mp4"
+```
+Kết quả video đã ẩn danh hóa sẽ tự động tải về thư mục **`engine/output/video-redact_<jobId>.mp4`**.
 
 ### Luồng xử lý tự động của `mock_backend.py`:
 1. Tải ảnh lên MinIO bucket `uploads/<batchId>/<jobId>/input.jpg`.

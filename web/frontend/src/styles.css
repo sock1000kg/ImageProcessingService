@@ -977,42 +977,42 @@ output {
 .image-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 5px;
+  gap: 2px;
 }
 .image-list-row {
+  position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
   gap: 9px;
   width: 100%;
   min-width: 0;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-md);
-  padding: 11px;
+  padding: var(--space-2);
   text-align: left;
   color: var(--text);
-  background: var(--surface-2);
+  background: transparent;
   box-shadow: none;
 }
 .image-list-row > .status-dot {
   grid-column: 1;
   grid-row: 1;
+  margin-top: 5px;
 }
 .image-list-row > .image-name {
   grid-column: 2;
   grid-row: 1;
 }
 .image-list-row > .delete-item-button {
-  grid-column: 3;
-  grid-row: 1;
+  position: absolute;
+  right: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--surface-hover);
+  opacity: 0;
   margin-left: 0;
-}
-.image-row-badges {
-  grid-column: 2;
-  grid-row: 2;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .image-list-row:hover {
   background: var(--surface-hover);
@@ -1021,8 +1021,21 @@ output {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
 }
+.image-list-row.selected > .delete-item-button {
+  background: var(--accent-soft);
+}
 .image-list-row.selected:hover {
   background: var(--accent-soft);
+}
+.image-list-row:hover > .delete-item-button,
+.image-list-row:focus-within > .delete-item-button,
+.image-list-row > .delete-item-button:focus {
+  opacity: 1;
+}
+@media (hover: none) {
+  .image-list-row > .delete-item-button {
+    opacity: 1;
+  }
 }
 .status-dot {
   width: 8px;
@@ -1067,18 +1080,27 @@ output {
   min-width: 0;
 }
 .image-name strong {
+  font-size: var(--text-xs);
+}
+.row-name {
+  display: flex;
+  min-width: 0;
+}
+.row-name-start {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-xs);
+  min-width: 0;
+}
+.row-name-end {
+  flex: none;
+  white-space: pre;
 }
 .image-name small,
-.row-status {
+.row-meta {
   color: var(--text-3);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
-}
-.image-name small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1089,8 +1111,14 @@ output {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.row-status {
-  white-space: nowrap;
+.row-review {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--warn);
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
 }
 .review-pill {
   display: inline-block;
@@ -1440,34 +1468,24 @@ input[type="range"].comparison-range::-moz-range-thumb {
 }
 .detection-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 11px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--space-2);
   border-radius: var(--radius-md);
   color: var(--text-2);
-  background: var(--surface-2);
+  background: transparent;
   font-size: var(--text-xs);
   cursor: default;
   transition:
     background var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out);
-  border: 1px solid transparent;
+  border: 0;
 }
 .detection-row:hover,
 .detection-row:focus-visible,
 .detection-row.active-row {
   background: var(--surface-hover);
-  border-color: var(--border-strong);
-}
-.detection-row.warning-row {
-  background: var(--warn-soft);
-  border-color: var(--warn);
-}
-.detection-row.warning-row:hover,
-.detection-row.warning-row:focus-visible,
-.detection-row.warning-row.active-row {
-  background: var(--warn-soft);
 }
 .detection-main {
   display: flex;
@@ -1830,13 +1848,6 @@ input[type="range"].comparison-range::-moz-range-thumb {
     display: none;
   }
 }
-.needs-review-row {
-  background: var(--warn-soft);
-}
-.image-list-row.selected.needs-review-row {
-  background: var(--accent-soft);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
 .review-reasons {
   display: flex;
   flex-wrap: wrap;
@@ -1847,10 +1858,6 @@ input[type="range"].comparison-range::-moz-range-thumb {
 .review-report-item span {
   color: var(--warn);
   font-size: var(--text-xs);
-}
-.warning-row {
-  border-color: var(--warn);
-  background: var(--warn-soft);
 }
 .review-report-list {
   display: grid;

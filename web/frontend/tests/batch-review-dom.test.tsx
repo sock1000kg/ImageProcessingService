@@ -11,6 +11,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { BatchDetails } from "../src/components/BatchDetails";
+import { formatJobRowStatus, splitFilename } from "../src/components/BatchImageList";
 import * as api from "../src/api";
 import { Batch, BatchReport, Job } from "../src/types";
 
@@ -284,14 +285,105 @@ describe("Batch review DOM and interaction tests (Task 72)", () => {
     // Dismiss the delete dialog
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
-    // Flagged row renders Needs review pill, status text, and original filename title
+    // Flagged row renders loose "needs review" and "done" text, with original filename title
     const reviewJobRow = screen.getByTitle("photo-review.jpg").closest('[role="button"]')!;
     expect(reviewJobRow).not.toBeNull();
-    expect(await within(reviewJobRow).findByText("Needs review")).toBeDefined();
-    expect(within(reviewJobRow).getByText("COMPLETED")).toBeDefined();
+    expect(await within(reviewJobRow).findByText(/needs review/i)).toBeDefined();
+    expect(within(reviewJobRow).getByText(/done/i)).toBeDefined();
 
     // Clicking the image row selects it and updates the viewer
     fireEvent.click(reviewJobRow);
     expect(screen.getByRole("heading", { name: "photo-review.jpg" })).toBeDefined();
+  });
+
+  it("formatJobRowStatus returns distinct text for each status, and includes the progress while processing", () => {
+    const completed = formatJobRowStatus({ status: "COMPLETED", progress: 100 });
+    const processing = formatJobRowStatus({ status: "PROCESSING", progress: 42 });
+    const failed = formatJobRowStatus({ status: "FAILED", progress: 10 });
+    const queued = formatJobRowStatus({ status: "QUEUED", progress: 0 });
+    const waiting = formatJobRowStatus({ status: "OTHER", progress: 0 });
+
+    expect(completed).toBe("Done");
+    expect(processing).toBe("Processing · 42%");
+    expect(failed).toBe("Failed");
+    expect(queued).toBe("Queued");
+    expect(waiting).toBe("Waiting");
+
+    const statuses = [completed, processing, failed, queued, waiting];
+    const unique = new Set(statuses);
+    expect(unique.size).toBe(statuses.length);
+  });
+
+  it("splitFilename rejoins to the original name, keeps a long name's extension in end, and leaves short names whole", () => {
+    // Short name (<= 20 chars) left whole
+    const short = splitFilename("photo-clean.jpg");
+    expect(short.start).toBe("photo-clean.jpg");
+    expect(short.end).toBe("");
+    expect(short.start + short.end).toBe("photo-clean.jpg");
+
+    // Exact 20 chars boundary
+    const twenty = splitFilename("12345678901234567890");
+    expect(twenty.start).toBe("12345678901234567890");
+    expect(twenty.end).toBe("");
+    expect(twenty.start + twenty.end).toBe("12345678901234567890");
+
+    // Long name (> 20 chars)
+    const long = splitFilename("super-long-image-filename-2026.png");
+    expect(long.end).toBe("e-2026.png");
+    expect(long.end.endsWith(".png")).toBe(true);
+    expect(long.start + long.end).toBe("super-long-image-filename-2026.png");
+  });
+
+  it("a long filename's row keeps the full name in title", async () => {
+    const longName = "very-long-camera-image-photo-capture-2026.jpeg";
+    const batchWithLongName: Batch = {
+      ...createBatch("COMPLETED"),
+      jobs: [
+        {
+          id: "job-long-1",
+          batchId: "batch-105",
+          originalFilename: longName,
+          status: "COMPLETED",
+          progress: 100,
+          stage: "COMPLETED",
+          resultUrl: "/api/jobs/job-long-1/result",
+          resultSummary: null,
+          error: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    };
+    const reportWithLongName: BatchReport = {
+      ...createReport(),
+      images: [
+        {
+          jobId: "job-long-1",
+          originalFilename: longName,
+          status: "COMPLETED",
+          progress: 100,
+          stage: "COMPLETED",
+          resultUrl: "/api/jobs/job-long-1/result",
+          resultSummary: null,
+          error: null,
+          detections: [],
+          needsReview: false,
+          reviewReasons: [],
+          lowestRedactedConfidence: null,
+        },
+      ],
+    };
+
+    vi.spyOn(api, "getBatchReport").mockResolvedValue(reportWithLongName);
+
+    render(
+      <MemoryRouter>
+        <BatchDetails batch={batchWithLongName} onRefresh={vi.fn()} onDelete={vi.fn()} onMessage={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    const titleElement = await screen.findByTitle(longName);
+    expect(titleElement).toBeDefined();
+    expect(titleElement.classList.contains("row-name")).toBe(true);
   });
 });

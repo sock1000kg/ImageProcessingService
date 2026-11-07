@@ -3,11 +3,11 @@
  */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Trash, Warning } from "@phosphor-icons/react";
 import { deleteJob } from "../api";
 import { Batch, Job, ReportImage } from "../types";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { StatusBadge } from "./ui/StatusBadge";
-import { Trash } from "@phosphor-icons/react";
 
 export interface BatchImageListProps {
   batch: Batch;
@@ -45,6 +45,32 @@ export function sortBatchJobs(batch: Batch, report: ReportImage[]): Job[] {
 }
 
 /**
+ * Formats a batch job's status and progress into a concise human-readable status line.
+ */
+export function formatJobRowStatus(job: Pick<Job, "status" | "progress">): string {
+  if (job.status === "COMPLETED") return "Done";
+  if (job.status === "PROCESSING") return `Processing · ${job.progress}%`;
+  if (job.status === "FAILED") return "Failed";
+  if (job.status === "QUEUED") return "Queued";
+  return "Waiting";
+}
+
+/**
+ * Splits a filename for middle-truncation in image list rows.
+ * Filenames of 20 characters or fewer are kept intact in start with empty end;
+ * longer filenames place the final 10 characters in end.
+ */
+export function splitFilename(name: string): { start: string; end: string } {
+  if (name.length <= 20) {
+    return { start: name, end: "" };
+  }
+  return {
+    start: name.slice(0, -10),
+    end: name.slice(-10),
+  };
+}
+
+/**
  * Renders the selectable list of image jobs within the active batch.
  */
 export function BatchImageList({ batch, report, selected, onSelect, onJobDeleted, onError }: BatchImageListProps) {
@@ -79,7 +105,8 @@ export function BatchImageList({ batch, report, selected, onSelect, onJobDeleted
           const isSelected = selected === job.id;
           const flagged = needsReview(job);
           const isActive = job.status === "QUEUED" || job.status === "PROCESSING";
-          const rowClass = `image-list-row ${isSelected ? "selected" : ""} ${flagged ? "needs-review-row" : ""}`.trim();
+          const rowClass = `image-list-row ${isSelected ? "selected" : ""}`.trim();
+          const { start, end } = splitFilename(job.originalFilename);
 
           return (
             <div
@@ -97,20 +124,26 @@ export function BatchImageList({ batch, report, selected, onSelect, onJobDeleted
             >
               <StatusBadge variant="dot" status={job.status} />
               <span className="image-name">
-                <strong title={job.originalFilename}>{job.originalFilename}</strong>
-                <small>
-                  {job.stage ?? "Waiting"} · {job.progress}%
+                <strong title={job.originalFilename} className="row-name">
+                  <span className="row-name-start">{start}</span>
+                  {end && <span className="row-name-end">{end}</span>}
+                </strong>
+                <small className="row-meta">
+                  {formatJobRowStatus(job)}
+                  {flagged && (
+                    <>
+                      {" · "}
+                      <span className="row-review">
+                        <Warning aria-hidden /> Needs review
+                      </span>
+                    </>
+                  )}
                 </small>
                 {job.status === "FAILED" && job.error && (
                   <small className="failure-detail">
                     {[job.error.code, job.error.message].filter(Boolean).join(": ")}
                   </small>
                 )}
-              </span>
-              {/* Why image-row-badges: groups review pill and status badge into row 2 of image list item grid */}
-              <span className="image-row-badges">
-                {flagged && <StatusBadge variant="pill" label="Needs review" />}
-                <span className="row-status">{job.status}</span>
               </span>
               <button
                 type="button"

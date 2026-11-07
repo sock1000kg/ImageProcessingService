@@ -505,8 +505,11 @@ Dragging anywhere moves the split, and the keyboard works natively.
 
 **Other changes here:**
 
-- **Selected row:** `--accent-soft` plus a 3 px `--accent` left edge via inset shadow, so it doesn't shift the layout.
-  Flagged rows use `--warn-soft`, with the "Needs review" pill as the non-colour signal.
+- **Image and detection rows are flat** (decided 2026-11-07): no filled cards, just a hover tint. The selected image row
+  keeps `--accent-soft` plus a 3 px `--accent` left edge via inset shadow, so it doesn't shift the layout.
+- **One status line per image row,** such as "Done" or "Processing · 42%". A flagged row adds an inline amber "Needs
+  review" with an icon, with no pill or amber fill. Long names are cut in the middle, because the end is what tells similar
+  files apart, and the full name is in `title`. Delete appears on hover or focus, and always on touch screens.
 - **Empty and failed states:** `.viewer-empty` in the stage position uses `--stage-bg` and `--stage-text` at the same
   height, so the layout doesn't jump when a result arrives. Error code in mono.
 - **`.viewer-meta` links** become ghost buttons with a Download icon. `<a>` elements and attributes stay.

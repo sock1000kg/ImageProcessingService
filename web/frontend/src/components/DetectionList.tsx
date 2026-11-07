@@ -1,8 +1,8 @@
 /**
  * Detailed detection inspector listing individual bounding boxes, confidence scores, and review flags.
  */
+import { Warning } from "@phosphor-icons/react";
 import { Detection } from "../types";
-import { StatusBadge } from "./ui/StatusBadge";
 
 export interface DetectionListProps {
   detections: Detection[];
@@ -93,7 +93,9 @@ export function DetectionList({
             </div>
             {isFlagged && (
               <span id={`detection-review-${index}`} role="status">
-                <StatusBadge variant="pill" label="Needs review" />
+                <span className="row-review">
+                  <Warning aria-hidden /> Needs review
+                </span>
               </span>
             )}
           </li>

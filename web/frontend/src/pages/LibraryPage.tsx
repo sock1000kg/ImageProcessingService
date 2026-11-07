@@ -178,7 +178,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                   <span>{new Date(batch.createdAt).toLocaleDateString()}</span>
                 </div>
                 <div className="library-card-actions">
-                  <Link to={`/batches/${batch.id}`} className="primary-button">
+                  <Link to={`/batches/${batch.id}`} className="secondary-button">
                     Open
                   </Link>
                   <button

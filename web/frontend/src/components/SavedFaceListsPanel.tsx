@@ -183,7 +183,7 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
 
   return (
     <section className="details-card saved-face-lists-section">
-      <div className="section-header saved-face-lists-header">
+      <div className="saved-face-lists-header">
         <h2>Allow lists</h2>
         <p className="subtitle saved-face-lists-subtitle">
           Reusable allow lists kept under your account until deleted.
@@ -250,7 +250,7 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
               <div className="library-card-actions">
                 <button
                   type="button"
-                  className="primary-button"
+                  className="secondary-button"
                   onClick={() => setViewingList({ list, initialIndex: 1 })}
                 >
                   View
@@ -283,8 +283,7 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
           <input
             id="new-face-list-name"
             type="text"
-            className="text-input"
-            style={{ marginTop: "4px" }}
+            className="text-input space-above-1"
             maxLength={100}
             placeholder="e.g. VIP Team, Family"
             aria-label="Name"

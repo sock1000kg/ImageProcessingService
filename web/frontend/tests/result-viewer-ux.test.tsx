@@ -153,6 +153,28 @@ describe("Step 2 & 3: ImageResultViewer slider and box overlay", () => {
     expect(screen.queryByText("#1")).toBeNull();
   });
 
+  it("box key legend is absent by default, present after turning on Show boxes, and absent again after turning it off", () => {
+    render(<ImageResultViewer job={sampleJob} detections={sampleDetections} reviewReasons={[]} onRetry={() => {}} />);
+
+    // Box key is absent by default
+    expect(screen.queryByRole("list", { name: /box key/i })).toBeNull();
+
+    // Toggle Show boxes ON
+    const toggle = screen.getByLabelText(/show boxes/i) as HTMLInputElement;
+    fireEvent.click(toggle);
+
+    // Box key is present and contains swatches/labels
+    const boxKey = screen.getByRole("list", { name: /box key/i });
+    expect(boxKey).toBeDefined();
+    expect(within(boxKey).getByText(/redacted/i)).toBeDefined();
+    expect(within(boxKey).getByText(/kept/i)).toBeDefined();
+    expect(within(boxKey).getByText(/review/i)).toBeDefined();
+
+    // Toggle Show boxes OFF
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("list", { name: /box key/i })).toBeNull();
+  });
+
   it("hovering a detection row activates the overlay and shows the specific box label", () => {
     render(<ImageResultViewer job={sampleJob} detections={sampleDetections} reviewReasons={[]} onRetry={() => {}} />);
 

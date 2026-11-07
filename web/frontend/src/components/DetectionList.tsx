@@ -52,11 +52,7 @@ export function DetectionList({
   }
 
   return (
-    <ul
-      className="detection-list scroll-list"
-      aria-label="Detection list"
-      style={{ margin: 0, padding: 0, listStyle: "none" }}
-    >
+    <ul className="detection-list scroll-list" aria-label="Detection list">
       {detections.map((detection, index) => {
         const isFlagged =
           Boolean(detection.needsReview) ||

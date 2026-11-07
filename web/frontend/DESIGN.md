@@ -3,7 +3,7 @@
 The design spec for `web/frontend`: what the UI should look like, what must not change, and the order to build it in.
 Cross-team behaviour is defined in `docs/` at the repo root. If this file and `docs/` disagree, `docs/` wins.
 
-**Status:** in progress, phases 1–2 done. Baseline before this work: 19 test files, 174 tests passing.
+**Status:** in progress, phases 1–3 done. Baseline before this work: 19 test files, 174 tests passing.
 
 ## 1. Direction
 

@@ -9,6 +9,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { App } from "../src/App";
 import { WorkspaceLayout } from "../src/components/AppLayouts";
+import { Banner } from "../src/components/ui/Banner";
 import { useAuth } from "../src/context/AuthContext";
 
 vi.mock("../src/context/AuthContext", () => ({
@@ -126,5 +127,29 @@ describe("Icons, Focus and Accessibility DOM Tests (Task 69)", () => {
     const dismissBtn = screen.getByRole("button", { name: /dismiss/i });
     expect(dismissBtn).toBeDefined();
     expect(dismissBtn.getAttribute("aria-label")).toBe("Dismiss");
+  });
+
+  it("banner keeps its text and role with its icon present", () => {
+    const { container, rerender } = render(
+      <Banner variant="success" role="status">
+        Upload complete
+      </Banner>,
+    );
+
+    const statusBanner = screen.getByRole("status");
+    expect(statusBanner.textContent).toContain("Upload complete");
+    const successIcon = container.querySelector("svg[aria-hidden='true']");
+    expect(successIcon).not.toBeNull();
+
+    rerender(
+      <Banner variant="error" role="alert">
+        Operation failed
+      </Banner>,
+    );
+
+    const alertBanner = screen.getByRole("alert");
+    expect(alertBanner.textContent).toContain("Operation failed");
+    const errorIcon = container.querySelector("svg[aria-hidden='true']");
+    expect(errorIcon).not.toBeNull();
   });
 });

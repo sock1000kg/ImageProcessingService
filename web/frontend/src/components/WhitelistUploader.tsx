@@ -210,9 +210,8 @@ export function WhitelistUploader({
           <div className="batch-name-group">
             <input
               type="text"
-              className="text-input"
+              className="text-input space-below-2"
               placeholder="Name this allow list…"
-              style={{ marginBottom: "8px" }}
               aria-label="Allow list name"
               value={listName}
               onChange={(e) => setListName(e.target.value)}
@@ -282,7 +281,7 @@ export function WhitelistUploader({
                       </button>
                       <button
                         type="button"
-                        className={isAdded ? "secondary-button" : "primary-button"}
+                        className="secondary-button"
                         disabled={!isAdded && wouldExceed}
                         title={!isAdded && wouldExceed ? exceedReason : undefined}
                         onClick={() => {

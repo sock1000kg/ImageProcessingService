@@ -183,6 +183,22 @@ export function ImageResultViewer({
               <input type="checkbox" checked={showBoxes} onChange={(event) => setShowBoxes(event.target.checked)} />
               Show boxes
             </label>
+            {showBoxes && (
+              <ul className="box-legend" aria-label="Box key">
+                <li>
+                  <span className="box-legend-swatch box-legend-redacted" aria-hidden="true" />
+                  <span>redacted</span>
+                </li>
+                <li>
+                  <span className="box-legend-swatch box-legend-kept" aria-hidden="true" />
+                  <span>kept</span>
+                </li>
+                <li>
+                  <span className="box-legend-swatch box-legend-review" aria-hidden="true" />
+                  <span>review</span>
+                </li>
+              </ul>
+            )}
           </div>
         </>
       ) : (

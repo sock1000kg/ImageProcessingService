@@ -130,6 +130,7 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * **Replicas owned by KEDA:** `video-worker` and `image-worker` Deployments omit `replicas` so `kubectl apply` does not fight the KEDA HPA.
 * **Pool thresholds and peak RAM:** `video-worker` scales with `lagThreshold: "1"` (1 heavy video job per pod) up to 1 replica (peak 2048Mi limit); `image-worker` scales with `lagThreshold: "5"` up to 3 replicas (peak 4608Mi limit). Total peak worker memory is **6656Mi**.
 * **Pool sizing and scale rationale:** Image redaction handles many small, fast requests and now runs YOLO + face embeddings, so it needs more memory per pod (1536Mi limit) and scales out more (up to 3 replicas, lagThreshold: "5"). Video redaction is heavy and long-running (YOLO + ByteTrack + FFmpeg per job), so the video pool gets fewer, bigger pods (1 replica max, 2048Mi limit, lagThreshold: "1"). These sizes are interim until the engine reports measured RAM (engine plan M3).
+* **Lab input size (YOLO_IMGSZ):** `image-worker` and `video-worker` specify `YOLO_IMGSZ="960"` in their manifests (`infra/app/engine-workers/`). 1280 is the Engine default, and the lab runs on CPU (960 balances detection quality with CPU latency).
 * **Monitoring endpoint:** Trigger `natsServerMonitoringEndpoint: nats.imgproc.svc.cluster.local:8222` targets the `imgproc` namespace.
 
 ## Operational notes (Task 8, web deploy)

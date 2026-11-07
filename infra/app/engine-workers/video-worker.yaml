@@ -63,6 +63,8 @@ spec:
                   key: rootPassword
             - name: YOLO_CONFIG_DIR
               value: /tmp/Ultralytics
+            - name: YOLO_IMGSZ
+              value: "960"
             - name: HOME
               value: /tmp
           resources:

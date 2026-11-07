@@ -334,7 +334,12 @@ if [ -z "$MACHINE" ]; then
   MACHINE="${detected_node:-home-server}"
 fi
 
-EFFECTIVE_IMGSZ="${IMGSZ:-640}"
+if [ -n "$IMGSZ" ]; then
+  EFFECTIVE_IMGSZ="$IMGSZ"
+else
+  EFFECTIVE_IMGSZ="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].env[?(@.name=="YOLO_IMGSZ")].value}' 2>/dev/null || true)"
+  EFFECTIVE_IMGSZ="${EFFECTIVE_IMGSZ:-1280}"
+fi
 
 if [ -n "$MODEL" ]; then
   # same file on the laptop (engine/models/<file>) and in the worker (/app/models/<file>, hostPath mount)

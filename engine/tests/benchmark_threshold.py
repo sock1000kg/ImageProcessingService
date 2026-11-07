@@ -205,7 +205,7 @@ def run_benchmark():
         # Job params: Whitelist Obama, blur style
         job_params = {
             "redaction": {"targets": ["face"], "style": "blur", "strength": 25, "padding": 0.1},
-            "confidenceThreshold": 0.35,
+            "confidenceThresholds": {"face": 0.35, "plate": 0.35},
             "reviewThreshold": 0.50,
             "whitelist": {
                 "faces": [

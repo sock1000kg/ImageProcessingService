@@ -29,11 +29,12 @@ from typing import Tuple, Dict, Any, Optional, List, Callable
 import numpy as np
 import cv2
 
-from .base import BaseProcessor
+from .base import BaseProcessor, parse_confidence_thresholds, DEFAULT_REVIEW_THRESHOLD
 from .image_redact import InvalidInputFileError
 from .face_embedding import FaceEmbedder
 from .whitelist import WhitelistManager
 from .plate_ocr import PlateWhitelistManager
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,10 @@ class TrackManager:
             self.tracks[track_id] = Track(track_id=track_id, label=label)
         return self.tracks[track_id]
 
+    def has_track(self, track_id: int) -> bool:
+        """Check if track ID is already registered in active tracks."""
+        return track_id in self.tracks
+
     def add_detection(
         self,
         track_id: int,
@@ -255,7 +260,7 @@ class TrackManager:
                 boxes.append(track.detections[frame_idx].box)
         return boxes
 
-    def to_contract_summary(self, review_threshold: float = 0.50) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    def to_contract_summary(self, review_threshold: float = DEFAULT_REVIEW_THRESHOLD) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
         """Export tracks and summary counts conforming 100% to Contract §3 B2."""
         tracks_summary: List[Dict[str, Any]] = []
         counts = {
@@ -294,7 +299,9 @@ class TrackManager:
             if track.redacted:
                 counts["redactedTracks"] += 1
 
-            is_low_conf_track = bool(len(track.low_confidence_ranges) > 0 or mean_conf < review_threshold)
+            # A track counts toward lowConfidenceTracks only when its mean_conf is below review_threshold.
+            # A brief dip must not flag a whole track; lowConfidenceRanges still captures localized drops.
+            is_low_conf_track = bool(mean_conf < review_threshold)
             if is_low_conf_track:
                 counts["lowConfidenceTracks"] += 1
 
@@ -530,7 +537,7 @@ class VideoRedactProcessor(BaseProcessor):
         model_name: str = "yolo26n-1280-e20-crowd.pt",
         face_embedding_model: str = "w600k_mbf.onnx",
         class_mapping: Optional[Dict[str, str]] = None,
-        imgsz: int = 640,
+        imgsz: int = 1280,
         ffmpeg_bin: str = "ffmpeg",
         ffprobe_bin: str = "ffprobe",
         tracker_config: str = "bytetrack.yaml",
@@ -766,8 +773,8 @@ class VideoRedactProcessor(BaseProcessor):
         strength = int(redaction_cfg.get("strength", default_strength))
         padding = max(0.0, min(0.5, float(redaction_cfg.get("padding", 0.1))))
 
-        conf_threshold = float(params.get("confidenceThreshold", 0.35))
-        review_threshold = float(params.get("reviewThreshold", 0.50))
+        thresholds = parse_confidence_thresholds(params)
+        review_threshold = float(params.get("reviewThreshold", DEFAULT_REVIEW_THRESHOLD))
 
         # Parse Whitelist configuration
         whitelist_cfg = params.get("whitelist", {}) if isinstance(params.get("whitelist"), dict) else {}
@@ -809,7 +816,7 @@ class VideoRedactProcessor(BaseProcessor):
                 input_video_path=input_video_path,
                 metadata=metadata,
                 targets_set=targets_set,
-                conf_threshold=conf_threshold,
+                thresholds=thresholds,
                 review_threshold=review_threshold,
                 throttler=throttler,
             )
@@ -898,7 +905,7 @@ class VideoRedactProcessor(BaseProcessor):
         input_video_path: str,
         metadata: VideoMetadata,
         targets_set: set,
-        conf_threshold: float,
+        thresholds: Dict[str, float],
         review_threshold: float,
         throttler: ProgressThrottler,
     ) -> TrackManager:
@@ -928,6 +935,32 @@ class VideoRedactProcessor(BaseProcessor):
         total_frames = max(1, metadata.frames)
         untracked_counter = 500000
 
+        target_thresholds = [thresholds[t] for t in targets_set if t in thresholds]
+        floor = min(target_thresholds) if target_thresholds else min(thresholds.values())
+        track_low_thresh = min(0.05, floor)
+
+        temp_tracker_path = None
+        configured_tracker = getattr(settings, "video_tracker", self.tracker_config)
+        if configured_tracker == "bytetrack.yaml" and self.tracker_config == "bytetrack.yaml":
+            # The buffer is about one second whatever the frame rate, and low scores
+            # must reach the tracker for its recovery stage to work.
+            track_buffer = max(30, round(metadata.fps))
+            temp_tracker = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
+            temp_tracker.write(
+                f"tracker_type: bytetrack\n"
+                f"track_high_thresh: {floor}\n"
+                f"new_track_thresh: {floor}\n"
+                f"track_low_thresh: {track_low_thresh}\n"
+                f"track_buffer: {track_buffer}\n"
+                f"match_thresh: 0.9\n"
+                f"fuse_score: True\n"
+            )
+            temp_tracker.close()
+            temp_tracker_path = temp_tracker.name
+            active_tracker = temp_tracker_path
+        else:
+            active_tracker = self.tracker_config
+
         try:
             while True:
                 ret, frame = cap.read()
@@ -940,8 +973,8 @@ class VideoRedactProcessor(BaseProcessor):
                     results = model.track(
                         source=frame,
                         persist=True,
-                        tracker=self.tracker_config,
-                        conf=conf_threshold,
+                        tracker=active_tracker,
+                        conf=track_low_thresh,
                         imgsz=self.imgsz,
                         verbose=False,
                     )
@@ -960,12 +993,19 @@ class VideoRedactProcessor(BaseProcessor):
                                 continue
 
                             conf = float(box.conf[0].item())
-                            if conf < conf_threshold:
-                                continue
+                            class_threshold = thresholds.get(norm_label, floor)
 
+                            # Keep a box if its confidence reaches its class's threshold,
+                            # or if its track ID is already in the TrackManager (low-score recovery).
+                            # Otherwise drop it. Boxes with no ID keep their untracked_counter handling
+                            # and use the class threshold.
                             if box.id is not None:
                                 track_id = int(box.id[0].item())
+                                if conf < class_threshold and not track_mgr.has_track(track_id):
+                                    continue
                             else:
+                                if conf < class_threshold:
+                                    continue
                                 track_id = untracked_counter
                                 untracked_counter += 1
 
@@ -1014,6 +1054,11 @@ class VideoRedactProcessor(BaseProcessor):
 
         finally:
             cap.release()
+            if temp_tracker_path and os.path.exists(temp_tracker_path):
+                try:
+                    os.remove(temp_tracker_path)
+                except Exception:
+                    pass
 
         # Bridge tracking dropouts <= MAX_INTERPOLATION_GAP_FRAMES and record gaps
         track_mgr.interpolate_gaps(max_gap_frames=MAX_INTERPOLATION_GAP_FRAMES)
@@ -1130,8 +1175,12 @@ class VideoRedactProcessor(BaseProcessor):
         crf: int,
     ) -> Optional[subprocess.Popen]:
         """Creates an FFmpeg subprocess that accepts raw BGR frames on stdin and remuxes audio."""
+        # Why: stderr is a pipe nobody reads until the end, so it must stay small enough
+        # not to block ffmpeg. Error output is kept.
         cmd = [
             self.ffmpeg_bin,
+            "-nostats",
+            "-loglevel", "error",
             "-y",
             "-f", "rawvideo",
             "-vcodec", "rawvideo",

@@ -40,7 +40,7 @@ class Settings(BaseModel):
     models_dir: str = os.getenv("MODELS_DIR", "./models")
     yolo_model_name: str = os.getenv("YOLO_MODEL_NAME", "yolo26n-1280-e20-crowd.pt")
     # YOLO input size in px (multiple of 32). Larger finds smaller faces/plates but is slower.
-    yolo_imgsz: int = int(os.getenv("YOLO_IMGSZ", "640"))
+    yolo_imgsz: int = int(os.getenv("YOLO_IMGSZ", "1280"))
     face_embedding_model: str = os.getenv("FACE_EMBEDDING_MODEL", "w600k_mbf.onnx")
 
     # Resilience & Fault Tolerance

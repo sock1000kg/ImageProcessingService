@@ -8,7 +8,7 @@ import numpy as np
 import cv2
 from PIL import Image
 
-from .base import BaseProcessor
+from .base import BaseProcessor, parse_confidence_thresholds, DEFAULT_REVIEW_THRESHOLD
 from .face_embedding import FaceEmbedder
 from .whitelist import WhitelistManager
 
@@ -40,7 +40,7 @@ class ImageRedactProcessor(BaseProcessor):
         model_name: str = "yolo26n-1280-e20-crowd.pt",
         face_embedding_model: str = "w600k_mbf.onnx",
         class_mapping: Optional[Dict[str, str]] = None,
-        imgsz: int = 640,
+        imgsz: int = 1280,
         face_embedder: Optional[FaceEmbedder] = None,
         whitelist_manager: Optional[WhitelistManager] = None,
         storage_client: Optional[Any] = None,
@@ -168,8 +168,10 @@ class ImageRedactProcessor(BaseProcessor):
         padding = float(redaction_cfg.get("padding", 0.1))
         padding = max(0.0, min(0.5, padding))
 
-        conf_threshold = float(params.get("confidenceThreshold", 0.35))
-        review_threshold = float(params.get("reviewThreshold", 0.50))
+        thresholds = parse_confidence_thresholds(params)
+        review_threshold = float(params.get("reviewThreshold", DEFAULT_REVIEW_THRESHOLD))
+        target_thresholds = [thresholds[t] for t in targets_set if t in thresholds]
+        floor = min(target_thresholds) if target_thresholds else min(thresholds.values())
 
         # 2b. Parse Whitelist configuration (Milestone 2)
         whitelist_cfg = params.get("whitelist", {}) if params else {}
@@ -193,7 +195,7 @@ class ImageRedactProcessor(BaseProcessor):
         try:
             results = self.model.predict(
                 source=pil_img,
-                conf=conf_threshold,
+                conf=floor,
                 imgsz=self.imgsz,
                 verbose=False,
             )
@@ -216,7 +218,8 @@ class ImageRedactProcessor(BaseProcessor):
                     continue
 
                 conf = round(float(box.conf[0].item()), 4)
-                if conf < conf_threshold:
+                class_threshold = thresholds.get(norm_label, floor)
+                if conf < class_threshold:
                     continue
 
                 # Original coordinates [x1, y1, x2, y2] strictly clamped to image size

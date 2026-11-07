@@ -282,7 +282,7 @@ def test_two_pass_video_redaction_pipeline():
         "output": {
             "quality": "high",
         },
-        "confidenceThreshold": 0.35,
+        "confidenceThresholds": {"face": 0.35, "plate": 0.35},
         "reviewThreshold": 0.50,
     }
 
@@ -547,6 +547,8 @@ def test_ffmpeg_writer_flags_and_metadata_stripping():
         cmd = captured_cmds[0]
 
         # Verify Contract §2B requirements
+        assert "-nostats" in cmd, "Missing -nostats flag"
+        assert "-loglevel" in cmd and cmd[cmd.index("-loglevel") + 1] == "error", "Missing -loglevel error"
         assert "-map_metadata" in cmd and cmd[cmd.index("-map_metadata") + 1] == "-1", "Missing -map_metadata -1 (GPS strip)"
         assert "-movflags" in cmd and cmd[cmd.index("-movflags") + 1] == "+faststart", "Missing +faststart (Web streaming)"
         assert "-c:a" in cmd and cmd[cmd.index("-c:a") + 1] == "copy", "Missing -c:a copy (Original audio remux)"
@@ -655,7 +657,7 @@ def test_plate_whitelist_video_e2e():
     # Mock _track_pass to return two plate tracks
     orig_track_pass = processor._track_pass
 
-    def mock_track_pass(input_video_path, metadata, targets_set, conf_threshold, review_threshold, throttler):
+    def mock_track_pass(input_video_path, metadata, targets_set, thresholds, review_threshold, throttler):
         tm = TrackManager(fps=metadata.fps, orig_w=metadata.width, orig_h=metadata.height)
         # Track 1: Authorized vehicle "30A-123.45"
         plate_roi_1 = np.full((40, 100, 3), 100, dtype=np.uint8)
@@ -728,6 +730,116 @@ def test_plate_whitelist_video_e2e():
         processor._track_pass = orig_track_pass
 
 
+def test_track_manager_low_confidence_track_count():
+    """Verify that a track with high mean confidence and a brief dip isn't counted as low confidence."""
+    print("Test 18: Kiểm tra đếm lowConfidenceTracks theo meanConfidence thay vì dip đơn lẻ...")
+    mgr = TrackManager(fps=25.0, orig_w=640, orig_h=480)
+
+    # Track 1: 9 frames at 0.90, 1 frame at 0.15 (brief dip below 0.35)
+    # meanConfidence = (9 * 0.90 + 0.15) / 10 = 0.825 >= 0.35
+    for f in range(9):
+        mgr.add_detection(track_id=1, label="face", frame_idx=f, frame_ms=f * 40, box=[50, 50, 100, 100], confidence=0.90)
+    mgr.add_detection(track_id=1, label="face", frame_idx=9, frame_ms=360, box=[50, 50, 100, 100], confidence=0.15)
+
+    # Track 2: Consistently low confidence (mean < 0.35)
+    for f in range(3):
+        mgr.add_detection(track_id=2, label="face", frame_idx=f, frame_ms=f * 40, box=[150, 150, 200, 200], confidence=0.20)
+
+    mgr.compute_ranges(review_threshold=0.35)
+
+    # Check track 1 low_confidence_ranges recorded the dip
+    assert len(mgr.tracks[1].low_confidence_ranges) == 1
+
+    tracks_summary, counts = mgr.to_contract_summary(review_threshold=0.35)
+    # Only track 2 should count as lowConfidenceTracks
+    assert counts["lowConfidenceTracks"] == 1, f"Expected 1 lowConfidenceTrack, got {counts['lowConfidenceTracks']}"
+
+    t1 = next(t for t in tracks_summary if t["trackId"] == 1)
+    t2 = next(t for t in tracks_summary if t["trackId"] == 2)
+    assert t1["meanConfidence"] >= 0.35
+    assert len(t1["lowConfidenceRanges"]) > 0
+    assert t2["meanConfidence"] < 0.35
+    print("  -> PASS: Track có meanConfidence cao và brief dip không bị tính vào lowConfidenceTracks.")
+
+
+def test_low_score_box_tracking_recovery():
+    """Verify low-score box on an existing track is kept (recovery), and one with no existing track is dropped."""
+    print("Test 19: Kiểm tra giữ box điểm thấp trên track đã tồn tại (recovery) và bỏ box không có track...")
+    processor = VideoRedactProcessor()
+
+    class MockBox:
+        def __init__(self, cls_id, conf, xyxy, track_id=None):
+            self.cls = np.array([cls_id])
+            self.conf = np.array([conf])
+            self.xyxy = np.array([xyxy])
+            self.id = np.array([track_id]) if track_id is not None else None
+
+    class MockResults:
+        def __init__(self, boxes):
+            self.boxes = boxes
+
+    frame_boxes = [
+        [
+            MockBox(0, 0.40, [20, 20, 80, 80], track_id=10),
+            MockBox(0, 0.10, [100, 100, 150, 150], track_id=20),
+            MockBox(0, 0.10, [200, 200, 250, 250], track_id=None),
+        ],
+        [
+            MockBox(0, 0.10, [22, 22, 82, 82], track_id=10),
+            MockBox(0, 0.10, [300, 300, 350, 350], track_id=30),
+        ]
+    ]
+
+    current_frame = [0]
+
+    class MockCap:
+        def isOpened(self): return True
+        def read(self):
+            if current_frame[0] < len(frame_boxes):
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                current_frame[0] += 1
+                return True, frame
+            return False, None
+        def release(self): pass
+
+    class MockModel:
+        def __init__(self):
+            self.names = {0: "face", 1: "plate"}
+            self.predictor = None
+        def track(self, *args, **kwargs):
+            idx = current_frame[0] - 1
+            boxes = frame_boxes[idx] if idx < len(frame_boxes) else []
+            return [MockResults(boxes)]
+
+    orig_cap = cv2.VideoCapture
+    orig_model = processor._model
+    try:
+        cv2.VideoCapture = lambda *args, **kwargs: MockCap()
+        processor._model = MockModel()
+        metadata = VideoMetadata(width=640, height=480, fps=25.0, duration_ms=80, frames=2, has_audio=False)
+        throttler = ProgressThrottler(callback=None)
+
+        tm = processor._track_pass(
+            input_video_path="dummy.mp4",
+            metadata=metadata,
+            targets_set={"face"},
+            thresholds={"face": 0.17, "plate": 0.11},
+            review_threshold=0.35,
+            throttler=throttler,
+        )
+
+        assert tm.has_track(10), "Track 10 should exist in TrackManager"
+        assert len(tm.tracks[10].detections) == 2, f"Track 10 should have 2 detections, got {len(tm.tracks[10].detections)}"
+        assert tm.tracks[10].detections[1].confidence == 0.10, "Frame 1 low confidence box was kept on existing track"
+
+        assert not tm.has_track(20), "Track 20 should have been dropped"
+        assert not tm.has_track(30), "Track 30 should have been dropped"
+        print("  -> PASS: Box điểm thấp trên track đã có được giữ lại, box điểm thấp không có track bị loại bỏ.")
+    finally:
+        cv2.VideoCapture = orig_cap
+        processor._model = orig_model
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY KIỂM THỬ VIDEO REDACT (GIAI ĐOẠN 5)")
@@ -749,6 +861,8 @@ if __name__ == "__main__":
     test_plate_normalization()
     test_plate_whitelist_manager_matching()
     test_plate_whitelist_video_e2e()
+    test_track_manager_low_confidence_track_count()
+    test_low_score_box_tracking_recovery()
     print("==================================================")
-    print("✅ TOÀN BỘ 17/17 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
+    print("✅ TOÀN BỘ 19/19 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
     print("==================================================")

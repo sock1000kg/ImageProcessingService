@@ -318,6 +318,12 @@ export function BatchCreateForm({
         <div className="section-kicker">REDACTION CONFIG</div>
         <h3>Processing profile</h3>
         <RedactionConfigForm config={config} setConfig={setConfig} />
+        {busy && uploadProgress && (
+          // Why: browsers don't allow custom text in their "Leave site?" prompt, so the reason goes here.
+          <p className="preview-note" role="status">
+            Keep this tab open. Leaving the site will stop uploads for this batch.
+          </p>
+        )}
         {uploadProgress && (uploadProgress.waitSeconds ?? 0) > 0 && (
           <Banner variant="warning" role="status">
             Uploads are paused by the rate limit and resume in {uploadProgress.waitSeconds} second

@@ -22,6 +22,17 @@ logger = logging.getLogger("worker")
 
 class EngineWorker:
     def __init__(self, pool_type: str = None):
+        if pool_type == "video":
+            settings.nats_stream_name = "VIDEO_JOBS"
+            settings.nats_consumer_name = "video-workers"
+            settings.nats_subjects = ["jobs.video"]
+            settings.job_deadline_seconds = int(os.getenv("JOB_DEADLINE_SECONDS", "3600"))
+        elif pool_type == "image":
+            settings.nats_stream_name = "IMAGE_JOBS"
+            settings.nats_consumer_name = "image-workers"
+            settings.nats_subjects = ["jobs.image"]
+            settings.job_deadline_seconds = int(os.getenv("JOB_DEADLINE_SECONDS", "300"))
+
         self.storage = StorageClient()
         self.messaging = MessagingClient()
         self.processors = get_processor_registry(pool_type=pool_type)
@@ -282,7 +293,15 @@ class EngineWorker:
 
 
 def main():
-    worker = EngineWorker()
+    import sys
+    pool = None
+    for arg in sys.argv[1:]:
+        clean_arg = arg.lower().lstrip("-")
+        if clean_arg in ("video", "image", "all"):
+            pool = clean_arg
+            break
+
+    worker = EngineWorker(pool_type=pool)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

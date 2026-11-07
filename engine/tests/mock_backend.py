@@ -30,10 +30,10 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-MINIO_ENDPOINT = "localhost:9000"
-MINIO_ACCESS_KEY = "minioadmin"
-MINIO_SECRET_KEY = "minioadmin"
-NATS_URL = "nats://localhost:4222"
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "imgproclocal")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "CHANGE_ME_minio_local")
+NATS_URL = os.getenv("NATS_URL", "nats://localhost:4222")
 
 
 def create_sample_video(num_frames: int = 30, width: int = 480, height: int = 360, fps: float = 25.0) -> bytes:
@@ -84,22 +84,28 @@ async def main():
     batch_id = str(uuid.uuid4())
 
     # 1. Cấu hình thông số Job
-    is_video = job_type in ("video-redact", "video", "video-redact-blur", "video-redact-pixelate")
+    is_video = any(k in job_type.lower() for k in ("video", "mp4"))
     if is_video:
         job_type = "video-redact"
         nats_subject = "jobs.video"
         input_ext = "mp4"
         output_ext = "mp4"
-        style = "pixelate" if "pixelate" in sys.argv[1] else "blur"
+        raw_cmd = sys.argv[1].lower() if len(sys.argv) > 1 else ""
+        if "blackout" in raw_cmd:
+            style = "blackout"
+        elif "pixelate" in raw_cmd:
+            style = "pixelate"
+        else:
+            style = "blur"
         params = {
             "redaction": {
                 "targets": ["face", "plate"],
                 "style": style,
-                "strength": 15,
-                "padding": 0.1,
+                "strength": 30,
+                "padding": 0.15,
             },
             "output": {"quality": "high"},
-            "confidenceThreshold": 0.35,
+            "confidenceThreshold": 0.25,
             "reviewThreshold": 0.50,
         }
         default_format = "MP4"
@@ -221,6 +227,7 @@ async def main():
 
     # 4. Lắng nghe phản hồi từ Worker qua kênh jobs.events (Durable: backend-job-events)
     done_event = asyncio.Event()
+    final_status = {"status": None}
 
     async def on_worker_event(msg):
         event = json.loads(msg.data.decode("utf-8"))
@@ -239,6 +246,7 @@ async def main():
         print(f"   - Stage:   {stage}")
 
         if status == "COMPLETED":
+            final_status["status"] = "COMPLETED"
             result_bucket = event.get("result", {}).get("bucket", "results")
             result_key = event.get("result", {}).get("key")
             print("   🎉 [THÀNH CÔNG RỰC RỠ!]")
@@ -252,12 +260,14 @@ async def main():
                 local_file = os.path.join("output", f"{job_type}_{job_id[:8]}{ext}")
                 s3.fget_object(result_bucket, result_key, local_file)
                 abs_path = os.path.abspath(local_file)
-                print(f"   💾 [ẢNH ĐÃ TẢI VỀ MÁY]: {abs_path}")
+                file_label = "VIDEO" if is_video else "ẢNH"
+                print(f"   💾 [{file_label} ĐÃ TẢI VỀ MÁY]: {abs_path}")
             except Exception as dl_err:
-                print(f"   [!] Lỗi khi tải ảnh về máy: {dl_err}")
+                print(f"   [!] Lỗi khi tải file về máy: {dl_err}")
 
             done_event.set()
         elif status == "FAILED":
+            final_status["status"] = "FAILED"
             print(f"   ❌ [THẤT BẠI]: {json.dumps(event.get('error'), indent=6, ensure_ascii=False)}")
             done_event.set()
 
@@ -309,12 +319,15 @@ async def main():
     print(json.dumps(job_payload, indent=2))
     await js.publish(nats_subject, json.dumps(job_payload).encode("utf-8"))
 
-    wait_timeout = 120.0 if is_video else 30.0
+    wait_timeout = 600.0 if is_video else 60.0
     print(f"\n[*] 4. Đang chờ Worker xử lý (timeout {int(wait_timeout)}s)...")
     try:
         await asyncio.wait_for(done_event.wait(), timeout=wait_timeout)
         print("\n==================================================")
-        print("✅ TEST HOÀN TẤT THÀNH CÔNG!")
+        if final_status["status"] == "COMPLETED":
+            print("✅ TEST HOÀN TẤT THÀNH CÔNG!")
+        else:
+            print("⚠️ TEST KẾT THÚC VỚI TRẠNG THÁI THẤT BẠI TỪ WORKER!")
         print("==================================================")
     except asyncio.TimeoutError:
         print("\n[!] Hết thời gian chờ: Chưa thấy Worker phản hồi. Bạn đã bật worker tương ứng với kênh chưa?")
@@ -324,7 +337,13 @@ async def main():
             await poller_task
         except asyncio.CancelledError:
             pass
-        await nc.drain()
+        try:
+            await asyncio.wait_for(nc.drain(), timeout=2.0)
+        except Exception:
+            try:
+                await nc.close()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -527,7 +527,7 @@ class VideoRedactProcessor(BaseProcessor):
 
     def __init__(
         self,
-        model_name: str = "yolov8n-oiv7.pt",
+        model_name: str = "yolo26n-1280-e20-crowd.pt",
         face_embedding_model: str = "w600k_mbf.onnx",
         class_mapping: Optional[Dict[str, str]] = None,
         imgsz: int = 640,
@@ -556,6 +556,8 @@ class VideoRedactProcessor(BaseProcessor):
             os.path.join("engine", "models", model_name),
             os.path.join("/app", "models", model_name),
             model_name,
+            "engine/models/yolo26n-1280-e20-crowd.pt",
+            "models/yolo26n-1280-e20-crowd.pt",
             "engine/models/yolov8n-oiv7.pt",
             "models/yolov8n-oiv7.pt",
         ]
@@ -568,9 +570,35 @@ class VideoRedactProcessor(BaseProcessor):
         self.chosen_model_path = chosen_model
         self.model_tag = os.path.splitext(os.path.basename(chosen_model))[0]
         self._model = None
+        self.video_encoder = self._probe_video_encoder()
         logger.info(
-            f"Initialized VideoRedactProcessor (model_tag={self.model_tag}, tracker={self.tracker_config})"
+            f"Initialized VideoRedactProcessor (model_tag={self.model_tag}, tracker={self.tracker_config}, encoder={self.video_encoder})"
         )
+
+    def _probe_video_encoder(self) -> str:
+        """Detect supported H.264 encoder in the current FFmpeg installation at startup."""
+        encoder = "libx264"
+        try:
+            res = subprocess.run(
+                [self.ffmpeg_bin, "-encoders"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            output = res.stdout + res.stderr
+            if "libx264" in output:
+                encoder = "libx264"
+            elif "h264_mf" in output:
+                encoder = "h264_mf"
+            elif "libopenh264" in output:
+                encoder = "libopenh264"
+            else:
+                encoder = "mpeg4"
+        except Exception:
+            encoder = "libx264"
+        return encoder
 
     def _get_model(self):
         """Lazy load YOLO model."""
@@ -600,19 +628,23 @@ class VideoRedactProcessor(BaseProcessor):
             return np.zeros_like(roi)
 
         elif style == "pixelate":
-            block_size = max(1, int(strength))
+            # Target mosaic blocks proportional to ROI
+            block_size = max(6, int(min(w, h) * (float(strength) / 100.0)))
             down_w = max(1, w // block_size)
             down_h = max(1, h // block_size)
             small = cv2.resize(roi, (down_w, down_h), interpolation=cv2.INTER_LINEAR)
             return cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
 
         else:  # blur
-            ksize = int(strength)
+            # Adaptive Gaussian blur based on ROI dimensions and relative strength
+            rel_strength = max(0.5, float(strength) / 25.0)
+            ksize = int(min(w, h) * 0.50 * rel_strength)
             if ksize % 2 == 0:
                 ksize += 1
             max_k = max(3, (min(w, h) // 2) * 2 - 1)
-            ksize = min(max_k, max(3, ksize))
-            return cv2.GaussianBlur(roi, (ksize, ksize), 0)
+            ksize = max(15, min(max_k, ksize))
+            sigma = ksize / 3.0
+            return cv2.GaussianBlur(roi, (ksize, ksize), sigma)
 
     def _evaluate_face_whitelist(
         self,
@@ -878,10 +910,19 @@ class VideoRedactProcessor(BaseProcessor):
         track_mgr = TrackManager(fps=metadata.fps, orig_w=metadata.width, orig_h=metadata.height)
         model = self._get_model()
 
-        # Reset predictor tracker state if previously cached to prevent ID collisions
+        # Reset predictor tracker state cleanly if previously cached to prevent ID collisions
         if hasattr(model, "predictor") and model.predictor is not None:
             if hasattr(model.predictor, "trackers"):
-                model.predictor.trackers = None
+                try:
+                    for t in (model.predictor.trackers or []):
+                        if hasattr(t, "reset"):
+                            t.reset()
+                except Exception:
+                    pass
+                try:
+                    delattr(model.predictor, "trackers")
+                except Exception:
+                    model.predictor.trackers = None
 
         frame_idx = 0
         total_frames = max(1, metadata.frames)
@@ -960,7 +1001,7 @@ class VideoRedactProcessor(BaseProcessor):
                                 sharpness=sharpness,
                             )
                 except Exception as track_err:
-                    logger.warning(f"Error tracking frame {frame_idx}: {track_err}")
+                    logger.warning(f"Error tracking frame {frame_idx}: {track_err}", exc_info=True)
 
                 frame_idx += 1
                 throttler.update_range(
@@ -1115,11 +1156,38 @@ class VideoRedactProcessor(BaseProcessor):
                 "-map", "0:v:0",
             ])
 
+        encoder = getattr(self, "video_encoder", "libx264")
+        if encoder == "libx264":
+            cmd.extend([
+                "-c:v", "libx264",
+                "-crf", str(crf),
+                "-preset", "fast",
+                "-pix_fmt", "yuv420p",
+            ])
+        elif encoder == "h264_mf":
+            quality_val = max(40, min(95, int(100 - (crf - 18) * 4.5)))
+            cmd.extend([
+                "-c:v", "h264_mf",
+                "-rate_control", "quality",
+                "-quality", str(quality_val),
+                "-pix_fmt", "yuv420p",
+            ])
+        elif encoder == "libopenh264":
+            cmd.extend([
+                "-c:v", "libopenh264",
+                "-crf", str(crf),
+                "-b:v", "2M",
+                "-pix_fmt", "yuv420p",
+            ])
+        else:
+            cmd.extend([
+                "-c:v", "mpeg4",
+                "-crf", str(crf),
+                "-q:v", "3",
+                "-pix_fmt", "yuv420p",
+            ])
+
         cmd.extend([
-            "-c:v", "libx264",
-            "-crf", str(crf),
-            "-preset", "fast",
-            "-pix_fmt", "yuv420p",
             "-shortest",
             "-map_metadata", "-1",  # Strip GPS/location and device metadata per Contract §2B
             "-movflags", "+faststart",

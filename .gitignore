@@ -29,3 +29,6 @@ infra/bench/dataset/.cache/
 infra/bench/dataset/labels-*.jsonl
 infra/bench/.cache/
 
+# Local test outputs
+engine/output/
+

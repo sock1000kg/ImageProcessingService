@@ -185,7 +185,7 @@ def test_worker_video_redact_success():
     summary = completed_event["resultSummary"]
     assert "video" in summary
     assert summary["video"]["frames"] == 10
-    assert summary["model"] == "yolov8n-oiv7"
+    assert "yolo" in summary["model"].lower()
     assert summary["tracker"] == "bytetrack"
     assert "counts" in summary
     print(f"  -> PASS: Job 'video-redact' hoàn tất xuất sắc, ACK message, upload {len(uploaded_video)} bytes.")

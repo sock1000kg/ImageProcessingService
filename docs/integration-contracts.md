@@ -96,6 +96,7 @@ Cùng `params` như `image-redact` (`redaction`, `output.quality` → CRF theo b
 * Đầu vào: MP4 H.264, 15–60 giây. **Backend** kiểm tra trước khi tạo job (codec, thời lượng); file lọt qua mà Engine không đọc được → `INVALID_INPUT_FILE`.
 * Đầu ra: MP4 H.264, **giữ nguyên độ phân giải và fps**, **copy nguyên audio gốc** (không encode lại). Xoá metadata vị trí.
 * Theo dõi đối tượng (ByteTrack) để mỗi người/biển số là một **track** có `trackId`; vết che không nhấp nháy. Mất phát hiện vài khung trong một track thì nội suy box để vẫn che (giới hạn số khung nội suy do Engine chọn).
+* Vết che được giữ thêm khoảng 200 ms ở hai phía của mỗi chuỗi khung hình phát hiện (tránh lộ mặt khi đối tượng xuất hiện hoặc khuất sau vật cản); danh sách `tracks` và các khoảng thời gian (`startMs`, `endMs`, `gapRanges`, `lowConfidenceRanges`) vẫn chỉ báo cáo các phát hiện thực tế.
 * Whitelist so theo **track** (embedding của track, không phải từng khung).
 * Tiến độ: event `PROCESSING` với `progress` = % số khung đã xử lý, tối đa ~1 event/2 giây.
 

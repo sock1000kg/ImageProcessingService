@@ -55,6 +55,16 @@ def max_gap_frames_for_fps(fps: float) -> int:
     return max(1, round(fps * MAX_INTERPOLATION_GAP_MS / 1000))
 
 
+# Hold blur around detected frames (200 ms).
+# A face can be visible just before and after it's detected.
+TRACK_HOLD_MS = 200
+
+
+def hold_frames_for_fps(fps: float) -> int:
+    """Calculate hold frames around detected frames based on video frame rate."""
+    return max(1, round(fps * TRACK_HOLD_MS / 1000))
+
+
 @dataclass
 class VideoMetadata:
     """Metadata extracted from the input video."""
@@ -84,6 +94,7 @@ class Track:
         self.track_id = track_id
         self.label = label
         self.detections: Dict[int, TrackDetection] = {}  # frame_idx -> TrackDetection
+        self.held_boxes: Dict[int, List[int]] = {}  # frame_idx -> box [x1, y1, x2, y2]
 
         self.best_frame_idx: int = -1
         self.best_frame_ms: int = -1
@@ -260,12 +271,55 @@ class TrackManager:
             if low_conf_start_ms is not None and last_low_ms is not None:
                 track.low_confidence_ranges.append([low_conf_start_ms, last_low_ms])
 
+    def apply_holds(self, hold_frames: Optional[int] = None):
+        """Hold blur around detected frames to prevent reveals when objects appear or disappear."""
+        if hold_frames is None:
+            hold_frames = hold_frames_for_fps(self.fps)
+        if hold_frames <= 0:
+            return
+
+        for track in self.tracks.values():
+            track.held_boxes.clear()
+            if not track.detections:
+                continue
+
+            sorted_frames = sorted(track.detections.keys())
+            runs: List[Tuple[int, int]] = []
+            run_start = sorted_frames[0]
+            run_end = sorted_frames[0]
+            for f in sorted_frames[1:]:
+                if f == run_end + 1:
+                    run_end = f
+                else:
+                    runs.append((run_start, run_end))
+                    run_start = f
+                    run_end = f
+            runs.append((run_start, run_end))
+
+            for r_start, r_end in runs:
+                first_box = track.detections[r_start].box
+                last_box = track.detections[r_end].box
+
+                # Frames run_start - hold .. run_start - 1 hold the run's first box, stopping at frame 0.
+                for f in range(max(0, r_start - hold_frames), r_start):
+                    if f not in track.detections:
+                        track.held_boxes[f] = list(first_box)
+
+                # Frames run_end + 1 .. run_end + hold hold the run's last box.
+                for f in range(r_end + 1, r_end + hold_frames + 1):
+                    if f not in track.detections:
+                        track.held_boxes[f] = list(last_box)
+
     def get_active_redactions(self, frame_idx: int) -> List[List[int]]:
         """Retrieve bounding boxes of all tracks that must be redacted on a specific frame."""
         boxes = []
         for track in self.tracks.values():
-            if track.redacted and frame_idx in track.detections:
+            if not track.redacted:
+                continue
+            if frame_idx in track.detections:
                 boxes.append(track.detections[frame_idx].box)
+            elif frame_idx in track.held_boxes:
+                boxes.append(track.held_boxes[frame_idx])
         return boxes
 
     def to_contract_summary(self, review_threshold: float = DEFAULT_REVIEW_THRESHOLD) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
@@ -1070,6 +1124,8 @@ class VideoRedactProcessor(BaseProcessor):
 
         # Bridge tracking dropouts and record gaps
         track_mgr.interpolate_gaps()
+        # Hold blur around detected frames
+        track_mgr.apply_holds()
         # Compute low confidence ranges
         track_mgr.compute_ranges(review_threshold=review_threshold)
 

@@ -25,7 +25,6 @@ from src.processors.video_redact import (
     VideoMetadata,
     ProgressThrottler,
     CRF_MAP,
-    MAX_INTERPOLATION_GAP_MS,
     max_gap_frames_for_fps,
     Track,
     TrackManager,

@@ -65,8 +65,8 @@ Hạ tầng cấu hình 2 bucket chính (đều tự động xóa dữ liệu sa
       "strength": 25,
       "padding": 0.1
     },
-    "confidenceThreshold": 0.35,
-    "reviewThreshold": 0.5,
+    "confidenceThresholds": { "face": 0.17, "plate": 0.11 },
+    "reviewThreshold": 0.35,
     "whitelist": {
       "faces": [
         {

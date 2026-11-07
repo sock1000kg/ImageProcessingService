@@ -18,7 +18,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 
 ## Milestone 1: `image-redact` không whitelist (24/10 → 01/11)
 * **Tasks:**
-    - [x] Processor `image-redact`: dùng `yolov8n-oiv7`, chỉ giữ 2 lớp `Human face` → `face`, `Vehicle registration plate` → `plate` (map tên lớp qua config, để đổi sang model fine-tune 2 nhãn chỉ cần đổi env `YOLO_MODEL_NAME` + bảng map). Lọc theo `params.redaction.targets` và `confidenceThreshold`.
+    - [x] Processor `image-redact`: dùng `yolov8n-oiv7`, chỉ giữ 2 lớp `Human face` → `face`, `Vehicle registration plate` → `plate` (map tên lớp qua config, để đổi sang model fine-tune 2 nhãn chỉ cần đổi env `YOLO_MODEL_NAME` + bảng map). Lọc theo `params.redaction.targets` và `confidenceThresholds`.
     - [x] Ba style che theo `params.redaction`: `blur` (Gaussian, bán kính = `strength`), `pixelate` (thu nhỏ rồi phóng lại theo ô `strength`px), `blackout` (tô đen). Nới box theo `padding`, cắt trong biên ảnh. Che **sau** khi đã quyết định whitelist.
     - [ ] **[Đổi contract]** **[Cần Web]** Độ mạnh theo kích thước box: hiện `strength` là số px cố định, nên pixelate 12px trên mặt 600px còn ~50×50 ô, vẫn nhận ra người. Đề xuất `strength` là mức tương đối (ví dụ số ô theo chiều rộng box cho pixelate, bán kính theo % chiều rộng box cho blur). Web cập nhật ảnh xem trước theo cách tính mới.
     - [x] Định dạng đầu ra theo đuôi của `output.key` (JPG/PNG/WEBP, có thể khác ảnh gốc; alpha → JPG thì ghép nền trắng) và **giữ nguyên độ phân giải**. Nén theo mức `params.output.quality` với bảng map trong contract §2 (`standard`/`high`/`max`, mặc định `high`; đặt rõ tham số khi encode, không dùng mặc định của thư viện). Xoá EXIF/GPS khỏi ảnh kết quả (ảnh công khai không nên mang vị trí chụp).
@@ -88,7 +88,7 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
   | `accurate` | `yolo26s-1280-e5-plates-frozen-x3.pt` | 0.13 | 0.09 |
   | `max_privacy` | `yolo26s-1280-e5-plates-frozen-x3.pt` | 0.06 | 0.05 |
 
-  Ngưỡng theo class trong `processors/image_redact.py`: `model.predict(conf=` ngưỡng thấp nhất `)`, rồi lọc từng box theo ngưỡng của class đó (label đã có trong vòng lặp). `confidenceThreshold` của batch (nếu gửi) ghi đè cả hai. Worker chỉ nạp model mà job cần, lúc dùng lần đầu (`accurate` và `max_privacy` dùng chung một model), giữ một model và đổi khi job sau dùng chế độ khác (nạp lại ~1-2 s); giữ cả hai thì phải nâng memory limit (một model ở 1280 đã dùng ~1.2 GB / 1.5 GB), chốt sau khi đo. `resultSummary.model` ghi model và ngưỡng thật đã chạy. Image engine cần Ultralytics >= 8.4 (YOLO26).
+  Ngưỡng theo class trong `processors/image_redact.py`: `model.predict(conf=` ngưỡng thấp nhất `)`, rồi lọc từng box theo ngưỡng của class đó (label đã có trong vòng lặp). Worker chỉ nạp model mà job cần, lúc dùng lần đầu (`accurate` và `max_privacy` dùng chung một model), giữ một model và đổi khi job sau dùng chế độ khác (nạp lại ~1-2 s); giữ cả hai thì phải nâng memory limit (một model ở 1280 đã dùng ~1.2 GB / 1.5 GB), chốt sau khi đo. `resultSummary.model` ghi model và ngưỡng thật đã chạy. Image engine cần Ultralytics >= 8.4 (YOLO26). *(Lưu ý Task 77: Per-class confidence thresholds `face` 0.17 và `plate` 0.11 cùng parser chia sẻ đã hoàn thành; công việc chọn chế độ `params.detection.mode` vẫn để mở).*
 
 ---
 

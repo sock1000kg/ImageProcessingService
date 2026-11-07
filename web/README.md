@@ -280,7 +280,7 @@ Batch creation and image processing use a three-step flow:
 1. **`POST /api/batches`** (Create draft batch)
    - **Request**: Multipart form data with:
      - `name`: optional batch name (1–100 characters after trimming, no control characters). When omitted or empty, the server sets a default name formatted as `Batch <YYYY-MM-DD HH:mm>` in UTC. Values exceeding 100 characters or containing control characters return `400 VALIDATION_ERROR`.
-     - `config`: serialized JSON string with redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `confidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
+     - `config`: serialized JSON string with redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `faceConfidenceThreshold`, `plateConfidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
      - `whitelist`: optional 0 to 20 face reference images (JPG, PNG, WEBP, up to `UPLOAD_MAX_BYTES`).
      - `faceListIds`: optional array of allow list UUIDs (JSON array string or repeated form field, deduped; `faceListId` also accepted as a single-item alias). Batches reference allow list photos directly under `uploads/lists/...` without copying them server-side, in list order before uploaded files.
      - Note: allow lists and uploaded files can be combined, up to a maximum total of 20 reference faces per batch (exceeding 20 returns `400 VALIDATION_ERROR` "At most 20 whitelist faces per batch"). Specifying an unknown or foreign allow list id returns `404 NOT_FOUND`.
@@ -322,7 +322,7 @@ Batch creation and image processing use a three-step flow:
 5. **`POST /api/batches/:id/rerun`** (Re-run batch with new settings)
    - **Request**: Multipart form data with:
      - `name`: optional batch name (1–100 characters after trimming). When omitted or empty, defaults to `<source name> (re-run)` (trimmed to 100 characters).
-     - `config`: serialized JSON string with updated redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `confidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
+     - `config`: serialized JSON string with updated redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `faceConfidenceThreshold`, `plateConfidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
      - `whitelist`: optional 0 to 20 fresh face reference images. The source batch's whitelist is never reused (it is purged when jobs finish).
      - `faceListIds`: optional array of allow list UUIDs (JSON array string or repeated form field, deduped; `faceListId` also accepted as a single-item alias). Batches reference allow list photos directly under `uploads/lists/...` without copying, in list order before uploaded files. Combining allow lists and uploaded files is supported up to a total of 20 reference faces per batch. Specifying an unknown or foreign allow list id returns `404 NOT_FOUND`.
    - **Behavior**: Verifies the source batch belongs to the authenticated user and has been started. Server-side copies each distinct input object to the new batch's S3 namespace (`uploads/<newBatchId>/<newJobId>/input.<ext>`), resolves output extension from the new `format`, and returns the newly created draft batch without starting it. The client can optionally upload additional images (`POST /api/batches/:id/files`) before starting processing via `POST /api/batches/:id/start`. Missing originals are skipped. If all originals are missing, returns `410 NO_ORIGINALS` and cleans up the draft.

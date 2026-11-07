@@ -925,6 +925,9 @@ output {
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
+.batch-header-meta progress {
+  accent-color: var(--accent);
+}
 .status {
   display: inline-block;
   text-transform: lowercase;
@@ -989,9 +992,14 @@ output {
   background: var(--surface-2);
   box-shadow: none;
 }
-.image-list-row:hover,
+.image-list-row:hover {
+  background: var(--surface-hover);
+}
 .image-list-row.selected {
-  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.image-list-row.selected:hover {
   background: var(--accent-soft);
 }
 .status-dot {
@@ -1084,7 +1092,8 @@ output {
   flex-shrink: 0;
   white-space: nowrap;
 }
-.comparison {
+.comparison,
+.result-viewer > .viewer-empty {
   position: relative;
   height: min(var(--stage-h), 66cqw);
   overflow: hidden;
@@ -1344,6 +1353,13 @@ input[type="range"].comparison-range::-moz-range-thumb {
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
 }
+.result-viewer > .viewer-empty {
+  border: none;
+  flex-direction: column;
+}
+.failure-code {
+  font-family: var(--font-mono);
+}
 .empty-inline {
   padding: 35px;
   text-align: center;
@@ -1360,8 +1376,21 @@ input[type="range"].comparison-range::-moz-range-thumb {
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
-.viewer-meta a {
-  color: var(--accent-text);
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ghost-button:hover:not(:disabled) {
+  background: var(--surface-hover);
 }
 .detection-list {
   display: grid;
@@ -1427,11 +1456,26 @@ input[type="range"].comparison-range::-moz-range-thumb {
   grid-column: 1 / -1;
   margin-top: 10px;
 }
+.report-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+}
 .report-metrics {
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 7px;
   margin: 10px 0 15px;
+}
+.report-column,
+.report-section {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.report-column h4,
+.report-section h4 {
+  margin: 0 0 10px;
 }
 .report-metrics > div {
   display: grid;
@@ -1510,7 +1554,8 @@ input[type="range"].comparison-range::-moz-range-thumb {
   .result-viewer > * {
     grid-column: 1;
   }
-  .comparison {
+  .comparison,
+  .result-viewer > .viewer-empty {
     height: min(var(--stage-h), calc((100cqw - 304px) * 0.66)); /* 304 = detections pane + gap. */
   }
   .result-viewer > .detection-list,
@@ -1583,7 +1628,8 @@ input[type="range"].comparison-range::-moz-range-thumb {
   .details-layout {
     grid-template-columns: 1fr;
   }
-  .comparison {
+  .comparison,
+  .result-viewer > .viewer-empty {
     height: max(240px, min(56dvh, 72cqw));
   }
   .image-list {
@@ -1591,6 +1637,9 @@ input[type="range"].comparison-range::-moz-range-thumb {
   }
   .image-list.scroll-list {
     max-height: 200px;
+  }
+  .report-panel {
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 680px) {
@@ -1720,8 +1769,11 @@ input[type="range"].comparison-range::-moz-range-thumb {
   }
 }
 .needs-review-row {
-  border-color: var(--warn);
   background: var(--warn-soft);
+}
+.image-list-row.selected.needs-review-row {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .review-reasons {
   display: flex;
@@ -1806,6 +1858,7 @@ input[type="range"].comparison-range::-moz-range-thumb {
 .batch-id-text {
   display: block;
   color: var(--text-3);
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   margin-top: 2px;
 }
@@ -1893,14 +1946,6 @@ input[type="range"].comparison-range::-moz-range-thumb {
 .report-downloads span {
   color: var(--text-3);
   font-size: var(--text-xs);
-}
-.report-section {
-  margin-top: 20px;
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
-}
-.report-section h4 {
-  margin: 0 0 10px;
 }
 .whitelist-person {
   display: grid;

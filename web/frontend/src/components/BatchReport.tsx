@@ -174,39 +174,44 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
         ))}
       </div>
 
-      {report.reviewImages.length > 0 ? (
-        <section className="review-report-list scroll-list" aria-label="Review candidates">
-          <Banner variant="warning">{report.reviewImages.length} image(s) need review.</Banner>
-          {report.reviewImages.map((image) => {
-            const notes =
-              image.reviewNotes && image.reviewNotes.length > 0
-                ? image.reviewNotes.join(" · ")
-                : image.reviewReasons.join(" · ");
+      <div className="report-column">
+        <h4>Needs review</h4>
+        {report.reviewImages.length > 0 ? (
+          <section className="review-report-list scroll-list" aria-label="Review candidates">
+            <Banner variant="warning">{report.reviewImages.length} image(s) need review.</Banner>
+            {report.reviewImages.map((image) => {
+              const notes =
+                image.reviewNotes && image.reviewNotes.length > 0
+                  ? image.reviewNotes.join(" · ")
+                  : image.reviewReasons.join(" · ");
 
-            return (
-              <ReportImageItem
-                key={image.jobId}
-                title={image.originalFilename}
-                detail={notes}
-                onSelect={onSelectImage ? () => onSelectImage(image.jobId) : undefined}
-              />
-            );
-          })}
-        </section>
-      ) : (
-        <Banner variant="success">No images need review.</Banner>
-      )}
+              return (
+                <ReportImageItem
+                  key={image.jobId}
+                  title={image.originalFilename}
+                  detail={notes}
+                  onSelect={onSelectImage ? () => onSelectImage(image.jobId) : undefined}
+                />
+              );
+            })}
+          </section>
+        ) : (
+          <Banner variant="success">No images need review.</Banner>
+        )}
+      </div>
       <section className="report-section" aria-label="Allow list people">
         <h4>Allow list people</h4>
         {report.whitelistPeople && report.whitelistPeople.length > 0 ? (
-          report.whitelistPeople.map((person) => (
-            <WhitelistPersonSection
-              key={person.whitelistRef}
-              batchId={report.batchId}
-              person={person}
-              onSelectImage={onSelectImage}
-            />
-          ))
+          <div className="scroll-list">
+            {report.whitelistPeople.map((person) => (
+              <WhitelistPersonSection
+                key={person.whitelistRef}
+                batchId={report.batchId}
+                person={person}
+                onSelectImage={onSelectImage}
+              />
+            ))}
+          </div>
         ) : (
           <div className="empty-inline">No allow list detections were returned by the Engine.</div>
         )}

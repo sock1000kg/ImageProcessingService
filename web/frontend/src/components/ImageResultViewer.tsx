@@ -2,6 +2,7 @@
  * Interactive before-and-after image comparator and detection telemetry viewer.
  */
 import { useEffect, useState } from "react";
+import { ArrowSquareOut, DownloadSimple } from "@phosphor-icons/react";
 import { Detection, Job, ReviewReason } from "../types";
 import { usePrivateImage } from "../hooks/usePrivateImage";
 import { formatJobErrorMessage } from "../utils/format";
@@ -210,7 +211,7 @@ export function ImageResultViewer({
               <strong>This image failed processing.</strong>
               {job.error && (
                 <p className="failure-detail">
-                  {job.error.code && <span>{job.error.code}</span>}
+                  {job.error.code && <span className="failure-code">{job.error.code}</span>}
                   {job.error.code && formatJobErrorMessage(job.error) ? ": " : ""}
                   {formatJobErrorMessage(job.error)}
                 </p>
@@ -227,12 +228,14 @@ export function ImageResultViewer({
           {job.stage ?? "Waiting"} · {job.progress}%
         </span>
         {originalUrl && (
-          <a href={originalUrl} target="_blank" rel="noreferrer">
+          <a href={originalUrl} target="_blank" rel="noreferrer" className="ghost-button">
+            <ArrowSquareOut aria-hidden="true" />
             Open original
           </a>
         )}
         {job.resultUrl && (
-          <a href={job.resultUrl} download target="_blank" rel="noreferrer">
+          <a href={job.resultUrl} download target="_blank" rel="noreferrer" className="ghost-button">
+            <DownloadSimple aria-hidden="true" />
             Download result
           </a>
         )}

@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanupExpiredBatches, deleteJobById, listBatches, retryFailedJob } from "../../src/services/batch.service";
+import {
+  checkAndCleanBatchWhitelist,
+  cleanupExpiredBatches,
+  deleteJobById,
+  listBatches,
+  retryFailedJob,
+  retryPendingWhitelistCleanups,
+} from "../../src/services/batch.service";
 import * as jobRepository from "../../src/repositories/job.repository";
 import * as messaging from "../../src/messaging";
 import { storage, UPLOADS_BUCKET, RESULTS_BUCKET } from "../../src/storage";
@@ -409,6 +416,177 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
           inputBytes: 3456,
         }),
       );
+    });
+  });
+
+  describe("Whitelist Cleanup Reliability (Task 83)", () => {
+    it("leaves whitelistDeletedAt unset when deletePrefix fails", async () => {
+      const batch = {
+        id: batchId,
+        startedAt: new Date("2026-11-04T10:00:00Z"),
+        whitelistDeletedAt: null,
+      };
+      const jobs = [{ id: jobId, status: JobStatus.COMPLETED }];
+
+      vi.spyOn(jobRepository, "getBatch").mockResolvedValue(batch as any);
+      vi.spyOn(jobRepository, "getJobsByBatchId").mockResolvedValue(jobs as any);
+      const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockRejectedValue(new Error("MinIO delete failure"));
+      const markDeletedSpy = vi.spyOn(jobRepository, "markBatchWhitelistDeleted").mockResolvedValue(undefined as any);
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await checkAndCleanBatchWhitelist(batchId);
+
+      expect(deletePrefixSpy).toHaveBeenCalledWith(UPLOADS_BUCKET, `${batchId}/whitelist/`);
+      expect(markDeletedSpy).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Failed to delete S3 whitelist objects for batch ${batchId}`),
+        expect.any(Error),
+      );
+    });
+
+    it("sets whitelistDeletedAt on a later attempt when storage works", async () => {
+      const batch = {
+        id: batchId,
+        startedAt: new Date("2026-11-04T10:00:00Z"),
+        whitelistDeletedAt: null,
+      };
+      const jobs = [{ id: jobId, status: JobStatus.COMPLETED }];
+
+      vi.spyOn(jobRepository, "getBatch").mockResolvedValue(batch as any);
+      vi.spyOn(jobRepository, "getJobsByBatchId").mockResolvedValue(jobs as any);
+      const deletePrefixSpy = vi
+        .spyOn(storage, "deletePrefix")
+        .mockRejectedValueOnce(new Error("Storage temporary outage"));
+      const markDeletedSpy = vi.spyOn(jobRepository, "markBatchWhitelistDeleted").mockResolvedValue(undefined as any);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      // First attempt fails -> leaves whitelistDeletedAt unset
+      await checkAndCleanBatchWhitelist(batchId);
+      expect(markDeletedSpy).not.toHaveBeenCalled();
+
+      // Second attempt succeeds -> sets whitelistDeletedAt
+      deletePrefixSpy.mockResolvedValueOnce(undefined as any);
+      await checkAndCleanBatchWhitelist(batchId);
+      expect(markDeletedSpy).toHaveBeenCalledWith(batchId);
+    });
+
+    it("retryPendingWhitelistCleanups retries each returned batch, and one failure doesn't stop the next", async () => {
+      const failingBatchId = "batch-fail";
+      const healthyBatchId = "batch-success";
+
+      vi.spyOn(jobRepository, "getBatchesPendingWhitelistCleanup").mockResolvedValue([
+        { id: failingBatchId },
+        { id: healthyBatchId },
+      ]);
+
+      vi.spyOn(jobRepository, "getBatch").mockImplementation(async (id: string) => {
+        if (id === failingBatchId) {
+          throw new Error("Unexpected database error for failing batch");
+        }
+        return {
+          id,
+          startedAt: new Date("2026-11-04T10:00:00Z"),
+          whitelistDeletedAt: null,
+        } as any;
+      });
+
+      vi.spyOn(jobRepository, "getJobsByBatchId").mockResolvedValue([
+        { id: "job-1", status: JobStatus.COMPLETED },
+      ] as any);
+
+      vi.spyOn(storage, "deletePrefix").mockResolvedValue();
+      const markDeletedSpy = vi.spyOn(jobRepository, "markBatchWhitelistDeleted").mockResolvedValue(undefined as any);
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await retryPendingWhitelistCleanups();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Failed to retry whitelist cleanup for batch ${failingBatchId}`),
+        expect.any(Error),
+      );
+      expect(markDeletedSpy).not.toHaveBeenCalledWith(failingBatchId);
+      expect(markDeletedSpy).toHaveBeenCalledWith(healthyBatchId);
+    });
+
+    it("getBatchesPendingWhitelistCleanup uses a query that excludes unstarted, already marked and still-running batches", async () => {
+      const batches = [
+        {
+          id: "batch-terminal-pending",
+          startedAt: new Date("2026-11-04T10:00:00Z"),
+          whitelistDeletedAt: null,
+          jobs: [
+            { id: "j1", status: JobStatus.COMPLETED },
+            { id: "j2", status: JobStatus.FAILED },
+          ],
+        },
+        {
+          id: "batch-unstarted-draft",
+          startedAt: null,
+          whitelistDeletedAt: null,
+          jobs: [{ id: "j3", status: JobStatus.COMPLETED }],
+        },
+        {
+          id: "batch-already-deleted",
+          startedAt: new Date("2026-11-04T10:00:00Z"),
+          whitelistDeletedAt: new Date("2026-11-04T10:05:00Z"),
+          jobs: [{ id: "j4", status: JobStatus.COMPLETED }],
+        },
+        {
+          id: "batch-still-running",
+          startedAt: new Date("2026-11-04T10:00:00Z"),
+          whitelistDeletedAt: null,
+          jobs: [
+            { id: "j5", status: JobStatus.COMPLETED },
+            { id: "j6", status: JobStatus.PROCESSING },
+          ],
+        },
+        {
+          id: "batch-no-jobs",
+          startedAt: new Date("2026-11-04T10:00:00Z"),
+          whitelistDeletedAt: null,
+          jobs: [],
+        },
+      ];
+
+      const findManySpy = vi.spyOn(prisma.batch, "findMany").mockImplementation(async (args: any) => {
+        const where = args.where;
+        const matches = (b: (typeof batches)[0]) => {
+          if (where.startedAt?.not === null && b.startedAt === null) return false;
+          if (where.whitelistDeletedAt === null && b.whitelistDeletedAt !== null) return false;
+          if (where.jobs?.some && b.jobs.length === 0) return false;
+          if (where.jobs?.none) {
+            const hasNonTerminalJob = b.jobs.some((job) => where.jobs.none.status.notIn.indexOf(job.status) === -1);
+            if (hasNonTerminalJob) return false;
+          }
+          return true;
+        };
+        return batches.filter(matches).map((b) => ({ id: b.id })) as any;
+      });
+
+      const pending = await jobRepository.getBatchesPendingWhitelistCleanup();
+
+      expect(findManySpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            startedAt: { not: null },
+            whitelistDeletedAt: null,
+            jobs: {
+              some: {},
+              none: {
+                status: { notIn: [JobStatus.COMPLETED, JobStatus.FAILED] },
+              },
+            },
+          }),
+          select: { id: true },
+        }),
+      );
+
+      const pendingIds = pending.map((b) => b.id);
+      expect(pendingIds).toContain("batch-terminal-pending");
+      expect(pendingIds).not.toContain("batch-unstarted-draft");
+      expect(pendingIds).not.toContain("batch-already-deleted");
+      expect(pendingIds).not.toContain("batch-still-running");
+      expect(pendingIds).not.toContain("batch-no-jobs");
     });
   });
 });

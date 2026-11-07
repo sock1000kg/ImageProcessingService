@@ -15,6 +15,7 @@ import {
   getActiveRetryJob,
   getBatch,
   getBatchOwnedByUser,
+  getBatchesPendingWhitelistCleanup,
   getExpiredBatches,
   getJob,
   getJobOwnedByUser,
@@ -747,7 +748,7 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
  *
  * Why whitelist cleanup timing: To uphold privacy commitments and prevent lingering biometric data,
  * reference whitelist faces stored in the uploads bucket are purged from S3 immediately after all
- * jobs reach terminal state (COMPLETED or FAILED). Marking whitelistDeletedAt ensures single execution.
+ * jobs reach terminal state (COMPLETED or FAILED). Setting whitelistDeletedAt records that the S3 delete succeeded.
  */
 export async function checkAndCleanBatchWhitelist(batchId: string): Promise<void> {
   const batch = await getBatch(batchId);
@@ -772,12 +773,31 @@ export async function checkAndCleanBatchWhitelist(batchId: string): Promise<void
     await storage.deletePrefix(UPLOADS_BUCKET, `${batchId}/whitelist/`);
   } catch (error) {
     console.error(`Failed to delete S3 whitelist objects for batch ${batchId}`, error);
+    return;
   }
 
   try {
     await markBatchWhitelistDeleted(batchId);
   } catch (error) {
     console.error(`Failed to update whitelistDeletedAt for batch ${batchId}`, error);
+  }
+}
+
+/**
+ * Retries whitelist cleanup for finished batches whose storage delete failed or was interrupted.
+ *
+ * Why periodic retry: A finished batch gets no more job events, so if the initial storage deletion
+ * fails upon terminal transition, the batch's biometric reference photos would linger in storage
+ * indefinitely unless retried by a background timer.
+ */
+export async function retryPendingWhitelistCleanups(): Promise<void> {
+  const batches = await getBatchesPendingWhitelistCleanup();
+  for (const batch of batches) {
+    try {
+      await checkAndCleanBatchWhitelist(batch.id);
+    } catch (error) {
+      console.error(`Failed to retry whitelist cleanup for batch ${batch.id}`, error);
+    }
   }
 }
 

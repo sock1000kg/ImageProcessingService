@@ -28,7 +28,7 @@ export function Dashboard({ stats, batch, onCreate, onMessage }: DashboardProps)
           <p>Redact faces and license plates in secure, asynchronous batches.</p>
         </div>
         <button className="primary-button" onClick={onCreate}>
-          Create new batch <span>→</span>
+          Create new batch
         </button>
       </div>
 

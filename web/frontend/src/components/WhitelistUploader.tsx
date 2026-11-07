@@ -7,6 +7,7 @@
  * while retry continues working while the list exists.
  */
 import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { UserList, X } from "@phosphor-icons/react";
 import { addWhitelistFiles, FileSelectionIssue, MAX_FACE_LIST_FILES, MAX_WHITELIST_FILES } from "./file-selection";
 import { FilePreviewList } from "./FilePreviewList";
 import { RejectedFilesNotice } from "./RejectedFilesNotice";
@@ -194,7 +195,7 @@ export function WhitelistUploader({
                   aria-label={`Remove allow list ${list.name}`}
                   onClick={() => handleRemoveList(list.id)}
                 >
-                  ×
+                  <X aria-hidden />
                 </button>
               </div>
             ))}
@@ -245,7 +246,9 @@ export function WhitelistUploader({
         >
           {savedLists.length === 0 ? (
             <div className="empty-dashboard saved-face-lists-empty">
-              <span>👤</span>
+              <span>
+                <UserList aria-hidden />
+              </span>
               <h3>No allow lists</h3>
               <p>Create an allow list on the overview to select it here.</p>
             </div>

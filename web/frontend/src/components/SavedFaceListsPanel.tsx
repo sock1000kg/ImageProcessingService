@@ -17,11 +17,11 @@ import { FaceListItem, MessageHandler } from "../types";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { FaceListViewer } from "./FaceListViewer";
 import { WhitelistUploader } from "./WhitelistUploader";
+import { Trash, UserList } from "@phosphor-icons/react";
 import { Banner } from "./ui/Banner";
 import { RejectedFilesNotice } from "./RejectedFilesNotice";
 import { addWhitelistFiles, FileSelectionIssue, MAX_FACE_LIST_FILES } from "./file-selection";
 import { InlineRename } from "./InlineRename";
-import { TrashIcon } from "./ui/TrashIcon";
 import { FaceListThumbnails, SavedFaceThumbnail } from "./FaceListThumbnails";
 
 export { SavedFaceThumbnail };
@@ -206,7 +206,9 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
         <div className="empty-inline">Loading allow lists…</div>
       ) : faceLists.length === 0 ? (
         <div className="empty-dashboard saved-face-lists-empty">
-          <span>👤</span>
+          <span>
+            <UserList aria-hidden />
+          </span>
           <h3>No allow lists</h3>
           <p>Create an allow list below to reuse reference faces across batches.</p>
         </div>
@@ -242,7 +244,7 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
                   aria-label={`Delete ${list.name}`}
                   onClick={() => setDeletingList(list)}
                 >
-                  <TrashIcon />
+                  <Trash aria-hidden />
                 </button>
               </div>
               <div className="library-card-actions">

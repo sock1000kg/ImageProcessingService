@@ -22,15 +22,41 @@ output,
 button {
   cursor: pointer;
 }
-button:focus-visible,
-input:focus-visible,
-select:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
+:focus-visible {
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 .app-shell {
   display: flex;
   min-height: 100vh;
+}
+.skip-link {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: var(--z-dialog);
+  padding: 8px 14px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip-link:not(:focus):not(:focus-visible) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* Programmatic focus target, not a control */
+main:focus {
+  outline: none;
 }
 .sidebar {
   position: sticky;
@@ -60,14 +86,14 @@ select:focus-visible {
   color: var(--accent-text);
 }
 .brand-mark {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border-radius: 10px;
-  color: var(--on-accent);
-  background: var(--accent);
-  font-size: 1.2rem;
+  display: inline-block;
+  width: 20px;
+  height: 24px;
+  box-sizing: border-box;
+  border-top: 10px solid var(--accent);
+  border-bottom: 10px solid var(--accent);
+  border-radius: 4px;
+  flex-shrink: 0;
 }
 .sidebar nav {
   display: grid;
@@ -95,9 +121,6 @@ select:focus-visible {
 .nav-item.active {
   color: var(--accent-text);
   background: var(--accent-soft);
-}
-.nav-item:first-letter {
-  color: var(--accent-text);
 }
 .sidebar-footer {
   margin-top: auto;
@@ -342,6 +365,9 @@ button:disabled {
   background: var(--surface);
 }
 .empty-dashboard span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--accent);
   font-size: 2rem;
 }
@@ -474,10 +500,6 @@ button.file-row {
   font: inherit;
   color: inherit;
   cursor: pointer;
-}
-button.file-row:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 .chevron {
   margin-left: auto;
@@ -1130,7 +1152,6 @@ output {
 .detection-row.active-row {
   background: var(--surface-hover);
   border-color: var(--border-strong);
-  outline: none;
 }
 .detection-row.warning-row {
   background: var(--warn-soft);
@@ -1263,22 +1284,63 @@ output {
     display: block;
   }
   .sidebar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
     position: static;
     height: auto;
     overflow-y: visible;
     width: 100%;
     padding: 14px;
+    gap: 12px 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
   }
   .brand {
-    padding: 0 8px 12px;
+    grid-column: 1;
+    grid-row: 1;
+    padding: 0;
+  }
+  .sidebar-footer {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  .sidebar-footer-row {
+    display: flex;
+    align-items: center;
+  }
+  .sidebar-divider,
+  .sidebar .user-email {
+    display: none;
   }
   .sidebar nav {
-    display: flex;
-    overflow: auto;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 4px;
   }
   .nav-item {
-    width: auto;
-    white-space: nowrap;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 8px 4px;
+    gap: 4px;
+    width: 100%;
+  }
+  .nav-item span {
+    font-size: var(--text-xs);
+    line-height: 1.1;
+    text-align: center;
   }
   .workspace {
     padding: 25px 15px 50px;
@@ -1404,7 +1466,6 @@ output {
 .review-report-item.clickable:focus-visible {
   background: color-mix(in srgb, var(--warn) 15%, var(--warn-soft));
   border-color: var(--warn);
-  outline: none;
 }
 .upload-retry-area {
   display: flex;
@@ -1485,7 +1546,6 @@ output {
 }
 .text-input:focus {
   border-color: var(--accent);
-  outline: none;
 }
 .dropzone-wrapper {
   display: block;
@@ -1693,6 +1753,7 @@ output {
   background: var(--danger-soft);
 }
 
+/* Programmatic focus target, not a control */
 .dialog:focus {
   outline: none;
 }

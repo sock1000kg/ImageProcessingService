@@ -3,6 +3,7 @@
  * and authenticated workspace environments, plus the initial session loading state.
  */
 import { Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Images, Plus, SquaresFour, Stack, X } from "@phosphor-icons/react";
 import { useAuth } from "../context/AuthContext";
 import { Banner } from "./ui/Banner";
 import { SyncStatus } from "./SyncStatus";
@@ -15,7 +16,7 @@ import { BATCH_SYNC_MS, STATS_SYNC_MS, useSyncStatus } from "../sync";
 function Brand() {
   return (
     <div className="brand">
-      <span className="brand-mark">✦</span>
+      <span className="brand-mark" aria-hidden="true" />
       <span>
         Redact<span>Funnel</span>
       </span>
@@ -88,20 +89,20 @@ function Sidebar({ activeBatchId }: SidebarProps) {
       <Brand />
       <nav>
         <NavLink to="/" end className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
-          ⌂ <span>Overview</span>
+          <SquaresFour aria-hidden /> <span>Overview</span>
         </NavLink>
         <NavLink to="/library" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
-          🗂 <span>Library</span>
+          <Images aria-hidden /> <span>Library</span>
         </NavLink>
         <NavLink to="/batches/new" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
-          ＋ <span>New batch</span>
+          <Plus aria-hidden /> <span>New batch</span>
         </NavLink>
         {activeBatchId && (
           <NavLink
             to={`/batches/${activeBatchId}`}
             className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}
           >
-            ▦ <span>Batch details</span>
+            <Stack aria-hidden /> <span>Batch details</span>
           </NavLink>
         )}
       </nav>
@@ -116,7 +117,7 @@ function Sidebar({ activeBatchId }: SidebarProps) {
           <ThemeToggle />
         </div>
         {user && (
-          <button type="button" className="secondary-button" onClick={() => void signOut()}>
+          <button type="button" className="secondary-button" title={user.email} onClick={() => void signOut()}>
             Sign out
           </button>
         )}
@@ -175,8 +176,11 @@ export function WorkspaceLayout({ message, onDismiss }: WorkspaceLayoutProps) {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
       <Sidebar activeBatchId={activeBatchId} />
-      <main className="workspace">
+      <main id="main-content" tabIndex={-1} className="workspace">
         <Topbar />
         {/* Render overlay toast wrapper so transient confirmations take no layout space and avoid page jumps */}
         {message && (
@@ -185,7 +189,7 @@ export function WorkspaceLayout({ message, onDismiss }: WorkspaceLayoutProps) {
               <span>{message.text}</span>
               {message.variant === "error" && (
                 <button type="button" className="icon-button" aria-label="Dismiss" onClick={onDismiss}>
-                  ×
+                  <X aria-hidden />
                 </button>
               )}
             </Banner>

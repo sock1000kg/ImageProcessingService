@@ -9,7 +9,7 @@ import { InlineRename } from "../components/InlineRename";
 import { Banner } from "../components/ui/Banner";
 import { StatTile } from "../components/ui/StatTile";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { TrashIcon } from "../components/ui/TrashIcon";
+import { Image, Images, Trash } from "@phosphor-icons/react";
 import { AccountUsage, BatchSummaryItem, MessageHandler } from "../types";
 import { formatBytes } from "../utils/format";
 
@@ -108,7 +108,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
           <p>Manage stored originals, completed results, and account storage.</p>
         </div>
         <Link to="/batches/new" className="primary-button">
-          Create new batch <span>→</span>
+          Create new batch
         </Link>
       </div>
 
@@ -126,7 +126,9 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
 
       {!loading && batches.length === 0 && (
         <div className="empty-dashboard">
-          <span>✦</span>
+          <span>
+            <Images aria-hidden />
+          </span>
           <h3>No batches in library</h3>
           <p>Create a batch to start protecting your media.</p>
         </div>
@@ -142,7 +144,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                     <img src={batch.thumbnailUrl} alt={batch.name} className="library-thumbnail" />
                   ) : (
                     <div className="library-thumbnail placeholder" aria-label="No thumbnail">
-                      <span>🖼</span>
+                      <Image aria-hidden />
                     </div>
                   )}
                   <div className="library-card-body">
@@ -162,7 +164,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                     aria-label={`Delete ${batch.name}`}
                     onClick={() => setDeletingBatch(batch)}
                   >
-                    <TrashIcon />
+                    <Trash aria-hidden />
                   </button>
                 </div>
                 <div className="library-card-meta">

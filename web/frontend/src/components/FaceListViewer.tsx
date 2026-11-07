@@ -10,7 +10,7 @@ import { FaceListItem, faceLabel } from "../types";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { Dialog } from "./ui/Dialog";
 import { InlineRename } from "./InlineRename";
-import { TrashIcon } from "./ui/TrashIcon";
+import { Trash } from "@phosphor-icons/react";
 
 export interface FaceListViewerProps {
   list: FaceListItem;
@@ -201,7 +201,7 @@ export function FaceListViewer({
               aria-label={list.faceNames?.[activeIndex - 1] ? `Delete ${activeLabel}` : `Delete face #${activeIndex}`}
               onClick={() => setConfirmingDelete(true)}
             >
-              <TrashIcon />
+              <Trash aria-hidden />
             </button>
           )}
           <button type="button" className="secondary-button" onClick={onClose}>

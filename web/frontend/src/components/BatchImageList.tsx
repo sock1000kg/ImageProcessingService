@@ -7,7 +7,7 @@ import { deleteJob } from "../api";
 import { Batch, Job, ReportImage } from "../types";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { StatusBadge } from "./ui/StatusBadge";
-import { TrashIcon } from "./ui/TrashIcon";
+import { Trash } from "@phosphor-icons/react";
 
 export interface BatchImageListProps {
   batch: Batch;
@@ -120,7 +120,7 @@ export function BatchImageList({ batch, report, selected, onSelect, onJobDeleted
                   setDeletingJob(job);
                 }}
               >
-                <TrashIcon />
+                <Trash aria-hidden />
               </button>
             </div>
           );

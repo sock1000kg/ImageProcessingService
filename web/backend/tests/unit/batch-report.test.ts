@@ -37,7 +37,7 @@ describe("batch report review state", () => {
     const report = toReportResponse(batchInput() as never, [
       reportInput({
         detections: [
-          { label: "face", confidence: 0.41, box: [1, 2, 3, 4], redacted: true, lowConfidence: true },
+          { label: "face", confidence: 0.41, box: [10, 20, 50, 60], redacted: true, lowConfidence: true },
           { label: "face", confidence: 0.88, redacted: true, needsReview: true },
           { label: "plate", confidence: 0.8, redacted: true, similarity: 0.63 },
         ],
@@ -341,18 +341,18 @@ describe("advanced batch report features (Task 30)", () => {
     const filenames = report.images.map((img) => img.originalFilename);
     expect(filenames).toEqual([
       "d-g5-failed.jpg", // FAILED
+      "m-g2-kept.jpg", // Similarity near whitelist threshold first
       "a-g1-conf35.jpg", // Group 1 (conf 0.35)
       "z-g1-conf50.jpg", // Group 1 (conf 0.50)
-      "m-g2-kept.jpg", // Group 2 (needsReview, conf null)
       "b-g3-highconf.jpg", // Group 3 (no review, conf 0.95)
       "c-g4-nodet.jpg", // Group 4 (no review, conf null)
     ]);
 
     // reviewImages follows the same image order
     expect(report.reviewImages.map((r) => r.originalFilename)).toEqual([
+      "m-g2-kept.jpg",
       "a-g1-conf35.jpg",
       "z-g1-conf50.jpg",
-      "m-g2-kept.jpg",
     ]);
 
     // lowConfidenceDetections follows the same image order
@@ -426,5 +426,180 @@ describe("advanced batch report features (Task 30)", () => {
 
     expect(report.models).toEqual([]);
     expect(report.processingTimeMs).toBeNull();
+  });
+});
+
+describe("Face size filter and review candidate ordering (Step 2, 3, 5)", () => {
+  it("does not flag image for a low confidence 15 px face, but does flag for a 16 px face", () => {
+    // 15 px face (25 - 10 = 15 px)
+    const job15px = reportInput(
+      {
+        detections: [
+          {
+            label: "face",
+            confidence: 0.2,
+            box: [10, 10, 25, 30],
+            redacted: true,
+            lowConfidence: true,
+          },
+        ],
+      },
+      "COMPLETED",
+      { id: "j-15", inputKey: "k-15", originalFilename: "face-15px.jpg" },
+    );
+
+    // 16 px face (26 - 10 = 16 px)
+    const job16px = reportInput(
+      {
+        detections: [
+          {
+            label: "face",
+            confidence: 0.2,
+            box: [10, 10, 26, 30],
+            redacted: true,
+            lowConfidence: true,
+          },
+        ],
+      },
+      "COMPLETED",
+      { id: "j-16", inputKey: "k-16", originalFilename: "face-16px.jpg" },
+    );
+
+    const report = toReportResponse(batchInput() as never, [job15px as never, job16px as never]);
+
+    const img15 = report.images.find((img) => img.originalFilename === "face-15px.jpg");
+    expect(img15?.needsReview).toBe(false);
+    expect(img15?.reviewReasons).toEqual([]);
+    expect(img15?.reviewNotes).toEqual([]);
+    expect(img15?.largestReviewFaceWidth).toBeNull();
+    // Engine truth is still preserved on detection level
+    expect(img15?.detections[0]?.lowConfidence).toBe(true);
+
+    const img16 = report.images.find((img) => img.originalFilename === "face-16px.jpg");
+    expect(img16?.needsReview).toBe(true);
+    expect(img16?.reviewReasons).toEqual(["Low confidence"]);
+    expect(img16?.reviewNotes).toEqual(["low confidence 0.20"]);
+    expect(img16?.largestReviewFaceWidth).toBe(16);
+    expect(img16?.detections[0]?.lowConfidence).toBe(true);
+  });
+
+  it("flags an image for a low confidence plate even when under 16 px", () => {
+    // 12 px plate (22 - 10 = 12 px)
+    const jobPlate = reportInput(
+      {
+        detections: [
+          {
+            label: "plate",
+            confidence: 0.09,
+            box: [10, 10, 22, 20],
+            redacted: true,
+            lowConfidence: true,
+          },
+        ],
+      },
+      "COMPLETED",
+      { id: "j-plate", inputKey: "k-plate", originalFilename: "plate-12px.jpg" },
+    );
+
+    const report = toReportResponse(batchInput() as never, [jobPlate as never]);
+    const imgPlate = report.images.find((img) => img.originalFilename === "plate-12px.jpg");
+    expect(imgPlate?.needsReview).toBe(true);
+    expect(imgPlate?.reviewReasons).toEqual(["Low confidence"]);
+    expect(imgPlate?.reviewNotes).toEqual(["low confidence 0.09"]);
+    // Since it's a plate and not a face, largestReviewFaceWidth is null
+    expect(imgPlate?.largestReviewFaceWidth).toBeNull();
+  });
+
+  it("flags an image for a small kept face near the similarity threshold", () => {
+    // 10 px kept face near similarity threshold 0.60 (similarity 0.58, diff 0.02 <= 0.05)
+    const jobKeptFace = reportInput(
+      {
+        detections: [
+          {
+            label: "face",
+            box: [0, 0, 10, 10],
+            whitelisted: true,
+            similarity: 0.58,
+          },
+        ],
+      },
+      "COMPLETED",
+      { id: "j-kept", inputKey: "k-kept", originalFilename: "kept-10px.jpg" },
+    );
+
+    const report = toReportResponse(batchInput({ config: { similarityThreshold: 0.6 } }) as never, [
+      jobKeptFace as never,
+    ]);
+    const imgKept = report.images.find((img) => img.originalFilename === "kept-10px.jpg");
+    expect(imgKept?.needsReview).toBe(true);
+    expect(imgKept?.reviewReasons).toEqual(["Similarity near whitelist threshold"]);
+    expect(imgKept?.largestReviewFaceWidth).toBe(10);
+  });
+
+  it("preserves lowConfidence totals unchanged by the face size filter", () => {
+    // Both 15 px face and 16 px face have lowConfidence: true
+    const job15px = reportInput(
+      {
+        detections: [{ label: "face", confidence: 0.2, box: [0, 0, 15, 20], redacted: true, lowConfidence: true }],
+      },
+      "COMPLETED",
+      { id: "j-15", inputKey: "k-15", originalFilename: "f15.jpg" },
+    );
+    const job16px = reportInput(
+      {
+        detections: [{ label: "face", confidence: 0.2, box: [0, 0, 16, 20], redacted: true, lowConfidence: true }],
+      },
+      "COMPLETED",
+      { id: "j-16", inputKey: "k-16", originalFilename: "f16.jpg" },
+    );
+
+    const report = toReportResponse(batchInput() as never, [job15px as never, job16px as never]);
+    // totals.lowConfidence reflects Engine truth (both detections)
+    expect(report.totals.lowConfidence).toBe(2);
+    expect(report.lowConfidenceDetections).toHaveLength(2);
+    // Only f16 is in reviewImages
+    expect(report.reviewImages.map((img) => img.originalFilename)).toEqual(["f16.jpg"]);
+  });
+
+  it("sorts review images by similarity first, then larger face before smaller even when smaller has lower confidence", () => {
+    // Image 1: Similarity near threshold (small face: 15 px, confidence 0.50)
+    const jobSim = reportInput(
+      {
+        detections: [{ label: "face", box: [0, 0, 15, 15], whitelisted: true, similarity: 0.59 }],
+      },
+      "COMPLETED",
+      { id: "j-sim", inputKey: "k-sim", originalFilename: "1-similarity.jpg" },
+    );
+
+    // Image 2: Large face (80 px width), higher confidence (0.24)
+    const jobLarge = reportInput(
+      {
+        detections: [{ label: "face", box: [0, 0, 80, 80], confidence: 0.24, redacted: true, lowConfidence: true }],
+      },
+      "COMPLETED",
+      { id: "j-large", inputKey: "k-large", originalFilename: "2-large-face.jpg" },
+    );
+
+    // Image 3: Smaller face (30 px width), lower confidence (0.18)
+    const jobSmall = reportInput(
+      {
+        detections: [{ label: "face", box: [0, 0, 30, 30], confidence: 0.18, redacted: true, lowConfidence: true }],
+      },
+      "COMPLETED",
+      { id: "j-small", inputKey: "k-small", originalFilename: "3-small-face.jpg" },
+    );
+
+    // Shuffled input
+    const report = toReportResponse(batchInput({ config: { similarityThreshold: 0.6 } }) as never, [
+      jobSmall as never,
+      jobLarge as never,
+      jobSim as never,
+    ]);
+
+    expect(report.images.map((img) => img.originalFilename)).toEqual([
+      "1-similarity.jpg",
+      "2-large-face.jpg",
+      "3-small-face.jpg",
+    ]);
   });
 });

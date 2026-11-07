@@ -13,7 +13,7 @@ describe("Batch Config Schema and Defaults", () => {
     expect(config.format).toBe("original");
     expect(config.faceConfidenceThreshold).toBe(0.17);
     expect(config.plateConfidenceThreshold).toBe(0.11);
-    expect(config.reviewThreshold).toBe(0.35);
+    expect(config.reviewThreshold).toBe(0.25);
     expect(config.similarityThreshold).toBe(0.45);
   });
 

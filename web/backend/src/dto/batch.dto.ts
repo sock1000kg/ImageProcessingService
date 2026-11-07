@@ -111,6 +111,7 @@ export interface ReportImageDTO {
   reviewReasons: ReviewReason[];
   reviewNotes: string[];
   lowestRedactedConfidence: number | null;
+  largestReviewFaceWidth: number | null;
   reviewDetections: ReportDetectionDTO[];
   model: string | null;
   processingTimeMs: number | null;
@@ -342,6 +343,15 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
     );
     const lowestRedactedConfidence = redactedConfidences.length > 0 ? Math.min(...redactedConfidences) : null;
 
+    const reviewFaceWidths = reviewDetections.flatMap((detection) => {
+      if (detection.label === "face" && Array.isArray(detection.box) && detection.box.length >= 4) {
+        const width = Math.abs(detection.box[2] - detection.box[0]);
+        return Number.isFinite(width) ? [width] : [];
+      }
+      return [];
+    });
+    const largestReviewFaceWidth = reviewFaceWidths.length > 0 ? Math.max(...reviewFaceWidths) : null;
+
     if (summaryCounts) {
       if (typeof summaryCounts.face === "number") faces += summaryCounts.face;
       if (typeof summaryCounts.plate === "number") plates += summaryCounts.plate;
@@ -387,6 +397,7 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
       reviewReasons,
       reviewNotes,
       lowestRedactedConfidence,
+      largestReviewFaceWidth,
       reviewDetections,
       model: summary?.model ?? null,
       processingTimeMs: summary?.processingTimeMs ?? null,
@@ -398,9 +409,10 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
   });
 
   // Why report sort order: Reviewers must prioritize images that need human oversight first.
-  // The sorting algorithm ranks images requiring review at the top, ordered ascending by lowest
-  // redacted confidence (putting the most uncertain detections at the very top), followed by
-  // images without detections, and finally failed jobs with originalFilename as deterministic tie-break.
+  // The sorting algorithm ranks failed jobs first, then review candidates (prioritizing similarity
+  // near whitelist threshold first to avoid exposing faces, then largest flagged face width descending
+  // with null last, then lowest redacted confidence ascending), followed by non-review images,
+  // using createdAt and originalFilename as deterministic tie-breaks.
   perImage.sort(compareReportImages);
 
   const lowConfidenceDetections: ReportLowConfidenceDetectionDTO[] = [];
@@ -558,6 +570,30 @@ function compareReportImages(a: ReportImageDTO, b: ReportImageDTO): number {
     return groupA - groupB;
   }
 
+  // Why review candidate ordering: Images requiring review prioritize similarity near whitelist
+  // threshold first (misclassification risks leaking familiar faces), then largest flagged face
+  // width descending with null last (larger faces are more critical/recognisable), then lowest
+  // redacted confidence ascending.
+  if (groupA === 1) {
+    const simA = a.reviewReasons.includes("Similarity near whitelist threshold") ? 1 : 0;
+    const simB = b.reviewReasons.includes("Similarity near whitelist threshold") ? 1 : 0;
+    if (simA !== simB) {
+      return simB - simA;
+    }
+
+    const widthA = a.largestReviewFaceWidth;
+    const widthB = b.largestReviewFaceWidth;
+    if (widthA !== null && widthB !== null) {
+      if (widthA !== widthB) {
+        return widthB - widthA;
+      }
+    } else if (widthA !== null) {
+      return -1;
+    } else if (widthB !== null) {
+      return 1;
+    }
+  }
+
   const confA = a.lowestRedactedConfidence ?? Number.POSITIVE_INFINITY;
   const confB = b.lowestRedactedConfidence ?? Number.POSITIVE_INFINITY;
   if (confA !== confB) {
@@ -569,19 +605,40 @@ function compareReportImages(a: ReportImageDTO, b: ReportImageDTO): number {
     return createdCmp;
   }
 
+  const filenameCmp = a.originalFilename.localeCompare(b.originalFilename);
+  if (filenameCmp !== 0) {
+    return filenameCmp;
+  }
+
   return a.jobId.localeCompare(b.jobId);
 }
+
+/**
+ * Minimum face bounding box width (in pixels) required to raise a "Low confidence" review reason.
+ *
+ * Why: A low confidence box under this width is mostly background noise,
+ * while faces from about 16 px up are still recognisable.
+ */
+export const REVIEW_MIN_FACE_WIDTH_PX = 16;
 
 function toReportDetection(detection: ImageDetectionSummary, similarityThreshold: number): ReportDetectionDTO {
   const similarity = typeof detection.similarity === "number" ? detection.similarity : null;
   const nearThreshold = similarity === null ? null : Math.abs(similarity - similarityThreshold) <= 0.05;
+
+  const isFace = detection.label === "face";
+  const hasBox = Array.isArray(detection.box) && detection.box.length >= 4;
+  const boxWidth = hasBox ? Math.abs(detection.box![2] - detection.box![0]) : null;
+  // Why: A low confidence box under 16 px width is mostly background noise, while faces from about 16 px up
+  // are still recognisable. Non-faces or detections without boxes retain low-confidence review flags.
+  const qualifiesLowConfidence = !isFace || !hasBox || (boxWidth !== null && boxWidth >= REVIEW_MIN_FACE_WIDTH_PX);
+
   const reviewReasons: ReviewReason[] = [];
-  if (detection.lowConfidence === true) reviewReasons.push("Low confidence");
+  if (detection.lowConfidence === true && qualifiesLowConfidence) reviewReasons.push("Low confidence");
   if (detection.needsReview === true) reviewReasons.push("Engine reported needsReview");
   if (nearThreshold === true) reviewReasons.push("Similarity near whitelist threshold");
 
   const reviewNotes: string[] = [];
-  if (detection.lowConfidence === true) {
+  if (detection.lowConfidence === true && qualifiesLowConfidence) {
     const confStr = typeof detection.confidence === "number" ? ` ${detection.confidence.toFixed(2)}` : "";
     reviewNotes.push(`low confidence${confStr}`);
   }

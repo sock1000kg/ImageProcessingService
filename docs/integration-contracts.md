@@ -78,7 +78,7 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
     "redaction": { "targets": ["face", "plate"], "style": "pixelate", "strength": 12, "padding": 0.1 },
     "output": { "quality": "high" },
     "confidenceThresholds": { "face": 0.17, "plate": 0.11 },
-    "reviewThreshold": 0.35,
+    "reviewThreshold": 0.25,
     "whitelist": {
       "faces": [ { "bucket": "uploads", "key": "0f1e2d3c-4b5a-4697-8877-665544332211/whitelist/face-1.jpg" } ],
       "similarityThreshold": 0.6
@@ -87,7 +87,7 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
 }
 ```
 * `confidenceThresholds`: ngưỡng tin cậy riêng biệt cho từng lớp đối tượng (`face`: mặc định 0.17, `plate`: mặc định 0.11); dưới ngưỡng của lớp tương ứng thì bỏ qua phát hiện.
-* `reviewThreshold`: ngưỡng đánh giá (mặc định 0.35); phát hiện có confidence dưới ngưỡng này vẫn được che, nhưng bị đánh dấu `lowConfidence` để người dùng kiểm tra lại.
+* `reviewThreshold`: ngưỡng đánh giá (mặc định 0.25); phát hiện có confidence dưới ngưỡng này vẫn được che, nhưng bị đánh dấu `lowConfidence` để người dùng kiểm tra lại.
 * `whitelist.faces`: ảnh chân dung mẫu (tuỳ chọn). Khuôn mặt có cosine similarity ≥ `similarityThreshold` với **bất kỳ** mẫu nào thì **không** bị che. Ưu tiên tránh nhận nhầm người lạ, nên khi phân vân thì che.
 * `whitelist.plates` *(Phase 2, Should, cần OCR, đề xuất)*: danh sách biển số, ví dụ `["30A12345", "51G-678.90"]`. So khớp sau khi chuẩn hoá cả hai phía (viết hoa, bỏ khoảng trắng, `-`, `.`), phải **trùng hoàn toàn**. OCR không đọc được hoặc không chắc thì coi như không khớp (→ vẫn che). Chỉ có chế độ allow: chế độ block (chỉ che cái khớp mẫu) đã bỏ.
 

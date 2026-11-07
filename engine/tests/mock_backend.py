@@ -106,7 +106,7 @@ async def main():
             },
             "output": {"quality": "high"},
             "confidenceThresholds": {"face": 0.17, "plate": 0.11},
-            "reviewThreshold": 0.35,
+            "reviewThreshold": 0.25,
         }
         default_format = "MP4"
     elif job_type == "image-redact":
@@ -121,7 +121,7 @@ async def main():
                 "padding": 0.1,
             },
             "confidenceThresholds": {"face": 0.17, "plate": 0.11},
-            "reviewThreshold": 0.35,
+            "reviewThreshold": 0.25,
         }
         default_format = "JPEG"
     elif job_type in ("image-redact-blur", "blur"):
@@ -137,7 +137,7 @@ async def main():
                 "padding": 0.1,
             },
             "confidenceThresholds": {"face": 0.17, "plate": 0.11},
-            "reviewThreshold": 0.35,
+            "reviewThreshold": 0.25,
         }
         default_format = "JPEG"
     elif job_type in ("image-redact-blackout", "blackout"):
@@ -152,7 +152,7 @@ async def main():
                 "padding": 0.1,
             },
             "confidenceThresholds": {"face": 0.17, "plate": 0.11},
-            "reviewThreshold": 0.35,
+            "reviewThreshold": 0.25,
         }
         default_format = "JPEG"
     else:  # default image-redact
@@ -168,7 +168,7 @@ async def main():
                 "padding": 0.1,
             },
             "confidenceThresholds": {"face": 0.17, "plate": 0.11},
-            "reviewThreshold": 0.35,
+            "reviewThreshold": 0.25,
         }
         default_format = "JPEG"
 

@@ -75,10 +75,8 @@ patches:
                 image: imgproc-web:bench
                 imagePullPolicy: Never
                 env:
-                  - name: RATE_LIMIT_BATCHES_PER_MINUTE
-                    value: "100000"
-                  - name: RATE_LIMIT_UPLOADS_PER_MINUTE
-                    value: "1000000"
+                  - name: TRANSFER_RATE_LIMIT_MULTIPLIER
+                    value: "100"
     target:
       kind: Deployment
       name: web

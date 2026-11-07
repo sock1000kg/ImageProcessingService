@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /**
  * Tests for Whitelist people section in BatchReport (Task 58):
- * - Displays person's name or fallback "Whitelist #n" label
+ * - Displays person's name or fallback "Allow list #n" label
  * - Renders neutral placeholder when thumbnail fetch fails without breaking the row
  * - Collapsed by default: head row has aria-expanded="false" and images are hidden
  * - Clicking head row expands image rows and sets aria-expanded="true"
@@ -89,9 +89,9 @@ describe("BatchReport Whitelist People Component (Task 58)", () => {
   it("shows the API's name for a person with name, and falls back to Whitelist #n when name is null", () => {
     render(<BatchReport report={sampleReport} />);
 
-    const whitelistSection = screen.getByRole("region", { name: /whitelist/i });
+    const whitelistSection = screen.getByRole("region", { name: /allow list/i });
     expect(within(whitelistSection).getByText("Alice Profile Photo.jpg")).toBeTruthy();
-    expect(within(whitelistSection).getByText("Whitelist #2")).toBeTruthy();
+    expect(within(whitelistSection).getByText("Allow list #2")).toBeTruthy();
     expect(within(whitelistSection).getByText("Charlie Empty")).toBeTruthy();
 
     // The reference numbers remain visible in badges
@@ -103,19 +103,19 @@ describe("BatchReport Whitelist People Component (Task 58)", () => {
   it("renders a neutral placeholder on failed thumbnail without breaking the row", () => {
     render(<BatchReport report={sampleReport} />);
 
-    const whitelistSection = screen.getByRole("region", { name: /whitelist/i });
+    const whitelistSection = screen.getByRole("region", { name: /allow list/i });
     // Person 2 (whitelist/2) fails and renders a placeholder
     const placeholders = whitelistSection.querySelectorAll(".thumbnail-placeholder");
     expect(placeholders.length).toBeGreaterThanOrEqual(1);
 
     // Row is still fully rendered and functional
-    expect(within(whitelistSection).getByText("Whitelist #2")).toBeTruthy();
+    expect(within(whitelistSection).getByText("Allow list #2")).toBeTruthy();
   });
 
   it("resets imgError state when url changes", () => {
     const { rerender } = render(<BatchReport report={sampleReport} />);
 
-    const whitelistSection = screen.getByRole("region", { name: /whitelist/i });
+    const whitelistSection = screen.getByRole("region", { name: /allow list/i });
     const aliceButton = within(whitelistSection).getByRole("button", {
       name: /Alice Profile Photo\.jpg/i,
     });
@@ -137,7 +137,7 @@ describe("BatchReport Whitelist People Component (Task 58)", () => {
     rerender(<BatchReport report={updatedReport} />);
 
     // The image should be rendered again (imgError reset on url change)
-    const updatedAliceButton = within(screen.getByRole("region", { name: /whitelist/i })).getByRole("button", {
+    const updatedAliceButton = within(screen.getByRole("region", { name: /allow list/i })).getByRole("button", {
       name: /Alice Profile Photo\.jpg/i,
     });
     expect(updatedAliceButton.querySelector("img")).toBeTruthy();
@@ -147,7 +147,7 @@ describe("BatchReport Whitelist People Component (Task 58)", () => {
     const onSelect = vi.fn();
     render(<BatchReport report={sampleReport} onSelectImage={onSelect} />);
 
-    const whitelistSection = screen.getByRole("region", { name: /whitelist/i });
+    const whitelistSection = screen.getByRole("region", { name: /allow list/i });
 
     // Initially collapsed: candidates are not visible
     expect(within(whitelistSection).queryByText("candidate-a.jpg")).toBeNull();
@@ -178,13 +178,13 @@ describe("BatchReport Whitelist People Component (Task 58)", () => {
   it("opening one person does not open another person", () => {
     render(<BatchReport report={sampleReport} />);
 
-    const whitelistSection = screen.getByRole("region", { name: /whitelist/i });
+    const whitelistSection = screen.getByRole("region", { name: /allow list/i });
 
     const aliceButton = within(whitelistSection).getByRole("button", {
       name: /Alice Profile Photo\.jpg/i,
     });
     const person2Button = within(whitelistSection).getByRole("button", {
-      name: /Whitelist #2/i,
+      name: /allow list #2/i,
     });
 
     expect(aliceButton.getAttribute("aria-expanded")).toBe("false");
@@ -201,7 +201,7 @@ describe("BatchReport Whitelist People Component (Task 58)", () => {
   it("person with no images has no expand button / control", () => {
     render(<BatchReport report={sampleReport} />);
 
-    const whitelistSection = screen.getByRole("region", { name: /whitelist/i });
+    const whitelistSection = screen.getByRole("region", { name: /allow list/i });
 
     // Charlie has 0 images: should render as text, NOT a button
     expect(within(whitelistSection).getByText("Charlie Empty")).toBeTruthy();

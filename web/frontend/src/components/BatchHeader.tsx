@@ -29,13 +29,15 @@ export function BatchHeader({ batch, onDelete, onBatchUpdated }: BatchHeaderProp
   return (
     <div className="batch-header">
       <div>
-        <span className="section-kicker">ACTIVE BATCH</span>
         <InlineRename name={batch.name} onSave={handleSave} headingLevel="h2" />
         <small className="batch-id-text">{batch.id}</small>
         <p>Created {new Date(batch.createdAt).toLocaleString()}</p>
       </div>
       <div className="batch-header-meta">
         <StatusBadge status={batch.status} />
+        {(batch.status === "PROCESSING" || batch.status === "QUEUED") && (
+          <progress max={100} value={progress} aria-label="Batch progress" />
+        )}
         <strong>
           {completed}/{batch.jobs.length} complete
         </strong>

@@ -1736,7 +1736,6 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
 
       // No rename pencil button exists inside the picker's viewer
       expect(within(viewerDialog).queryByRole("button", { name: /rename/i })).toBeNull();
-      expect(within(viewerDialog).queryByText("✎")).toBeNull();
     });
   });
 

@@ -26,9 +26,8 @@ export function LoginPage() {
 
   return (
     <section className="auth-card" aria-labelledby="login-title">
-      <p className="section-kicker">Secure access</p>
-      <h2 id="login-title">Sign in</h2>
-      <form className="auth-form" onSubmit={(event) => void submit(event)}>
+      <h1 id="login-title">Sign in</h1>
+      <form className="auth-form" aria-labelledby="login-title" onSubmit={(event) => void submit(event)}>
         <label htmlFor="login-email">Email</label>
         <input
           id="login-email"

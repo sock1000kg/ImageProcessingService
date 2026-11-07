@@ -1,6 +1,7 @@
 /**
  * Dismissible warning notice listing invalid or oversized files rejected during drag-and-drop or selection.
  */
+import { X } from "@phosphor-icons/react";
 import { FileSelectionIssue, formatValidationTitle, getFilePath, getFileIdentity } from "./file-selection";
 import { Banner } from "./ui/Banner";
 
@@ -23,7 +24,7 @@ export function RejectedFilesNotice({ issues, onDismiss }: RejectedFilesNoticePr
         <strong className="notice-title">{formatValidationTitle(issues.length)}</strong>
         {onDismiss && (
           <button type="button" className="icon-button" aria-label="Dismiss rejected files list" onClick={onDismiss}>
-            ×
+            <X aria-hidden />
           </button>
         )}
       </div>

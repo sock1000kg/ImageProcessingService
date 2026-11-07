@@ -44,7 +44,7 @@ Ký hiệu trong task:
   - [x] Xem batch: thông tin batch + danh sách job (trạng thái, `counts`, `resultUrl`).
   - [x] **[Đạt]** **Upload từng ảnh một request** (thay cho một multipart cả batch, trước đây bị giới hạn 20 ảnh/90MB và dồn hết vào RAM pod). 3 bước:
     - `POST /api/batches` (`config` + 0..5 ảnh whitelist + `name` tuỳ chọn) → batch ở trạng thái `DRAFT`.
-    - `POST /api/batches/:id/files`: một ảnh mỗi request (≤ `UPLOAD_MAX_BYTES`), tạo job `PENDING`. Tối đa `BATCH_MAX_FILES` (ví dụ 100). Sau `start` → 409.
+    - `POST /api/batches/:id/files`: một ảnh mỗi request (≤ `UPLOAD_MAX_BYTES`), tạo job `PENDING`. Tối đa `BATCH_MAX_FILES` (mặc định 1000). Sau `start` → 409.
     - `POST /api/batches/:id/start`: publish các job `PENDING` lên `jobs.image`. Gọi lại không publish trùng; publish lỗi thì gọi lại để gửi phần còn thiếu.
     - Bỏ `BATCH_MAX_BYTES`. UI tải lần lượt từng ảnh, có tiến độ từng file và thử lại file lỗi. Batch `DRAFT` quá 24h bị dọn như batch thường. Việc xử lý vẫn là **một job mỗi ảnh** (contract §1), không đổi.
     - Là nền cho upload video chia nhỏ (chunked, S3 multipart) ở Phase 2.

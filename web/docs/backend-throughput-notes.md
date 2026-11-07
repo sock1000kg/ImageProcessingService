@@ -48,4 +48,4 @@ Node process capped at 0.5 CPU. Full analysis with the measured gains: `infra/be
 | Upload path: `multer` memory storage and one request per file; batched or streamed uploads                                              | faster batch upload (end-to-end throughput)            | Web          |
 
 Also seen: the hard-coded per-account rate limits (20 batches / 300 uploads per minute) blocked the benchmark; they are now
-governed by `RATE_LIMIT_MULTIPLIER` (default 1, raised to 100 in the laptop overlay).
+governed by `TRANSFER_RATE_LIMIT_MULTIPLIER` (default 1, raised to 100 in the laptop overlay).

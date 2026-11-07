@@ -31,7 +31,7 @@ Phase 2 authentication uses email as the unique login identifier. Access tokens 
 
 - The backend refuses to start without `JWT_SECRET` (at least 32 characters), since every API route needs a signed token.
 - Protected routes check the token **before** reading the request body, so anonymous uploads are rejected without buffering files.
-- Rate limiting is scaled by a single global `RATE_LIMIT_MULTIPLIER` environment variable (default `1`): `max = Math.max(1, Math.round(base * RATE_LIMIT_MULTIPLIER))`. Built-in per-minute base limits are defined in code:
+- Rate limiting is scaled by two environment variables (default `1`): `RATE_LIMIT_MULTIPLIER` scales login, refresh and allow list creation, while `TRANSFER_RATE_LIMIT_MULTIPLIER` scales transfer-heavy operations (batch creation, file uploads and download tokens). Limits are computed as `max = Math.max(1, Math.round(base * multiplier))`. Built-in per-minute base limits are defined in code:
 
   | Action / Endpoint                                                            | Base limit (/min) | Key scope   | Purpose                                                              |
   | ---------------------------------------------------------------------------- | ----------------- | ----------- | -------------------------------------------------------------------- |
@@ -129,8 +129,9 @@ MINIO_SECRET_KEY=CHANGE_ME_minio_local
 MINIO_USE_SSL=false
 PUBLIC_RESULTS_BASE_URL=/results
 UPLOAD_MAX_BYTES=52428800
-BATCH_MAX_FILES=100
+BATCH_MAX_FILES=1000
 RATE_LIMIT_MULTIPLIER=1
+TRANSFER_RATE_LIMIT_MULTIPLIER=1
 CLEANUP_INTERVAL_MS=600000
 RETENTION_DAYS=
 JWT_SECRET=replace-with-at-least-32-random-characters
@@ -295,7 +296,7 @@ Batch creation and image processing use a three-step flow:
      - `400 BAD_REQUEST`: missing `file` field or unsupported image format.
      - `404 NOT_FOUND`: batch does not exist.
      - `409 BATCH_STARTED`: batch has already been started.
-     - `409 BATCH_FULL`: batch already has `BATCH_MAX_FILES` jobs (default: 100).
+     - `409 BATCH_FULL`: batch already has `BATCH_MAX_FILES` jobs (default: 1000).
      - `413 FILE_TOO_LARGE`: file size exceeds `UPLOAD_MAX_BYTES` (default: 50MB).
 
 3. **`POST /api/batches/:id/start`** (Start processing)
@@ -335,9 +336,9 @@ Batch creation and image processing use a three-step flow:
 
 Every batch response (`BatchResponseDTO`) includes `name: string`. The batch report (`ReportResponseDTO` from `GET /api/batches/:id/report`) includes `batchName: string`.
 
-`BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 100). In Phase 2, originals and results are kept until the user deletes them, unless `RETENTION_DAYS` is set (when unset, only draft batches older than 24h are deleted by the periodic cleanup task). Whitelist reference portraits are deleted immediately once all jobs in a batch reach a terminal state.
+`BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 1000). In Phase 2, originals and results are kept until the user deletes them, unless `RETENTION_DAYS` is set (when unset, only draft batches older than 24h are deleted by the periodic cleanup task). Whitelist reference portraits are deleted immediately once all jobs in a batch reach a terminal state.
 
-The Create Batch page also supports selecting a folder (including nested folders) in browsers that expose `webkitdirectory`. Files are validated locally before submission: only JPG/JPEG, PNG, and WEBP are accepted, each file is limited to 50 MB, and a batch is limited to 100 files. Invalid or excess files are reported and are never added to `FormData`; choosing a folder does not upload until **Create secure batch** is pressed. Folder selection is a UI convenience only—uploads are now sent as one file per request (`POST /api/batches/:id/files`).
+The Create Batch page also supports selecting a folder (including nested folders) in browsers that expose `webkitdirectory`. Files are validated locally before submission: only JPG/JPEG, PNG, and WEBP are accepted, and each file is limited to 50 MB. Invalid files are reported and are never added to `FormData`; choosing a folder does not upload until **Create secure batch** is pressed. Folder selection is a UI convenience only—uploads are now sent as one file per request (`POST /api/batches/:id/files`).
 
 The report keeps Engine-provided review signals authoritative. An image is marked `needsReview` only when a detection has `lowConfidence: true`, `needsReview: true`, or a provided `similarity` value is within `0.05` of the configured `similarityThreshold`. Missing similarity, confidence, boxes, or flags remain `null`/empty and are not fabricated. Each image also exposes `reviewReasons`, `reviewDetections`, and `lowestRedactedConfidence`; the latter is calculated only from redacted detections that contain confidence.
 

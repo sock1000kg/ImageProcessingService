@@ -2,6 +2,7 @@
  * Interactive before-and-after image comparator and detection telemetry viewer.
  */
 import { useEffect, useState } from "react";
+import { ArrowSquareOut, DownloadSimple } from "@phosphor-icons/react";
 import { Detection, Job, ReviewReason } from "../types";
 import { usePrivateImage } from "../hooks/usePrivateImage";
 import { formatJobErrorMessage } from "../utils/format";
@@ -62,7 +63,8 @@ export function ImageResultViewer({
   hasWhitelist = false,
   onRetry,
 }: ImageResultViewerProps) {
-  const [split, setSplit] = useState(50);
+  // Why 0: the original stays hidden until the user drags, so opening an image never reveals faces.
+  const [split, setSplit] = useState(0);
   const [showBoxes, setShowBoxes] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
@@ -119,7 +121,19 @@ export function ImageResultViewer({
                   <img src={originalUrl} alt={`Original ${job.originalFilename}`} onLoad={handleImageLoad} />
                 )}
               </div>
-              <div className="comparison-divider" style={{ left: `${split}%` }} />
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={split}
+                onChange={(event) => setSplit(Number(event.target.value))}
+                className="comparison-range"
+                aria-label="Before / after"
+              />
+              <div
+                className={`comparison-divider${split < 3 ? " is-start" : split > 97 ? " is-end" : ""}`}
+                style={{ left: `${split}%` }}
+              />
 
               {isOverlayVisible && effectiveSize && (
                 <div className="detection-overlay" data-testid="detection-overlay">
@@ -168,20 +182,26 @@ export function ImageResultViewer({
             </ImageStage>
           </div>
           <div className="viewer-controls">
-            <label className="slider-label">
-              Before / after
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={split}
-                onChange={(event) => setSplit(Number(event.target.value))}
-              />
-            </label>
             <label className="overlay-toggle">
               <input type="checkbox" checked={showBoxes} onChange={(event) => setShowBoxes(event.target.checked)} />
               Show boxes
             </label>
+            {showBoxes && (
+              <ul className="box-legend" aria-label="Box key">
+                <li>
+                  <span className="box-legend-swatch box-legend-redacted" aria-hidden="true" />
+                  <span>redacted</span>
+                </li>
+                <li>
+                  <span className="box-legend-swatch box-legend-kept" aria-hidden="true" />
+                  <span>kept</span>
+                </li>
+                <li>
+                  <span className="box-legend-swatch box-legend-review" aria-hidden="true" />
+                  <span>review</span>
+                </li>
+              </ul>
+            )}
           </div>
         </>
       ) : (
@@ -191,7 +211,7 @@ export function ImageResultViewer({
               <strong>This image failed processing.</strong>
               {job.error && (
                 <p className="failure-detail">
-                  {job.error.code && <span>{job.error.code}</span>}
+                  {job.error.code && <span className="failure-code">{job.error.code}</span>}
                   {job.error.code && formatJobErrorMessage(job.error) ? ": " : ""}
                   {formatJobErrorMessage(job.error)}
                 </p>
@@ -208,12 +228,14 @@ export function ImageResultViewer({
           {job.stage ?? "Waiting"} · {job.progress}%
         </span>
         {originalUrl && (
-          <a href={originalUrl} target="_blank" rel="noreferrer">
+          <a href={originalUrl} target="_blank" rel="noreferrer" className="ghost-button">
+            <ArrowSquareOut aria-hidden="true" />
             Open original
           </a>
         )}
         {job.resultUrl && (
-          <a href={job.resultUrl} download target="_blank" rel="noreferrer">
+          <a href={job.resultUrl} download target="_blank" rel="noreferrer" className="ghost-button">
+            <DownloadSimple aria-hidden="true" />
             Download result
           </a>
         )}

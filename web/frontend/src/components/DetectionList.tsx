@@ -1,8 +1,8 @@
 /**
  * Detailed detection inspector listing individual bounding boxes, confidence scores, and review flags.
  */
+import { Warning } from "@phosphor-icons/react";
 import { Detection } from "../types";
-import { StatusBadge } from "./ui/StatusBadge";
 
 export interface DetectionListProps {
   detections: Detection[];
@@ -28,9 +28,9 @@ export function formatDetectionLabel(label: string | null): string {
 export function formatDetectionStatus(detection: Detection): string {
   if (detection.whitelisted) {
     if (detection.whitelistRef !== null && detection.whitelistRef !== undefined) {
-      return `Kept (whitelist person #${detection.whitelistRef + 1})`;
+      return `Kept (allow list person #${detection.whitelistRef + 1})`;
     }
-    return "Kept (whitelisted)";
+    return "Kept (allow-listed)";
   }
   if (detection.redacted) {
     return "Redacted";
@@ -52,11 +52,7 @@ export function DetectionList({
   }
 
   return (
-    <ul
-      className="detection-list scroll-list"
-      aria-label="Detection list"
-      style={{ margin: 0, padding: 0, listStyle: "none" }}
-    >
+    <ul className="detection-list scroll-list" aria-label="Detection list">
       {detections.map((detection, index) => {
         const isFlagged =
           Boolean(detection.needsReview) ||
@@ -97,7 +93,9 @@ export function DetectionList({
             </div>
             {isFlagged && (
               <span id={`detection-review-${index}`} role="status">
-                <StatusBadge variant="pill" label="Needs review" />
+                <span className="row-review">
+                  <Warning aria-hidden /> Needs review
+                </span>
               </span>
             )}
           </li>

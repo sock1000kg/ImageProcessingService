@@ -87,7 +87,7 @@ const THRESHOLD_FIELDS = [
   {
     key: "similarityThreshold",
     label: "Similarity Threshold",
-    hint: "how closely a face must match the whitelist",
+    hint: "how closely a face must match the allow list",
   },
 ] as const;
 
@@ -197,16 +197,12 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
 
       <details className="advanced-settings">
         <summary>Advanced thresholds</summary>
-        <p className="preview-note" style={{ margin: "8px 0 2px" }}>
-          Higher = stricter
-        </p>
+        <p className="preview-note">Higher = stricter</p>
         <div className="threshold-grid">
           {THRESHOLD_FIELDS.map(({ key, label, hint }) => (
             <label key={key}>
               <span>{label}</span>
-              <span className="preview-note" style={{ margin: 0, fontWeight: "normal" }}>
-                {hint}
-              </span>
+              <span className="preview-note">{hint}</span>
               <input
                 type="number"
                 min="0"

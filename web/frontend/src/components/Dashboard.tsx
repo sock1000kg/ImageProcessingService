@@ -23,12 +23,11 @@ export function Dashboard({ stats, batch, onCreate, onMessage }: DashboardProps)
     <section className="dashboard">
       <div className="welcome-card">
         <div>
-          <span className="section-kicker">PRIVACY WORKSPACE</span>
           <h2>Keep every image private.</h2>
           <p>Redact faces and license plates in secure, asynchronous batches.</p>
         </div>
         <button className="primary-button" onClick={onCreate}>
-          Create new batch <span>→</span>
+          Create new batch
         </button>
       </div>
 

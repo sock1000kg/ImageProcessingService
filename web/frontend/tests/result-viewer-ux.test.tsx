@@ -121,15 +121,29 @@ describe("Step 2 & 3: ImageResultViewer slider and box overlay", () => {
     },
   ];
 
-  it("moving before / after slider updates split percentage value", () => {
+  it("moving before / after slider updates split percentage value and clip inside image-stage", async () => {
     render(<ImageResultViewer job={sampleJob} detections={sampleDetections} reviewReasons={[]} onRetry={() => {}} />);
 
-    const slider = screen.getByLabelText(/before \/ after/i) as HTMLInputElement;
-    expect(slider.value).toBe("50");
+    const stage = screen.getByTestId("image-stage");
+    const slider = within(stage).getByRole("slider", { name: /before \/ after/i }) as HTMLInputElement;
+    expect(slider).toBeDefined();
+    expect(slider.value).toBe("0");
+
+    const originalImg = await screen.findByAltText(new RegExp(`Original ${sampleJob.originalFilename}`, "i"));
+    const clipContainer = originalImg.parentElement;
+    expect(clipContainer?.style.clipPath).toContain("100% - 0%");
 
     // Move slider to 25%
     fireEvent.change(slider, { target: { value: "25" } });
     expect(slider.value).toBe("25");
+    expect(clipContainer?.style.clipPath).toContain("100% - 25%");
+
+    // Turning on Show boxes still shows labels
+    expect(screen.queryByText("#1")).toBeNull();
+    const toggle = screen.getByLabelText(/show boxes/i) as HTMLInputElement;
+    fireEvent.click(toggle);
+    expect(screen.getByText("#1")).toBeDefined();
+    expect(screen.getByText("#2")).toBeDefined();
   });
 
   it("toggling Show boxes renders detection box labels and toggling off hides them", () => {
@@ -151,6 +165,28 @@ describe("Step 2 & 3: ImageResultViewer slider and box overlay", () => {
     // Uncheck toggle hides all boxes
     fireEvent.click(toggle);
     expect(screen.queryByText("#1")).toBeNull();
+  });
+
+  it("box key legend is absent by default, present after turning on Show boxes, and absent again after turning it off", () => {
+    render(<ImageResultViewer job={sampleJob} detections={sampleDetections} reviewReasons={[]} onRetry={() => {}} />);
+
+    // Box key is absent by default
+    expect(screen.queryByRole("list", { name: /box key/i })).toBeNull();
+
+    // Toggle Show boxes ON
+    const toggle = screen.getByLabelText(/show boxes/i) as HTMLInputElement;
+    fireEvent.click(toggle);
+
+    // Box key is present and contains swatches/labels
+    const boxKey = screen.getByRole("list", { name: /box key/i });
+    expect(boxKey).toBeDefined();
+    expect(within(boxKey).getByText(/redacted/i)).toBeDefined();
+    expect(within(boxKey).getByText(/kept/i)).toBeDefined();
+    expect(within(boxKey).getByText(/review/i)).toBeDefined();
+
+    // Toggle Show boxes OFF
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("list", { name: /box key/i })).toBeNull();
   });
 
   it("hovering a detection row activates the overlay and shows the specific box label", () => {
@@ -226,7 +262,7 @@ describe("Step 4: DetectionList readable rows and telemetry format", () => {
     expect(within(items[0]).getByText(/92%/)).toBeDefined();
 
     // Row 2: Whitelist reference (whitelistRef 0 -> person #1)
-    expect(within(items[1]).getByText(/whitelist.*1/i)).toBeDefined();
+    expect(within(items[1]).getByText(/allow list.*1/i)).toBeDefined();
 
     // Row 3: Flags and review notes
     expect(within(items[2]).getByText(/licen[sc]e plate/i)).toBeDefined();

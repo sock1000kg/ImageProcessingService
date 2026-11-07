@@ -17,24 +17,26 @@ export function scaleLimit(base: number, multiplier: number = config.RATE_LIMIT_
 
 /**
  * Built-in per-minute base limits table. Each endpoint keeps its per-minute default here,
- * scaled by RATE_LIMIT_MULTIPLIER: max = Math.max(1, Math.round(base * RATE_LIMIT_MULTIPLIER)).
+ * scaled by RATE_LIMIT_MULTIPLIER (general group) or TRANSFER_RATE_LIMIT_MULTIPLIER (transfer group):
+ * max = Math.max(1, Math.round(base * multiplier)).
  */
 export const RATE_LIMIT_BASES = {
-  // Slows brute-force password and registration-key guessing. Per IP (shared by /register and /login).
+  // Slows brute-force password and registration-key guessing. Per IP (shared by /register and /login). Group: general.
   auth: 10,
-  // Per IP. Token refresh runs silently in background tabs and on load; separate bucket protects login budget.
+  // Per IP. Token refresh runs silently in background tabs and on load; separate bucket protects login budget. Group: general.
   refresh: 60,
-  // Per account. Caps runaway clients creating draft batches while leaving room for normal usage.
+  // Per account. Caps runaway clients creating draft batches while leaving room for normal usage. Group: transfer.
   createBatch: 20,
-  // Per account. A 100-image batch uploads 1 file per request; leaves headroom for multiple concurrent batches/min.
+  // Per account speed limit (300 files/min). Larger batches wait on rate limits instead of failing. Group: transfer.
   upload: 300,
-  // Per account. Allow list creation extracts face embeddings and writes storage; matches batch create rate.
+  // Per account. Allow list creation extracts face embeddings and writes storage; matches batch create rate. Group: general.
   createFaceList: 20,
-  // Per account. Protects streaming zip archive creation and signed download token issuance.
+  // Per account. Protects streaming zip archive creation and signed download token issuance. Group: transfer.
   downloadToken: 30,
 } as const;
 
 export type RateLimitKey = keyof typeof RATE_LIMIT_BASES;
+export type RateLimitGroup = "general" | "transfer";
 
 /**
  * The caller's IP. Behind Cloudflare + Traefik the socket address is the proxy, so every user would share one
@@ -52,14 +54,15 @@ export function clientIp(request: Request): string {
  * Limits each key to `max` requests per window.
  *
  * Supports two calling conventions:
- * 1. `rateLimit(base, keyOf?)`: builds a 60-second limiter using a base per-minute limit scaled by
- *    RATE_LIMIT_MULTIPLIER. Used by all application routes.
+ * 1. `rateLimit(base, keyOf?, group?)`: builds a 60-second limiter using a base per-minute limit scaled by
+ *    RATE_LIMIT_MULTIPLIER ("general") or TRANSFER_RATE_LIMIT_MULTIPLIER ("transfer").
  * 2. `rateLimit(windowMs, max, keyOf?)`: builds a limiter with explicit windowMs and max count.
  *    Used for tests or custom window configurations.
  */
 export function rateLimit(
   base: number,
   keyOf?: (request: Request) => string,
+  group?: RateLimitGroup,
 ): (request: Request, response: Response, next: NextFunction) => void;
 export function rateLimit(
   windowMs: number,
@@ -69,11 +72,19 @@ export function rateLimit(
 export function rateLimit(
   baseOrWindowMs: number,
   maxOrKeyOf?: number | ((request: Request) => string),
-  keyOfArg?: (request: Request) => string,
+  keyOfOrGroup?: ((request: Request) => string) | RateLimitGroup,
+  _maybeGroup?: RateLimitGroup,
 ): (request: Request, response: Response, next: NextFunction) => void {
   const isExplicit = typeof maxOrKeyOf === "number";
   const windowMs = isExplicit ? baseOrWindowMs : 60_000;
-  const keyOf = isExplicit ? (keyOfArg ?? clientIp) : typeof maxOrKeyOf === "function" ? maxOrKeyOf : clientIp;
+  const keyOf = isExplicit
+    ? typeof keyOfOrGroup === "function"
+      ? keyOfOrGroup
+      : clientIp
+    : typeof maxOrKeyOf === "function"
+      ? maxOrKeyOf
+      : clientIp;
+  const group: RateLimitGroup = !isExplicit && typeof keyOfOrGroup === "string" ? keyOfOrGroup : "general";
 
   const buckets = new Map<string, Bucket>();
   let nextSweep = Date.now() + windowMs;
@@ -88,7 +99,8 @@ export function rateLimit(
       nextSweep = now + windowMs;
     }
 
-    const max = isExplicit ? maxOrKeyOf : scaleLimit(baseOrWindowMs);
+    const multiplier = group === "transfer" ? config.TRANSFER_RATE_LIMIT_MULTIPLIER : config.RATE_LIMIT_MULTIPLIER;
+    const max = isExplicit ? maxOrKeyOf : scaleLimit(baseOrWindowMs, multiplier);
     const key = keyOf(request);
     const current = buckets.get(key);
     const bucket = !current || current.resetAt <= now ? { count: 0, resetAt: now + windowMs } : current;

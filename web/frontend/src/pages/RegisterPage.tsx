@@ -27,9 +27,8 @@ export function RegisterPage() {
 
   return (
     <section className="auth-card" aria-labelledby="register-title">
-      <p className="section-kicker">Team accounts</p>
-      <h2 id="register-title">Register</h2>
-      <form className="auth-form" onSubmit={(event) => void submit(event)}>
+      <h1 id="register-title">Register</h1>
+      <form className="auth-form" aria-labelledby="register-title" onSubmit={(event) => void submit(event)}>
         <label htmlFor="register-email">Email</label>
         <input
           id="register-email"

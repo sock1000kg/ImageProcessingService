@@ -773,6 +773,11 @@ output {
   width: 100%;
   margin-top: 20px;
 }
+/* Banners here follow the config form, whose last element has no bottom margin. */
+.config-card > .warning-banner,
+.config-card > .error-banner {
+  margin-top: var(--space-3);
+}
 .error-banner,
 .success-banner,
 .warning-banner {

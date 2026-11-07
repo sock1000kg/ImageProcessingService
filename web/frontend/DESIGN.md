@@ -600,8 +600,8 @@ action row. Cards become media-first using CSS only:
 ## 9. Video (Phase 2)
 
 **Don't build this yet.** The frontend only accepts images today, and video is a separate task in `web/docs/plan.md`.
-The `video-redact` contract in `docs/integration-contracts.md` §3 B2 is still marked proposed, awaiting Engine
-confirmation. This section fixes the design so that work fits in without another redesign. The contract wins if it changes.
+Engine has implemented the `video-redact` shape in `docs/integration-contracts.md` §3 B2, so this waits on the backend
+(2026-11-07). This section fixes the design so that work fits in without another redesign. The contract wins if it changes.
 
 ```
 ┌───────────────────────────────────────────┬───────────────┐
@@ -669,7 +669,7 @@ test rules apply as usual. Run `npm run lint` and `npm run test:frontend` from `
 | 3   | **Components**                | §7: icons, buttons, inputs, status, type scale, dead CSS, overlay.                                             | No emoji icons; no text under 12 px except box and thumbnail labels; no `outline: none` without a replacement.                      |
 | 4   | **Batch review**              | §8.1: three panes, stage height, slider on the image.                                                          | Boxes line up at all three widths for portrait and landscape images; slider works by mouse, touch and keyboard.                     |
 | 5   | **Create, Overview, Library** | §8.2 and §8.3.                                                                                                 | No duplicate headings; preview beside the config; saved lists look unchanged in layout.                                             |
-| 6   | **Video**                     | §9, inside the Phase 2 video task, once the contract is confirmed.                                             | Set by that task.                                                                                                                   |
+| 6   | **Video**                     | §9, inside the Phase 2 video task, once the backend supports video.                                            | Set by that task.                                                                                                                   |
 | 7   | **Settings**                  | §13 for the UI, after the redesign phases. Items ship separately, in the priority order in `web/docs/plan.md`. | Set per item.                                                                                                                       |
 
 **Manual check for every phase** (the tests can't see any of this): light and dark, at 375, 768, 1280 and 1440 px,

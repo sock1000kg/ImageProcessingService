@@ -30,10 +30,34 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-MINIO_ENDPOINT = "localhost:9000"
-MINIO_ACCESS_KEY = "minioadmin"
-MINIO_SECRET_KEY = "minioadmin"
-NATS_URL = "nats://localhost:4222"
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "imgproclocal")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "CHANGE_ME_minio_local")
+NATS_URL = os.getenv("NATS_URL", "nats://localhost:4222")
+
+
+def create_sample_video(num_frames: int = 30, width: int = 480, height: int = 360, fps: float = 25.0) -> bytes:
+    """Tạo nhanh 1 video clip ngắn mẫu trong RAM nếu người dùng không truyền file video ngoài."""
+    import tempfile
+    import cv2
+    import numpy as np
+
+    tmp_path = os.path.join(tempfile.gettempdir(), f"mock_vid_{uuid.uuid4().hex[:8]}.mp4")
+    try:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(tmp_path, fourcc, fps, (width, height))
+        for i in range(num_frames):
+            frame = np.full((height, width, 3), 40, dtype=np.uint8)
+            x_pos = int((i / num_frames) * (width - 100))
+            cv2.rectangle(frame, (x_pos, 80), (x_pos + 90, 180), (180, 140, 100), -1)
+            cv2.putText(frame, f"F:{i:02d}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            writer.write(frame)
+        writer.release()
+        with open(tmp_path, "rb") as f:
+            return f.read()
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 def create_sample_image(format: str = "JPEG") -> bytes:
@@ -60,7 +84,32 @@ async def main():
     batch_id = str(uuid.uuid4())
 
     # 1. Cấu hình thông số Job
-    if job_type == "image-redact":
+    is_video = any(k in job_type.lower() for k in ("video", "mp4"))
+    if is_video:
+        job_type = "video-redact"
+        nats_subject = "jobs.video"
+        input_ext = "mp4"
+        output_ext = "mp4"
+        raw_cmd = sys.argv[1].lower() if len(sys.argv) > 1 else ""
+        if "blackout" in raw_cmd:
+            style = "blackout"
+        elif "pixelate" in raw_cmd:
+            style = "pixelate"
+        else:
+            style = "blur"
+        params = {
+            "redaction": {
+                "targets": ["face", "plate"],
+                "style": style,
+                "strength": 30,
+                "padding": 0.15,
+            },
+            "output": {"quality": "high"},
+            "confidenceThreshold": 0.25,
+            "reviewThreshold": 0.50,
+        }
+        default_format = "MP4"
+    elif job_type == "image-redact":
         nats_subject = "jobs.image"
         input_ext = "jpg"
         output_ext = "jpg"
@@ -123,17 +172,20 @@ async def main():
         }
         default_format = "JPEG"
 
-    # Đọc ảnh từ file ngoài nếu có truyền, hoặc tự tạo ảnh mẫu
+    # Đọc ảnh/video từ file ngoài nếu có truyền, hoặc tự tạo mẫu
     if custom_image_path:
         if not os.path.exists(custom_image_path):
-            print(f"[!] Không tìm thấy file ảnh: {custom_image_path}")
+            print(f"[!] Không tìm thấy file: {custom_image_path}")
             return
-        print(f"[*] Sử dụng file ảnh của bạn: {custom_image_path}")
+        print(f"[*] Sử dụng file của bạn: {custom_image_path}")
         with open(custom_image_path, "rb") as f:
             sample_bytes = f.read()
 
         file_ext = os.path.splitext(custom_image_path)[1].lower().replace(".", "")
-        if file_ext in ("jpg", "jpeg"):
+        if file_ext == "mp4":
+            content_type = "video/mp4"
+            input_ext = "mp4"
+        elif file_ext in ("jpg", "jpeg"):
             content_type = "image/jpeg"
             input_ext = "jpg"
         elif file_ext == "png":
@@ -143,12 +195,17 @@ async def main():
             content_type = "image/webp"
             input_ext = "webp"
         else:
-            content_type = "image/jpeg"
-            input_ext = "jpg"
+            content_type = "video/mp4" if is_video else "image/jpeg"
+            input_ext = "mp4" if is_video else "jpg"
     else:
-        print("[*] Không chỉ định file ảnh ngoài, tự động sinh ảnh test trong RAM.")
-        sample_bytes = create_sample_image(default_format)
-        content_type = f"image/{default_format.lower()}"
+        if is_video:
+            print("[*] Không chỉ định file video ngoài, tự động sinh video clip test trong RAM.")
+            sample_bytes = create_sample_video()
+            content_type = "video/mp4"
+        else:
+            print("[*] Không chỉ định file ảnh ngoài, tự động sinh ảnh test trong RAM.")
+            sample_bytes = create_sample_image(default_format)
+            content_type = f"image/{default_format.lower()}"
 
     input_key = f"{job_id}/input.{input_ext}"
     output_key = f"{job_id}/result.{output_ext}"
@@ -170,6 +227,7 @@ async def main():
 
     # 4. Lắng nghe phản hồi từ Worker qua kênh jobs.events (Durable: backend-job-events)
     done_event = asyncio.Event()
+    final_status = {"status": None}
 
     async def on_worker_event(msg):
         event = json.loads(msg.data.decode("utf-8"))
@@ -188,6 +246,7 @@ async def main():
         print(f"   - Stage:   {stage}")
 
         if status == "COMPLETED":
+            final_status["status"] = "COMPLETED"
             result_bucket = event.get("result", {}).get("bucket", "results")
             result_key = event.get("result", {}).get("key")
             print("   🎉 [THÀNH CÔNG RỰC RỠ!]")
@@ -201,12 +260,14 @@ async def main():
                 local_file = os.path.join("output", f"{job_type}_{job_id[:8]}{ext}")
                 s3.fget_object(result_bucket, result_key, local_file)
                 abs_path = os.path.abspath(local_file)
-                print(f"   💾 [ẢNH ĐÃ TẢI VỀ MÁY]: {abs_path}")
+                file_label = "VIDEO" if is_video else "ẢNH"
+                print(f"   💾 [{file_label} ĐÃ TẢI VỀ MÁY]: {abs_path}")
             except Exception as dl_err:
-                print(f"   [!] Lỗi khi tải ảnh về máy: {dl_err}")
+                print(f"   [!] Lỗi khi tải file về máy: {dl_err}")
 
             done_event.set()
         elif status == "FAILED":
+            final_status["status"] = "FAILED"
             print(f"   ❌ [THẤT BẠI]: {json.dumps(event.get('error'), indent=6, ensure_ascii=False)}")
             done_event.set()
 
@@ -258,11 +319,15 @@ async def main():
     print(json.dumps(job_payload, indent=2))
     await js.publish(nats_subject, json.dumps(job_payload).encode("utf-8"))
 
-    print("\n[*] 4. Đang chờ Worker xử lý (timeout 30s)...")
+    wait_timeout = 600.0 if is_video else 60.0
+    print(f"\n[*] 4. Đang chờ Worker xử lý (timeout {int(wait_timeout)}s)...")
     try:
-        await asyncio.wait_for(done_event.wait(), timeout=30.0)
+        await asyncio.wait_for(done_event.wait(), timeout=wait_timeout)
         print("\n==================================================")
-        print("✅ TEST HOÀN TẤT THÀNH CÔNG!")
+        if final_status["status"] == "COMPLETED":
+            print("✅ TEST HOÀN TẤT THÀNH CÔNG!")
+        else:
+            print("⚠️ TEST KẾT THÚC VỚI TRẠNG THÁI THẤT BẠI TỪ WORKER!")
         print("==================================================")
     except asyncio.TimeoutError:
         print("\n[!] Hết thời gian chờ: Chưa thấy Worker phản hồi. Bạn đã bật worker tương ứng với kênh chưa?")
@@ -272,7 +337,13 @@ async def main():
             await poller_task
         except asyncio.CancelledError:
             pass
-        await nc.drain()
+        try:
+            await asyncio.wait_for(nc.drain(), timeout=2.0)
+        except Exception:
+            try:
+                await nc.close()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     asyncio.run(main())

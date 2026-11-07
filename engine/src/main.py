@@ -21,10 +21,21 @@ logger = logging.getLogger("worker")
 
 
 class EngineWorker:
-    def __init__(self):
+    def __init__(self, pool_type: str = None):
+        if pool_type == "video":
+            settings.nats_stream_name = "VIDEO_JOBS"
+            settings.nats_consumer_name = "video-workers"
+            settings.nats_subjects = ["jobs.video"]
+            settings.job_deadline_seconds = int(os.getenv("JOB_DEADLINE_SECONDS", "3600"))
+        elif pool_type == "image":
+            settings.nats_stream_name = "IMAGE_JOBS"
+            settings.nats_consumer_name = "image-workers"
+            settings.nats_subjects = ["jobs.image"]
+            settings.job_deadline_seconds = int(os.getenv("JOB_DEADLINE_SECONDS", "300"))
+
         self.storage = StorageClient()
         self.messaging = MessagingClient()
-        self.processors = get_processor_registry()
+        self.processors = get_processor_registry(pool_type=pool_type)
         self.running = True
         self.is_processing = False
         self.current_msg = None
@@ -150,11 +161,21 @@ class EngineWorker:
 
             # 5. Process data in worker thread so CPU-heavy inference doesn't block asyncio event loop
             await self.messaging.emit_progress_event(
-                job_id=job_id, progress=40, stage="PROCESSING", batch_id=batch_id
+                job_id=job_id, progress=20, stage="PROCESSING", batch_id=batch_id
             )
+            loop = asyncio.get_running_loop()
+
+            def on_progress(pct: int, stage_name: str = "PROCESSING"):
+                asyncio.run_coroutine_threadsafe(
+                    self.messaging.emit_progress_event(
+                        job_id=job_id, progress=pct, stage=stage_name, batch_id=batch_id
+                    ),
+                    loop,
+                )
+
             try:
                 output_bytes, result_summary, content_type = await asyncio.to_thread(
-                    processor.process, input_bytes, params, out_key, self.storage
+                    processor.process, input_bytes, params, out_key, self.storage, on_progress
                 )
             except InvalidInputFileError as e:
                 logger.warning(f"Invalid input file on job {job_id}: {e}")
@@ -272,7 +293,15 @@ class EngineWorker:
 
 
 def main():
-    worker = EngineWorker()
+    import sys
+    pool = None
+    for arg in sys.argv[1:]:
+        clean_arg = arg.lower().lstrip("-")
+        if clean_arg in ("video", "image", "all"):
+            pool = clean_arg
+            break
+
+    worker = EngineWorker(pool_type=pool)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

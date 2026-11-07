@@ -3,7 +3,7 @@ import io
 import os
 import time
 import logging
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional, Callable
 import numpy as np
 import cv2
 from PIL import Image
@@ -37,7 +37,7 @@ class ImageRedactProcessor(BaseProcessor):
 
     def __init__(
         self,
-        model_name: str = "yolov8n-oiv7.pt",
+        model_name: str = "yolo26n-1280-e20-crowd.pt",
         face_embedding_model: str = "w600k_mbf.onnx",
         class_mapping: Optional[Dict[str, str]] = None,
         imgsz: int = 640,
@@ -62,6 +62,8 @@ class ImageRedactProcessor(BaseProcessor):
             os.path.join("engine", "models", model_name),
             os.path.join("/app", "models", model_name),
             model_name,
+            "engine/models/yolo26n-1280-e20-crowd.pt",
+            "models/yolo26n-1280-e20-crowd.pt",
             "engine/models/yolov8n-oiv7.pt",
             "models/yolov8n-oiv7.pt",
         ]
@@ -117,6 +119,7 @@ class ImageRedactProcessor(BaseProcessor):
         params: Dict[str, Any],
         output_key: str = "",
         storage_client: Optional[Any] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> Tuple[bytes, Dict[str, Any], str]:
         start_time = time.perf_counter()
 

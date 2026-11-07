@@ -26,6 +26,8 @@ from src.processors.video_redact import (
     ProgressThrottler,
     CRF_MAP,
     max_gap_frames_for_fps,
+    hold_frames_for_fps,
+    TRACK_HOLD_MS,
     Track,
     TrackManager,
     InvalidInputFileError,
@@ -873,6 +875,116 @@ def test_low_score_box_tracking_recovery():
         processor._model = orig_model
 
 
+def test_hold_frames_scaling():
+    """Verify hold_frames_for_fps scaling per video frame rate."""
+    print("Test 20: Kiểm tra hàm tính frame hold theo FPS (hold_frames_for_fps)...")
+    assert TRACK_HOLD_MS == 200, f"Expected TRACK_HOLD_MS=200, got {TRACK_HOLD_MS}"
+    assert hold_frames_for_fps(30.0) == 6, f"Expected 6 at 30 fps, got {hold_frames_for_fps(30.0)}"
+    assert hold_frames_for_fps(59.94) == 12, f"Expected 12 at 59.94 fps, got {hold_frames_for_fps(59.94)}"
+    assert hold_frames_for_fps(1.0) >= 1, f"Expected >= 1 at 1 fps, got {hold_frames_for_fps(1.0)}"
+    assert hold_frames_for_fps(0.1) >= 1, f"Expected >= 1 at 0.1 fps, got {hold_frames_for_fps(0.1)}"
+    print("  -> PASS: hold_frames_for_fps cho 6 tại 30 fps, 12 tại 59.94 fps, và >= 1 tại low fps.")
+
+
+def test_track_manager_apply_holds():
+    """Verify holding blur 200ms around detected frames across runs, gaps, boundaries, and whitelist."""
+    print("Test 21: Kiểm tra hold blur 200ms quanh các khung hình phát hiện (apply_holds)...")
+
+    # 1. A track detected on frames 100 to 110 at 60 fps gets boxes on 88 to 99 using its first box
+    #    and on 111 to 122 using its last box, and none on 87 or 123.
+    mgr_60 = TrackManager(fps=60.0, orig_w=640, orig_h=480)
+    first_box = [100, 100, 200, 200]
+    last_box = [150, 150, 250, 250]
+    for f in range(100, 111):
+        box = first_box if f == 100 else (last_box if f == 110 else [120, 120, 220, 220])
+        mgr_60.add_detection(track_id=1, label="face", frame_idx=f, frame_ms=int((f / 60.0) * 1000), box=box, confidence=0.85)
+
+    mgr_60.apply_holds()
+    assert mgr_60.get_active_redactions(87) == [], "Frame 87 should have no redaction box"
+    assert mgr_60.get_active_redactions(123) == [], "Frame 123 should have no redaction box"
+    for f in range(88, 100):
+        assert mgr_60.get_active_redactions(f) == [first_box], f"Frame {f} should hold first box {first_box}"
+    for f in range(111, 123):
+        assert mgr_60.get_active_redactions(f) == [last_box], f"Frame {f} should hold last box {last_box}"
+
+    # 2. A track with a long gap holds on both sides of the gap, and frames in the middle of the gap have no box.
+    mgr_gap = TrackManager(fps=30.0, orig_w=640, orig_h=480)
+    box_r1_first = [10, 10, 50, 50]
+    box_r1_last = [20, 20, 60, 60]
+    box_r2_first = [70, 70, 110, 110]
+    box_r2_last = [80, 80, 120, 120]
+    for f in range(10, 21):
+        box = box_r1_first if f == 10 else (box_r1_last if f == 20 else [15, 15, 55, 55])
+        mgr_gap.add_detection(track_id=1, label="face", frame_idx=f, frame_ms=int((f / 30.0) * 1000), box=box, confidence=0.90)
+    for f in range(80, 91):
+        box = box_r2_first if f == 80 else (box_r2_last if f == 90 else [75, 75, 115, 115])
+        mgr_gap.add_detection(track_id=1, label="face", frame_idx=f, frame_ms=int((f / 30.0) * 1000), box=box, confidence=0.90)
+
+    mgr_gap.apply_holds()  # at 30 fps, hold_frames = 6
+    # Post-hold of run 1: frames 21 to 26 hold box_r1_last
+    for f in range(21, 27):
+        assert mgr_gap.get_active_redactions(f) == [box_r1_last], f"Frame {f} should hold box_r1_last"
+    # Pre-hold of run 2: frames 74 to 79 hold box_r2_first
+    for f in range(74, 80):
+        assert mgr_gap.get_active_redactions(f) == [box_r2_first], f"Frame {f} should hold box_r2_first"
+    # Middle of gap: frames 27 to 73 have no box
+    for f in (27, 40, 50, 60, 73):
+        assert mgr_gap.get_active_redactions(f) == [], f"Frame {f} in middle of gap should have no box"
+
+    # 3. A track starting at frame 3 stops holding at frame 0, with no negative frames.
+    mgr_start = TrackManager(fps=30.0, orig_w=640, orig_h=480)
+    box_start = [30, 30, 80, 80]
+    for f in range(3, 10):
+        mgr_start.add_detection(track_id=1, label="face", frame_idx=f, frame_ms=int((f / 30.0) * 1000), box=box_start, confidence=0.88)
+    mgr_start.apply_holds()  # hold = 6
+    track_start = mgr_start.tracks[1]
+    assert 0 in track_start.held_boxes, "Frame 0 should be in held_boxes"
+    assert 1 in track_start.held_boxes, "Frame 1 should be in held_boxes"
+    assert 2 in track_start.held_boxes, "Frame 2 should be in held_boxes"
+    assert all(f >= 0 for f in track_start.held_boxes.keys()), "No negative frames allowed in held_boxes"
+    assert mgr_start.get_active_redactions(0) == [box_start]
+    assert mgr_start.get_active_redactions(1) == [box_start]
+    assert mgr_start.get_active_redactions(2) == [box_start]
+
+    # 4. A whitelisted track returns no box on held frames.
+    mgr_white = TrackManager(fps=30.0, orig_w=640, orig_h=480)
+    box_white = [40, 40, 90, 90]
+    for f in range(10, 20):
+        mgr_white.add_detection(track_id=1, label="face", frame_idx=f, frame_ms=int((f / 30.0) * 1000), box=box_white, confidence=0.92)
+    # Whitelist track
+    mgr_white.tracks[1].whitelisted = True
+    mgr_white.tracks[1].redacted = False
+    mgr_white.apply_holds()
+    for f in range(4, 26):
+        assert mgr_white.get_active_redactions(f) == [], f"Whitelisted track should return no box on frame {f}"
+
+    # 5. After apply_holds, to_contract_summary gives the same startMs, endMs, confidences and ranges as before.
+    mgr_sum = TrackManager(fps=30.0, orig_w=640, orig_h=480)
+    for f in range(10, 20):
+        mgr_sum.add_detection(track_id=1, label="face", frame_idx=f, frame_ms=int((f / 30.0) * 1000), box=[10, 10, 50, 50], confidence=0.80)
+    for f in range(40, 50):
+        mgr_sum.add_detection(track_id=1, label="face", frame_idx=f, frame_ms=int((f / 30.0) * 1000), box=[20, 20, 60, 60], confidence=0.20)
+    # Compute ranges before holds
+    mgr_sum.interpolate_gaps()
+    mgr_sum.compute_ranges(review_threshold=0.35)
+    summary_before, counts_before = mgr_sum.to_contract_summary(review_threshold=0.35)
+
+    # Now apply holds
+    mgr_sum.apply_holds()
+    summary_after, counts_after = mgr_sum.to_contract_summary(review_threshold=0.35)
+
+    assert counts_after == counts_before, f"Counts changed: {counts_before} vs {counts_after}"
+    assert summary_after == summary_before, f"Summary changed after apply_holds: {summary_before} vs {summary_after}"
+    assert summary_after[0]["startMs"] == summary_before[0]["startMs"]
+    assert summary_after[0]["endMs"] == summary_before[0]["endMs"]
+    assert summary_after[0]["maxConfidence"] == summary_before[0]["maxConfidence"]
+    assert summary_after[0]["meanConfidence"] == summary_before[0]["meanConfidence"]
+    assert summary_after[0]["lowConfidenceRanges"] == summary_before[0]["lowConfidenceRanges"]
+    assert summary_after[0]["gapRanges"] == summary_before[0]["gapRanges"]
+
+    print("  -> PASS: Toàn bộ tiêu chí apply_holds (scaling, runs, gap, boundary, whitelist, contract summary) đạt 100%.")
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY KIỂM THỬ VIDEO REDACT (GIAI ĐOẠN 5)")
@@ -897,6 +1009,8 @@ if __name__ == "__main__":
     test_plate_whitelist_video_e2e()
     test_track_manager_low_confidence_track_count()
     test_low_score_box_tracking_recovery()
+    test_hold_frames_scaling()
+    test_track_manager_apply_holds()
     print("==================================================")
-    print("✅ TOÀN BỘ 20/20 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
+    print("✅ TOÀN BỘ 22/22 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
     print("==================================================")

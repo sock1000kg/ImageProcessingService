@@ -1,78 +1,22 @@
 /**
- * Main application shell hosting global navigation layout, topbar, and routed pages.
+ * Main application router and state management for user feedback notices.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 import { CreateBatchPage } from "./pages/CreateBatchPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { BatchPage } from "./pages/BatchPage";
 import { RerunBatchPage } from "./pages/RerunBatchPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
-import { Banner } from "./components/ui/Banner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
-import { SyncStatus } from "./components/SyncStatus";
-import { BATCH_SYNC_MS, STATS_SYNC_MS, useSyncStatus } from "./sync";
+import { AuthLayout, SessionSplash, WorkspaceLayout } from "./components/AppLayouts";
 import { MessageHandler, NoticeOptions } from "./types";
 
 /**
- * Topbar header component reflecting the active view's context and sync telemetry.
- */
-function Topbar() {
-  const { user, signOut } = useAuth();
-  const location = useLocation();
-  const syncStatus = useSyncStatus();
-  const isCreate = location.pathname === "/batches/new";
-  const isRerun = Boolean(location.pathname.match(/^\/batches\/[^/]+\/rerun$/));
-  const isLibrary = location.pathname === "/library";
-  const isOverview = location.pathname === "/";
-  const isBatch = Boolean(location.pathname.match(/^\/batches\/[^/]+$/) && !isCreate);
-
-  const syncIntervalMs = isBatch ? BATCH_SYNC_MS : isOverview ? STATS_SYNC_MS : null;
-
-  return (
-    <header className="topbar">
-      <div>
-        <h1>
-          {isRerun
-            ? "Rerun batch"
-            : isCreate
-              ? "Create a batch"
-              : isLibrary
-                ? "Media library"
-                : "Your privacy workspace"}
-        </h1>
-        <p className="subtitle">
-          {isRerun
-            ? "Rerun a batch with different configs"
-            : isCreate
-              ? "Configure redaction once. Workers handle the rest asynchronously."
-              : isLibrary
-                ? "Manage stored originals, completed results, and account storage."
-                : "Monitor processing and review protected media in one place."}
-        </p>
-      </div>
-      <div className="topbar-actions">
-        {syncIntervalMs !== null && syncStatus !== "lost" && (
-          <span className="last-sync">{`Live sync · ${syncIntervalMs / 1000}s`}</span>
-        )}
-        {user && (
-          <>
-            <span className="user-email">{user.email}</span>
-            <button type="button" className="secondary-button" onClick={() => void signOut()}>
-              Sign out
-            </button>
-          </>
-        )}
-      </div>
-    </header>
-  );
-}
-
-/**
- * Primary App component providing sidebar navigation, contextual notifications, and routed pages.
+ * Primary App component providing authentication context and root route hierarchy.
  */
 export function App() {
   return (
@@ -92,7 +36,6 @@ type NoticeState = {
 
 function AuthenticatedApp() {
   const { status } = useAuth();
-  const location = useLocation();
   // The id makes a repeated message ("Batch renamed" twice) restart the timer instead of being ignored.
   const [message, setMessageState] = useState<NoticeState | null>(null);
   const setMessage: MessageHandler = useCallback((text: string, options?: NoticeOptions) => {
@@ -115,113 +58,25 @@ function AuthenticatedApp() {
     return () => clearTimeout(timer);
   }, [message]);
 
-  if (status === "loading") return <div className="viewer-empty">Checking session…</div>;
-
-  const batchMatch = location.pathname.match(/^\/batches\/([^/]+)$/);
-  const activeBatchId = batchMatch && batchMatch[1] !== "new" ? batchMatch[1] : null;
+  if (status === "loading") return <SessionSplash />;
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">✦</span>
-          <span>
-            Redact<span>Funnel</span>
-          </span>
-        </div>
-        <nav>
-          <NavLink to="/" end className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
-            ⌂ <span>Overview</span>
-          </NavLink>
-          <NavLink to="/library" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
-            🗂 <span>Library</span>
-          </NavLink>
-          <NavLink to="/batches/new" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}>
-            ＋ <span>New batch</span>
-          </NavLink>
-          {activeBatchId && (
-            <NavLink
-              to={`/batches/${activeBatchId}`}
-              className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}
-            >
-              ▦ <span>Batch details</span>
-            </NavLink>
-          )}
-        </nav>
-      </aside>
+    <Routes>
+      {/* Logged-in users are sent to "/". No sidebar, no topbar. */}
+      <Route element={<AuthLayout />}>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+      </Route>
 
-      <main className="workspace">
-        <Topbar />
-        {/* Render overlay toast wrapper so transient confirmations take no layout space and avoid page jumps */}
-        {message && (
-          <div className="toast">
-            <Banner variant={message.variant} role={message.variant === "error" ? "alert" : "status"}>
-              <span>{message.text}</span>
-              {message.variant === "error" && (
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label="Dismiss"
-                  onClick={() => setMessageState(null)}
-                >
-                  ×
-                </button>
-              )}
-            </Banner>
-          </div>
-        )}
-        <SyncStatus />
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <DashboardPage onMessage={setMessage} />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/library"
-            element={
-              <ProtectedRoute>
-                <LibraryPage onMessage={setMessage} />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/batches/new"
-            element={
-              <ProtectedRoute>
-                <CreateBatchPage onMessage={setMessage} />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/batches/:id/rerun"
-            element={
-              <ProtectedRoute>
-                <RerunBatchPage onMessage={setMessage} />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/batches/:id"
-            element={
-              <ProtectedRoute>
-                <BatchPage onMessage={setMessage} />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </main>
-    </div>
+      {/* Logged-out users are sent to "/login". Owns Sidebar, Topbar, toast and SyncStatus. */}
+      <Route element={<WorkspaceLayout message={message} onDismiss={() => setMessageState(null)} />}>
+        <Route path="/" element={<DashboardPage onMessage={setMessage} />} />
+        <Route path="/library" element={<LibraryPage onMessage={setMessage} />} />
+        <Route path="/batches/new" element={<CreateBatchPage onMessage={setMessage} />} />
+        <Route path="/batches/:id/rerun" element={<RerunBatchPage onMessage={setMessage} />} />
+        <Route path="/batches/:id" element={<BatchPage onMessage={setMessage} />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Routes>
   );
-}
-
-function ProtectedRoute({ children }: { children: JSX.Element }) {
-  const { status } = useAuth();
-  return status === "authenticated" ? children : <Navigate to="/login" replace />;
 }

@@ -25,7 +25,8 @@ from src.processors.video_redact import (
     VideoMetadata,
     ProgressThrottler,
     CRF_MAP,
-    MAX_INTERPOLATION_GAP_FRAMES,
+    MAX_INTERPOLATION_GAP_MS,
+    max_gap_frames_for_fps,
     Track,
     TrackManager,
     InvalidInputFileError,
@@ -150,19 +151,19 @@ def test_progress_throttler():
 
 
 def test_track_manager_gap_interpolation():
-    """Verify linear interpolation bridges dropouts <= MAX_INTERPOLATION_GAP_FRAMES."""
-    print("Test 5: Kiểm tra thuật toán nội suy Bounding Box chống Flicker (gap <= 5 frames)...")
+    """Verify linear interpolation bridges dropouts within the time gap limit."""
+    print("Test 5: Kiểm tra thuật toán nội suy Bounding Box chống Flicker...")
     mgr = TrackManager(fps=25.0, orig_w=640, orig_h=480)
 
     # Detection at frame 10: box [100, 100, 200, 200], conf 0.90
     mgr.add_detection(track_id=1, label="face", frame_idx=10, frame_ms=400, box=[100, 100, 200, 200], confidence=0.90)
 
-    # Dropout for frames 11, 12, 13 (gap = 3 frames <= 5)
+    # Dropout for frames 11, 12, 13 (gap = 3 frames <= 4 at 25 fps)
     # Next detection at frame 14: box [140, 140, 240, 240], conf 0.82
     mgr.add_detection(track_id=1, label="face", frame_idx=14, frame_ms=560, box=[140, 140, 240, 240], confidence=0.82)
 
     # Run interpolation
-    mgr.interpolate_gaps(max_gap_frames=MAX_INTERPOLATION_GAP_FRAMES)
+    mgr.interpolate_gaps()
     track = mgr.tracks[1]
 
     # Verify frames 11, 12, 13 were created with interpolated coordinates
@@ -192,18 +193,18 @@ def test_track_manager_gap_interpolation():
 
 
 def test_track_manager_gap_exceeded():
-    """Verify dropouts > MAX_INTERPOLATION_GAP_FRAMES are recorded into gapRanges per Contract §3 B2."""
+    """Verify dropouts exceeding the gap limit are recorded into gapRanges per Contract §3 B2."""
     print("Test 6: Kiểm tra xử lý mất dấu vượt ngưỡng nội suy (gapRanges)...")
     mgr = TrackManager(fps=25.0, orig_w=640, orig_h=480)
 
     # Detection at frame 10
     mgr.add_detection(track_id=2, label="face", frame_idx=10, frame_ms=400, box=[100, 100, 200, 200], confidence=0.85)
 
-    # Dropout from frame 11 to 24 (gap = 14 frames > 5)
+    # Dropout from frame 11 to 24 (gap = 14 frames > gap limit)
     # Next detection at frame 25 (1000ms)
     mgr.add_detection(track_id=2, label="face", frame_idx=25, frame_ms=1000, box=[150, 150, 250, 250], confidence=0.80)
 
-    mgr.interpolate_gaps(max_gap_frames=MAX_INTERPOLATION_GAP_FRAMES)
+    mgr.interpolate_gaps()
     track = mgr.tracks[2]
 
     # Verify dropout was NOT interpolated
@@ -216,6 +217,39 @@ def test_track_manager_gap_exceeded():
     expected_end_ms = int((24 / 25.0) * 1000)    # 960ms
     assert gap == [expected_start_ms, expected_end_ms], f"Expected [{expected_start_ms}, {expected_end_ms}], got {gap}"
     print(f"  -> PASS: Ghi nhận chính xác gapRanges: {gap} per Contract §3 B2.")
+
+
+def test_max_gap_frames_scaling():
+    """Verify max_gap_frames_for_fps calculation and frame-rate adaptive gap bridging."""
+    print("Test 6b: Kiểm tra hàm tính gap nội suy theo FPS (max_gap_frames_for_fps)...")
+    # max_gap_frames_for_fps returns 5 at 30, 10 at 59.94, and at least 1 at a very low frame rate
+    assert max_gap_frames_for_fps(30.0) == 5, f"Expected 5 at 30 fps, got {max_gap_frames_for_fps(30.0)}"
+    assert max_gap_frames_for_fps(59.94) == 10, f"Expected 10 at 59.94 fps, got {max_gap_frames_for_fps(59.94)}"
+    assert max_gap_frames_for_fps(1.0) >= 1, f"Expected >= 1 at 1 fps, got {max_gap_frames_for_fps(1.0)}"
+    assert max_gap_frames_for_fps(0.1) >= 1, f"Expected >= 1 at 0.1 fps, got {max_gap_frames_for_fps(0.1)}"
+
+    # A manager at 60 fps bridges an 8-frame dropout and records no gap for it
+    mgr_60 = TrackManager(fps=60.0, orig_w=640, orig_h=480)
+    mgr_60.add_detection(track_id=1, label="face", frame_idx=10, frame_ms=167, box=[100, 100, 200, 200], confidence=0.90)
+    # 8-frame dropout: frames 11 to 18 (gap = 19 - 10 - 1 = 8 frames)
+    mgr_60.add_detection(track_id=1, label="face", frame_idx=19, frame_ms=317, box=[180, 180, 280, 280], confidence=0.85)
+    mgr_60.interpolate_gaps()
+    track_60 = mgr_60.tracks[1]
+    for f in range(11, 19):
+        assert f in track_60.detections, f"Frame {f} should be interpolated at 60 fps"
+    assert len(track_60.gap_ranges) == 0, f"Expected 0 gap ranges at 60 fps, got {track_60.gap_ranges}"
+
+    # A manager at 30 fps records the same 8-frame dropout as a gap
+    mgr_30 = TrackManager(fps=30.0, orig_w=640, orig_h=480)
+    mgr_30.add_detection(track_id=1, label="face", frame_idx=10, frame_ms=333, box=[100, 100, 200, 200], confidence=0.90)
+    # same 8-frame dropout: frames 11 to 18
+    mgr_30.add_detection(track_id=1, label="face", frame_idx=19, frame_ms=633, box=[180, 180, 280, 280], confidence=0.85)
+    mgr_30.interpolate_gaps()
+    track_30 = mgr_30.tracks[1]
+    for f in range(11, 19):
+        assert f not in track_30.detections, f"Frame {f} should NOT be interpolated at 30 fps"
+    assert len(track_30.gap_ranges) == 1, f"Expected 1 gap range at 30 fps, got {track_30.gap_ranges}"
+    print("  -> PASS: Gap limit scales chính xác theo frame rate (60 fps bridge 8 frames, 30 fps record gap).")
 
 
 def test_track_manager_low_confidence_ranges():
@@ -850,6 +884,7 @@ if __name__ == "__main__":
     test_progress_throttler()
     test_track_manager_gap_interpolation()
     test_track_manager_gap_exceeded()
+    test_max_gap_frames_scaling()
     test_track_manager_low_confidence_ranges()
     test_track_best_frame_selection()
     test_two_pass_video_redaction_pipeline()
@@ -864,5 +899,5 @@ if __name__ == "__main__":
     test_track_manager_low_confidence_track_count()
     test_low_score_box_tracking_recovery()
     print("==================================================")
-    print("✅ TOÀN BỘ 19/19 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
+    print("✅ TOÀN BỘ 20/20 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
     print("==================================================")

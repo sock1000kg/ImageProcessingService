@@ -4,7 +4,7 @@ Complies strictly with Contract §2B, §3 B2, and §4:
 - Reads input MP4 H.264 video.
 - Two-Pass Architecture:
   * Pass 1: Detection & Object Tracking (YOLOv8 + ByteTrack) across all frames.
-  * Linear Bounding Box Interpolation (bridges dropouts <= 5 frames to eliminate flicker).
+  * Linear Bounding Box Interpolation (bridges dropouts <= 167 ms to eliminate flicker).
   * Records lowConfidenceRanges and gapRanges per Contract §3 B2.
   * Best Face Frame Selection: evaluates confidence, normalized area, and Laplacian sharpness.
   * Milestone 2 (Phase 2): Track-Level Face Whitelisting (ArcFace 512-d).
@@ -45,8 +45,14 @@ CRF_MAP: Dict[str, int] = {
     "max": 18,
 }
 
-# Maximum frame dropout to bridge with linear interpolation (~167ms at 30fps)
-MAX_INTERPOLATION_GAP_FRAMES = 5
+# Maximum time dropout to bridge with linear interpolation (167 ms).
+# A time limit means the same protection at any frame rate.
+MAX_INTERPOLATION_GAP_MS = 167
+
+
+def max_gap_frames_for_fps(fps: float) -> int:
+    """Calculate maximum gap frames to bridge based on video frame rate."""
+    return max(1, round(fps * MAX_INTERPOLATION_GAP_MS / 1000))
 
 
 @dataclass
@@ -184,8 +190,10 @@ class TrackManager:
             sharpness=sharpness,
         )
 
-    def interpolate_gaps(self, max_gap_frames: int = MAX_INTERPOLATION_GAP_FRAMES):
+    def interpolate_gaps(self, max_gap_frames: Optional[int] = None):
         """Bridge short tracking dropouts (<= max_gap_frames) via linear interpolation."""
+        if max_gap_frames is None:
+            max_gap_frames = max_gap_frames_for_fps(self.fps)
         for track in self.tracks.values():
             if len(track.detections) < 2:
                 continue
@@ -519,7 +527,7 @@ class VideoRedactProcessor(BaseProcessor):
     Performs video redaction pipeline:
     1. Demuxes metadata and audio stream.
     2. Pass 1: Runs YOLOv8 + ByteTrack object tracking on all frames.
-    3. Bridges tracking dropouts (<= 5 frames) via linear interpolation.
+    3. Bridges tracking dropouts (<= 167 ms) via linear interpolation.
     4. Evaluates Face Whitelisting (ArcFace 512-d) per track using bestFrameMs.
     5. Pass 2: Renders target masking with padding and streams into FFmpeg H.264 writer.
     6. Remuxes original audio stream (-c:a copy) without re-encoding.
@@ -1060,8 +1068,8 @@ class VideoRedactProcessor(BaseProcessor):
                 except Exception:
                     pass
 
-        # Bridge tracking dropouts <= MAX_INTERPOLATION_GAP_FRAMES and record gaps
-        track_mgr.interpolate_gaps(max_gap_frames=MAX_INTERPOLATION_GAP_FRAMES)
+        # Bridge tracking dropouts and record gaps
+        track_mgr.interpolate_gaps()
         # Compute low confidence ranges
         track_mgr.compute_ranges(review_threshold=review_threshold)
 

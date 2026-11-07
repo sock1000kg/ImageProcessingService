@@ -32,3 +32,5 @@ infra/bench/.cache/
 # Local test outputs
 engine/output/
 
+# Report slides are kept outside the repo
+SlideReport/

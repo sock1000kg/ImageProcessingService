@@ -258,7 +258,9 @@ describe("Limit Rules (Acceptance criteria: 100 accepted, 101 rejected whole)", 
     expect(messageInitial).toBe("The selection has 101 images; the limit is 100 per batch. Pick fewer images.");
 
     const messageAddition = getSelectionLimitMessage(85, 20);
-    expect(messageAddition).toBe("Adding 85 images would exceed the limit of 100 per batch (currently 20).");
+    expect(messageAddition).toBe(
+      "You already have 20 images selected. Adding 85 more would exceed the limit of 100 per batch.",
+    );
   });
 
   it("validateImageFiles allows up to 100 valid images without error", () => {

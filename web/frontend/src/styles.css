@@ -160,6 +160,7 @@ main:focus {
   min-width: 0;
   padding: 38px 48px 80px;
 }
+/* Why .details-card hook: only the batch review page may use this class to collapse the sidebar into an icon rail and expand the workspace. */
 .workspace:has(.details-card) {
   width: 100%;
   max-width: none;
@@ -976,17 +977,20 @@ output {
   padding-top: 22px;
 }
 .image-list.scroll-list {
-  max-height: var(--stage-h);
+  overflow-x: hidden;
 }
 .image-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
 }
 .image-list-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
   width: 100%;
+  min-width: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   padding: 11px;
@@ -994,6 +998,26 @@ output {
   color: var(--text);
   background: var(--surface-2);
   box-shadow: none;
+}
+.image-list-row > .status-dot {
+  grid-column: 1;
+  grid-row: 1;
+}
+.image-list-row > .image-name {
+  grid-column: 2;
+  grid-row: 1;
+}
+.image-list-row > .delete-item-button {
+  grid-column: 3;
+  grid-row: 1;
+  margin-left: 0;
+}
+.image-row-badges {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 .image-list-row:hover {
   background: var(--surface-hover);
@@ -1046,7 +1070,6 @@ output {
   display: grid;
   gap: 3px;
   min-width: 0;
-  flex: 1;
 }
 .image-name strong {
   overflow: hidden;
@@ -1059,6 +1082,20 @@ output {
   color: var(--text-3);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
+}
+.image-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-name small.failure-detail {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.row-status {
+  white-space: nowrap;
 }
 .review-pill {
   display: inline-block;
@@ -1397,17 +1434,21 @@ input[type="range"].comparison-range::-moz-range-thumb {
 }
 .detection-list {
   display: grid;
+  align-content: start;
   gap: 5px;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.detection-list.scroll-list {
+  overflow-x: hidden;
 }
 .detection-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 9px 12px;
+  padding: 11px;
   border-radius: var(--radius-md);
   color: var(--text-2);
   background: var(--surface-2);
@@ -1438,10 +1479,13 @@ input[type="range"].comparison-range::-moz-range-thumb {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 .detection-summary {
   font-weight: 600;
   color: var(--text);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .detection-similarity {
   color: var(--text-3);
@@ -1553,6 +1597,7 @@ input[type="range"].comparison-range::-moz-range-thumb {
     column-gap: var(--space-5);
     grid-template-columns: minmax(0, 1fr) 280px;
     grid-template-rows: auto auto auto auto 1fr;
+    position: relative;
   }
   .result-viewer > * {
     grid-column: 1;
@@ -1561,11 +1606,28 @@ input[type="range"].comparison-range::-moz-range-thumb {
   .result-viewer > .viewer-empty {
     height: min(var(--stage-h), calc((100cqw - 304px) * 0.66)); /* 304 = detections pane + gap. */
   }
-  .result-viewer > .detection-list,
+  .result-viewer > .detection-list {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    position: absolute;
+    inset: 0;
+    max-height: none;
+  }
   .result-viewer > .empty-inline {
     grid-column: 2;
     grid-row: 1 / span 5;
-    max-height: calc(var(--stage-h) + 120px);
+    align-self: start;
+  }
+}
+@media (min-width: 981px) {
+  .details-layout > :first-child {
+    position: relative;
+    min-height: 0;
+  }
+  .image-list.scroll-list {
+    position: absolute;
+    inset: 0;
+    max-height: none;
   }
 }
 @media (min-width: 681px) {
@@ -1644,7 +1706,7 @@ input[type="range"].comparison-range::-moz-range-thumb {
     height: max(240px, min(56dvh, 72cqw));
   }
   .image-list {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .image-list.scroll-list {
     max-height: 200px;

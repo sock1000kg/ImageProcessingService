@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 /**
  * DOM integration tests for redesign phase 5 layout and behaviour (DESIGN.md §8.2, §8.3).
- * Verifies library headings, lazy thumbnails, aside preview canvas placement on create/rerun,
- * and overview heading with creation trigger.
+ * Verifies library headings, lazy thumbnails, preview canvas placement on create/rerun,
+ * overview heading with creation trigger, and review page details-card scoping.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -146,18 +146,22 @@ describe("Pages Layout DOM Integration (Task 73)", () => {
     expect(thumbnail.getAttribute("loading")).toBe("lazy");
   });
 
-  it("renders batch creation with preview canvas inside the complementary landmark next to config", async () => {
+  it("renders batch creation with preview canvas inside form before batch name, not in complementary landmark", async () => {
     render(
       <MemoryRouter initialEntries={["/batches/new"]}>
         <App />
       </MemoryRouter>,
     );
 
-    // Form's complementary landmark contains the preview canvas next to configuration
+    // Why layout placement: canvas sits in the main form column above the batch name input, not in the sidebar
     const form = screen.getByRole("form", { name: /batch/i });
     const complementary = within(form).getByRole("complementary");
-    const canvas = complementary.querySelector("canvas");
+    expect(complementary.querySelector("canvas")).toBeNull();
+
+    const canvas = form.querySelector("canvas");
     expect(canvas).not.toBeNull();
+    const batchNameInput = screen.getByLabelText(/batch name/i);
+    expect(canvas!.compareDocumentPosition(batchNameInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(complementary).getByRole("heading", { name: /profile/i })).toBeDefined();
   });
 
@@ -185,16 +189,47 @@ describe("Pages Layout DOM Integration (Task 73)", () => {
     });
   });
 
-  it("renders batch rerun with preview canvas inside the complementary landmark", async () => {
+  it("renders batch rerun with preview canvas inside form and not inside the complementary landmark", async () => {
     render(
       <MemoryRouter initialEntries={["/batches/batch-123/rerun"]}>
         <App />
       </MemoryRouter>,
     );
 
+    // Why layout placement: canvas is rendered in the main column above form configuration, not in sticky aside
     const form = await screen.findByRole("form", { name: /batch/i });
     const complementary = within(form).getByRole("complementary");
-    const canvas = complementary.querySelector("canvas");
+    expect(complementary.querySelector("canvas")).toBeNull();
+    const canvas = form.querySelector("canvas");
     expect(canvas).not.toBeNull();
+  });
+
+  it("only mounts .details-card on batch review route (/batches/:id), not on / or /library", async () => {
+    // Why class query: CSS rules (.workspace:has(.details-card)) rely on .details-card hook to collapse sidebar to icon rail
+    const { unmount: unmountHome } = render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByText("Keep every image private.");
+    expect(document.querySelector(".details-card")).toBeNull();
+    unmountHome();
+
+    const { unmount: unmountLibrary } = render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("heading", { name: /media library/i, level: 1 });
+    expect(document.querySelector(".details-card")).toBeNull();
+    unmountLibrary();
+
+    render(
+      <MemoryRouter initialEntries={["/batches/batch-123"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("heading", { name: /Alpha Production Run/i });
+    expect(document.querySelector(".details-card")).not.toBeNull();
   });
 });

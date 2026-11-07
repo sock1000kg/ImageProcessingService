@@ -105,6 +105,7 @@ describe("Batch review DOM and interaction tests (Task 72)", () => {
         jobId: "job-2",
         originalFilename: "photo-review.jpg",
         status: "COMPLETED",
+        needsReview: true,
         detections: [],
         reviewReasons: ["Low confidence"],
         reviewNotes: ["confidence 0.38 below threshold"],
@@ -259,5 +260,38 @@ describe("Batch review DOM and interaction tests (Task 72)", () => {
     expect(downloadResultLink.tagName).toBe("A");
     expect(downloadResultLink.hasAttribute("download")).toBe(true);
     expect(downloadResultLink.getAttribute("href")).toBe("/api/jobs/job-1/result");
+  });
+
+  it("keeps delete button accessible without selecting row, selects image on row click, and shows review badges", async () => {
+    render(
+      <MemoryRouter>
+        <BatchDetails batch={createBatch("COMPLETED")} onRefresh={vi.fn()} onDelete={vi.fn()} onMessage={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    // Initial selected image heading in viewer is photo-clean.jpg
+    expect(await screen.findByRole("heading", { name: "photo-clean.jpg" })).toBeDefined();
+
+    // Why aria-label: delete button must retain its accessible name with filename
+    const deleteButton = screen.getByRole("button", { name: "Delete photo-review.jpg" });
+    expect(deleteButton).toBeDefined();
+
+    // Clicking delete button opens dialog without selecting photo-review.jpg
+    fireEvent.click(deleteButton);
+    expect(screen.getByRole("heading", { name: "photo-clean.jpg" })).toBeDefined();
+    expect(screen.getByText("Delete this image?")).toBeDefined();
+
+    // Dismiss the delete dialog
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Flagged row renders Needs review pill, status text, and original filename title
+    const reviewJobRow = screen.getByTitle("photo-review.jpg").closest('[role="button"]')!;
+    expect(reviewJobRow).not.toBeNull();
+    expect(await within(reviewJobRow).findByText("Needs review")).toBeDefined();
+    expect(within(reviewJobRow).getByText("COMPLETED")).toBeDefined();
+
+    // Clicking the image row selects it and updates the viewer
+    fireEvent.click(reviewJobRow);
+    expect(screen.getByRole("heading", { name: "photo-review.jpg" })).toBeDefined();
   });
 });

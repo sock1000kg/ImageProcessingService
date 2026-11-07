@@ -354,7 +354,7 @@ export function getFolderLimitMessage(imageCount: number): string {
  */
 export function getSelectionLimitMessage(incomingCount: number, currentCount = 0): string {
   if (currentCount > 0) {
-    return `Adding ${incomingCount} images would exceed the limit of ${MAX_BATCH_FILES} per batch (currently ${currentCount}).`;
+    return `You already have ${currentCount} images selected. Adding ${incomingCount} more would exceed the limit of ${MAX_BATCH_FILES} per batch.`;
   }
   return `The selection has ${incomingCount} images; the limit is ${MAX_BATCH_FILES} per batch. Pick fewer images.`;
 }

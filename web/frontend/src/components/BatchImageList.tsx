@@ -97,7 +97,7 @@ export function BatchImageList({ batch, report, selected, onSelect, onJobDeleted
             >
               <StatusBadge variant="dot" status={job.status} />
               <span className="image-name">
-                <strong>{job.originalFilename}</strong>
+                <strong title={job.originalFilename}>{job.originalFilename}</strong>
                 <small>
                   {job.stage ?? "Waiting"} · {job.progress}%
                 </small>
@@ -107,8 +107,11 @@ export function BatchImageList({ batch, report, selected, onSelect, onJobDeleted
                   </small>
                 )}
               </span>
-              {flagged && <StatusBadge variant="pill" label="Needs review" />}
-              <span className="row-status">{job.status}</span>
+              {/* Why image-row-badges: groups review pill and status badge into row 2 of image list item grid */}
+              <span className="image-row-badges">
+                {flagged && <StatusBadge variant="pill" label="Needs review" />}
+                <span className="row-status">{job.status}</span>
+              </span>
               <button
                 type="button"
                 className="delete-item-button"

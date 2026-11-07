@@ -181,8 +181,9 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
     }
   };
 
+  // Why section: allow lists panel is styled within regular workspace layout
   return (
-    <section className="details-card saved-face-lists-section">
+    <section className="saved-face-lists-section">
       <div className="saved-face-lists-header">
         <h2>Allow lists</h2>
         <p className="subtitle saved-face-lists-subtitle">

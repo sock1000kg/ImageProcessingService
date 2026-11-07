@@ -12,7 +12,6 @@ Verifies:
 import os
 import sys
 import json
-import time
 import asyncio
 import tempfile
 import numpy as np
@@ -28,9 +27,6 @@ if sys.platform == "win32":
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.main import EngineWorker
-from src.processors.video_redact import VideoRedactProcessor, TrackManager
-from src.processors.plate_ocr import PlateWhitelistManager, PlateOCRRecognizer
-from src.processors.face_embedding import FaceEmbedder
 
 
 class MockStorageClient:
@@ -235,7 +231,7 @@ def test_worker_video_redact_with_face_and_plate_whitelists():
     summary = completed["resultSummary"]
     assert "whitelistedFaceTracks" in summary["counts"]
     assert "whitelistedPlateTracks" in summary["counts"]
-    print(f"  -> PASS: Tích hợp đầy đủ Whitelist Face & Plate theo đúng Contract §2B.")
+    print("  -> PASS: Tích hợp đầy đủ Whitelist Face & Plate theo đúng Contract §2B.")
 
 
 def test_worker_error_handling_corrupt_video():
@@ -265,7 +261,7 @@ def test_worker_error_handling_corrupt_video():
     assert msg.acked is True, "Must ACK fatal input error per Contract §4"
     failed_event = next(e for e in worker.messaging.events if e["status"] == "FAILED")
     assert failed_event["error"]["code"] == "INVALID_INPUT_FILE"
-    print(f"  -> PASS: Ném đúng mã lỗi INVALID_INPUT_FILE và ACK message.")
+    print("  -> PASS: Ném đúng mã lỗi INVALID_INPUT_FILE và ACK message.")
 
 
 def test_worker_unsupported_job_type():
@@ -291,7 +287,7 @@ def test_worker_unsupported_job_type():
     assert msg.acked is True
     failed_event = next(e for e in worker.messaging.events if e["status"] == "FAILED")
     assert failed_event["error"]["code"] == "UNSUPPORTED_JOB_TYPE"
-    print(f"  -> PASS: Ném đúng mã lỗi UNSUPPORTED_JOB_TYPE và ACK message.")
+    print("  -> PASS: Ném đúng mã lỗi UNSUPPORTED_JOB_TYPE và ACK message.")
 
 
 if __name__ == "__main__":

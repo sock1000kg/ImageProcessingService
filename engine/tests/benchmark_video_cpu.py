@@ -43,15 +43,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from src.processors.video_redact import (
     VideoRedactProcessor,
-    VideoProbe,
-    VideoMetadata,
     TrackManager,
-    Track,
 )
 from src.processors.face_embedding import FaceEmbedder
 from src.processors.plate_ocr import (
     PlateOCRRecognizer,
-    PlateWhitelistManager,
     normalize_plate_text,
 )
 
@@ -213,7 +209,7 @@ def benchmark_pipeline_breakdown(processor: VideoRedactProcessor) -> dict:
     ocr_rec = PlateOCRRecognizer()
     sample_plate = np.random.randint(0, 255, (60, 160, 3), dtype=np.uint8)
     t0 = time.perf_counter()
-    enhanced = ocr_rec.preprocess_plate(sample_plate)
+    _ = ocr_rec.preprocess_plate(sample_plate)
     preprocess_time = (time.perf_counter() - t0) * 1000.0
     results["plate_preprocess_ms"] = round(preprocess_time, 2)
 
@@ -284,7 +280,7 @@ def benchmark_whitelist_strategy(embed_latency_ms: float) -> dict:
         "saved_time_sec": round(saved_time_sec, 2),
     }
 
-    print(f"  - Giả lập video 60s @ 30fps (1800 frames) có 3 khuôn mặt:")
+    print("  - Giả lập video 60s @ 30fps (1800 frames) có 3 khuôn mặt:")
     print(f"    * Per-Frame Whitelist:   {per_frame_calls} lần gọi ArcFace -> Mất {per_frame_time_sec:.2f}s CPU.")
     print(f"    * Track-Level Whitelist: {track_level_calls} lần gọi ArcFace -> Mất {track_level_time_sec:.4f}s CPU.")
     print(f"    -> Tiết kiệm: {reduction_pct:.2f}% số lần suy luận (Giảm {saved_time_sec:.2f}s thời gian chờ)")

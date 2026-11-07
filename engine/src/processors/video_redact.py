@@ -32,8 +32,8 @@ import cv2
 from .base import BaseProcessor
 from .image_redact import InvalidInputFileError
 from .face_embedding import FaceEmbedder
-from .whitelist import WhitelistManager, WhitelistReferenceError
-from .plate_ocr import PlateWhitelistManager, PlateOCRRecognizer, normalize_plate_text
+from .whitelist import WhitelistManager
+from .plate_ocr import PlateWhitelistManager
 
 logger = logging.getLogger(__name__)
 

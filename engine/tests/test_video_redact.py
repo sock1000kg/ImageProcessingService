@@ -23,22 +23,19 @@ from src.processors.video_redact import (
     VideoRedactProcessor,
     VideoProbe,
     VideoMetadata,
-    AudioHandler,
     ProgressThrottler,
     CRF_MAP,
     MAX_INTERPOLATION_GAP_FRAMES,
     Track,
-    TrackDetection,
     TrackManager,
     InvalidInputFileError,
-    WhitelistReferenceError,
 )
+from src.processors.whitelist import WhitelistReferenceError
 from src.processors.plate_ocr import (
     PlateWhitelistManager,
     PlateOCRRecognizer,
     normalize_plate_text,
 )
-from src.processors import get_processor_registry
 
 
 def _create_synthetic_video(width: int = 320, height: int = 240, fps: float = 25.0, num_frames: int = 30) -> bytes:
@@ -544,6 +541,7 @@ def test_ffmpeg_writer_flags_and_metadata_stripping():
             metadata=meta,
             crf=23,
         )
+        assert proc is not None
 
         assert len(captured_cmds) == 1, "Expected exactly 1 Popen call"
         cmd = captured_cmds[0]
@@ -555,7 +553,7 @@ def test_ffmpeg_writer_flags_and_metadata_stripping():
         assert "-crf" in cmd and cmd[cmd.index("-crf") + 1] == "23", "Missing CRF 23"
         assert "-pix_fmt" in cmd and "yuv420p" in cmd, "Missing yuv420p"
         assert "-shortest" in cmd, "Missing -shortest flag"
-        print(f"  -> PASS: Toàn bộ cờ FFmpeg chuẩn xác: -map_metadata -1, +faststart, -c:a copy, -crf 23.")
+        print("  -> PASS: Toàn bộ cờ FFmpeg chuẩn xác: -map_metadata -1, +faststart, -c:a copy, -crf 23.")
     finally:
         subprocess.Popen = orig_popen
         if os.path.exists(dummy_audio):

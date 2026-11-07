@@ -226,24 +226,61 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       expect(expired).toEqual([{ id: "expired-draft" }]);
     });
 
-    it("when retentionDays is set, finds all batches older than N days regardless of status", async () => {
-      const findManySpy = vi.spyOn(prisma.batch, "findMany").mockResolvedValue([{ id: "expired-any" }] as any);
+    it("when retentionDays is set, a 2-day-old draft is expired, a 2-day-old started batch isn't, and a draft under 24 hours isn't", async () => {
+      const now = Date.now();
+      const batches = [
+        { id: "2-day-draft", startedAt: null, createdAt: new Date(now - 2 * 24 * 60 * 60 * 1000) },
+        {
+          id: "2-day-started",
+          startedAt: new Date(now - 2 * 24 * 60 * 60 * 1000),
+          createdAt: new Date(now - 2 * 24 * 60 * 60 * 1000),
+        },
+        { id: "recent-draft", startedAt: null, createdAt: new Date(now - 12 * 60 * 60 * 1000) },
+        {
+          id: "8-day-started",
+          startedAt: new Date(now - 8 * 24 * 60 * 60 * 1000),
+          createdAt: new Date(now - 8 * 24 * 60 * 60 * 1000),
+        },
+      ];
+
+      const findManySpy = vi.spyOn(prisma.batch, "findMany").mockImplementation(async (args: any) => {
+        const where = args.where;
+        const matches = (b: (typeof batches)[0]) => {
+          if (where.OR) {
+            return where.OR.some((cond: any) => {
+              if (cond.startedAt === null && b.startedAt !== null) return false;
+              if (cond.createdAt?.lt && !(b.createdAt < cond.createdAt.lt)) return false;
+              return true;
+            });
+          }
+          if (where.startedAt === null && b.startedAt !== null) return false;
+          if (where.createdAt?.lt && !(b.createdAt < where.createdAt.lt)) return false;
+          return true;
+        };
+        return batches.filter(matches).map((b) => ({ id: b.id })) as any;
+      });
 
       const expired = await jobRepository.getExpiredBatches(7);
 
       expect(findManySpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: {
-            createdAt: expect.objectContaining({
-              lt: expect.any(Date),
-            }),
-          },
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              expect.objectContaining({ createdAt: expect.objectContaining({ lt: expect.any(Date) }) }),
+              expect.objectContaining({
+                startedAt: null,
+                createdAt: expect.objectContaining({ lt: expect.any(Date) }),
+              }),
+            ]),
+          }),
         }),
       );
-      // Notice startedAt is not present in where clause
-      const whereArg = findManySpy.mock.calls[0][0]?.where as Record<string, unknown>;
-      expect(whereArg).not.toHaveProperty("startedAt");
-      expect(expired).toEqual([{ id: "expired-any" }]);
+
+      const expiredIds = expired.map((b) => b.id);
+      expect(expiredIds).toContain("2-day-draft");
+      expect(expiredIds).not.toContain("2-day-started");
+      expect(expiredIds).not.toContain("recent-draft");
+      expect(expiredIds).toContain("8-day-started");
     });
   });
 

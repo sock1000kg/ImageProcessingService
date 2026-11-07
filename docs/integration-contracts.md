@@ -260,7 +260,7 @@ Không dùng file compose riêng của từng team cho NATS/MinIO, vì chúng kh
 **Xoá dữ liệu** (đề tài: "xoá dữ liệu sau khi xử lý theo hạn hoặc khi người dùng yêu cầu"):
 - **Theo hạn:**
     - Phase 1 (chưa có tài khoản, không có chỗ tìm lại batch cũ): MinIO lifecycle xoá mọi object sau 24h. Backend xoá (hoặc đánh dấu `EXPIRED`) batch/job quá 24h trong PostgreSQL, để UI không trỏ tới object đã mất.
-    - Từ Phase 2 (có thư viện media): ảnh gốc và kết quả **giữ tới khi người dùng xoá**. Infra bỏ lifecycle của cả hai bucket. Người quản trị instance có thể đặt env `RETENTION_DAYS` để Backend dọn batch cũ hơn N ngày (cả MinIO và PG); để trống = giữ mãi. Giữ ảnh gốc để người dùng sửa ảnh, thử lại ảnh lỗi, chạy lại batch với cấu hình khác mà không phải tải lên lại.
+    - Từ Phase 2 (có thư viện media): ảnh gốc và kết quả **giữ tới khi người dùng xoá**. Infra bỏ lifecycle của cả hai bucket. Người quản trị instance có thể đặt env `RETENTION_DAYS` để Backend dọn batch cũ hơn N ngày (cả MinIO và PG); để trống = giữ mãi. Riêng draft chưa bắt đầu (`startedAt: null`) luôn được dọn sau 24h kể cả khi có hay không có `RETENTION_DAYS` để tránh đọng ảnh gốc private không ai dùng. Giữ ảnh gốc để người dùng sửa ảnh, thử lại ảnh lỗi, chạy lại batch với cấu hình khác mà không phải tải lên lại.
 - **Khi người dùng yêu cầu:** Backend xoá prefix `uploads/<batchId>/` và `results/<batchId>/` trên MinIO, rồi xoá dòng PG. Phase 1 không có tài khoản, nên ai có link batch (UUID) thì được xoá.
 - **Ảnh mẫu whitelist** là dữ liệu sinh trắc:
     - Ảnh mẫu tải trực tiếp cho batch (dưới `uploads/<batchId>/whitelist/`) được Backend xoá ngay khi mọi job trong batch đã kết thúc, không đợi 24h.

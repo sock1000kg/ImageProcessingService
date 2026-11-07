@@ -351,8 +351,13 @@ export async function getExpiredBatches(retentionDays?: number) {
   const days = retentionDays !== undefined ? retentionDays : config.RETENTION_DAYS;
   if (days !== undefined) {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const draftCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Abandoned drafts hold private originals nobody can use, so expire them after 24 hours
+    // regardless of the retention period configured for completed batches.
     return prisma.batch.findMany({
-      where: { createdAt: { lt: cutoff } },
+      where: {
+        OR: [{ createdAt: { lt: cutoff } }, { startedAt: null, createdAt: { lt: draftCutoff } }],
+      },
       select: { id: true },
     });
   }

@@ -23,8 +23,9 @@ export const rawBatchConfigSchema = z.object({
   padding: z.number().min(0).max(0.5).default(0.1),
   quality: outputQualitySchema.default("high"),
   format: outputFormatSchema.default("original"),
-  confidenceThreshold: z.number().min(0).max(1).default(0.35),
-  reviewThreshold: z.number().min(0).max(1).default(0.5),
+  faceConfidenceThreshold: z.number().min(0).max(1).default(0.17),
+  plateConfidenceThreshold: z.number().min(0).max(1).default(0.11),
+  reviewThreshold: z.number().min(0).max(1).default(0.35),
   similarityThreshold: z.number().min(0).max(1).default(0.45),
 });
 
@@ -35,9 +36,10 @@ export const batchConfigSchema = z.object({
   padding: z.number().min(0).max(0.5),
   quality: outputQualitySchema,
   format: outputFormatSchema,
-  confidenceThreshold: z.number().min(0).max(1),
-  reviewThreshold: z.number().min(0).max(1),
-  similarityThreshold: z.number().min(0).max(1),
+  faceConfidenceThreshold: z.number().min(0).max(1).default(0.17),
+  plateConfidenceThreshold: z.number().min(0).max(1).default(0.11),
+  reviewThreshold: z.number().min(0).max(1).default(0.35),
+  similarityThreshold: z.number().min(0).max(1).default(0.45),
 });
 
 export type BatchConfig = z.infer<typeof batchConfigSchema>;
@@ -59,7 +61,8 @@ export function parseBatchConfig(raw: unknown): BatchConfig {
     padding: data.padding,
     quality: data.quality,
     format: data.format,
-    confidenceThreshold: data.confidenceThreshold,
+    faceConfidenceThreshold: data.faceConfidenceThreshold,
+    plateConfidenceThreshold: data.plateConfidenceThreshold,
     reviewThreshold: data.reviewThreshold,
     similarityThreshold: data.similarityThreshold,
   };

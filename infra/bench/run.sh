@@ -16,7 +16,7 @@
 #   --parallel P        Upload up to P batches at the same time (default: 1 = one after another).
 #   --preload           Fixed mode only: pause workers at 0, upload every batch so the jobs wait in the queue,
 #                       then release N workers. Measures how fast the workers drain a full queue.
-#   --confidence X      Detection confidence threshold (0.0 to 1.0; passes confidenceThreshold in batch config).
+#   --confidence X      Detection confidence threshold (0.0 to 1.0; sets faceConfidenceThreshold and plateConfidenceThreshold in batch config).
 #   --save-detections   Export bounding boxes and scores into detections.jsonl via PostgreSQL.
 #   --machine NAME      Machine/node name for results directory (default: worker pod node name).
 #   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
@@ -50,8 +50,8 @@ Options:
   --parallel P        Upload up to P batches at the same time (default: 1 = one after another).
   --preload           Fixed mode only: pause workers at 0, upload every batch so the jobs wait in the queue,
                       then release N workers. Measures how fast the workers drain a full queue.
-  --confidence X      Detection confidence threshold (0.0 to 1.0; passes confidenceThreshold in batch config).
-  --imgsz N           YOLO input size (multiple of 32, e.g. 640, 960, 1280; default: leave deployment as-is = 640).
+  --confidence X      Detection confidence threshold (0.0 to 1.0; sets faceConfidenceThreshold and plateConfidenceThreshold in batch config).
+  --imgsz N           YOLO input size (multiple of 32, e.g. 640, 960, 1280; default: leave deployment as-is = 1280).
   --model FILE        A model in engine/models (e.g. yolo26n-1280-e20-crowd.pt), without rebuilding the engine. Laptop
                       cluster only: local-cluster/up.sh mounts engine/models read-only over the workers' /app/models.
                       Results go to a folder per model and meta.json records it. Default: the engine image's
@@ -262,7 +262,7 @@ TIMEOUT="${TIMEOUT:-1800}"
 NUM_BATCHES=$(((EXPECTED_IMAGES + BATCH_SIZE - 1) / BATCH_SIZE))
 
 if [ -n "$CONFIDENCE" ]; then
-  BATCH_CONFIG_JSON="{\"targets\":[\"face\",\"plate\"],\"style\":\"blur\",\"confidenceThreshold\":$CONFIDENCE}"
+  BATCH_CONFIG_JSON="{\"targets\":[\"face\",\"plate\"],\"style\":\"blur\",\"faceConfidenceThreshold\":$CONFIDENCE,\"plateConfidenceThreshold\":$CONFIDENCE}"
 else
   BATCH_CONFIG_JSON="{\"targets\":[\"face\",\"plate\"],\"style\":\"blur\"}"
 fi
@@ -334,7 +334,12 @@ if [ -z "$MACHINE" ]; then
   MACHINE="${detected_node:-home-server}"
 fi
 
-EFFECTIVE_IMGSZ="${IMGSZ:-640}"
+if [ -n "$IMGSZ" ]; then
+  EFFECTIVE_IMGSZ="$IMGSZ"
+else
+  EFFECTIVE_IMGSZ="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].env[?(@.name=="YOLO_IMGSZ")].value}' 2>/dev/null || true)"
+  EFFECTIVE_IMGSZ="${EFFECTIVE_IMGSZ:-1280}"
+fi
 
 if [ -n "$MODEL" ]; then
   # same file on the laptop (engine/models/<file>) and in the worker (/app/models/<file>, hostPath mount)
@@ -1172,7 +1177,7 @@ def num(name):
 mode = os.environ["MODE"]
 autoscale = mode == "autoscale"
 conf_val = os.environ.get("CONFIDENCE", "").strip()
-confidence_threshold = float(conf_val) if conf_val else 0.35
+confidence_threshold = float(conf_val) if conf_val else None
 save_det = os.environ.get("SAVE_DETECTIONS", "0") == "1"
 
 meta = {
@@ -1198,7 +1203,7 @@ meta = {
     "workers_released_at": os.environ["RELEASE_TIME"] or None,
     "confidence_threshold": confidence_threshold,
     "save_detections": save_det,
-    "imgsz": num("EFFECTIVE_IMGSZ") or 640,
+    "imgsz": num("EFFECTIVE_IMGSZ") or 1280,
     # model file the workers ran (from engine/models); None = the engine image's own model
     "model": os.environ.get("MODEL") or None,
 }

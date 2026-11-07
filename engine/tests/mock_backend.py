@@ -105,8 +105,8 @@ async def main():
                 "padding": 0.15,
             },
             "output": {"quality": "high"},
-            "confidenceThreshold": 0.25,
-            "reviewThreshold": 0.50,
+            "confidenceThresholds": {"face": 0.17, "plate": 0.11},
+            "reviewThreshold": 0.35,
         }
         default_format = "MP4"
     elif job_type == "image-redact":
@@ -120,8 +120,8 @@ async def main():
                 "strength": 12,
                 "padding": 0.1,
             },
-            "confidenceThreshold": 0.35,
-            "reviewThreshold": 0.50,
+            "confidenceThresholds": {"face": 0.17, "plate": 0.11},
+            "reviewThreshold": 0.35,
         }
         default_format = "JPEG"
     elif job_type in ("image-redact-blur", "blur"):
@@ -136,8 +136,8 @@ async def main():
                 "strength": 25,
                 "padding": 0.1,
             },
-            "confidenceThreshold": 0.35,
-            "reviewThreshold": 0.50,
+            "confidenceThresholds": {"face": 0.17, "plate": 0.11},
+            "reviewThreshold": 0.35,
         }
         default_format = "JPEG"
     elif job_type in ("image-redact-blackout", "blackout"):
@@ -151,8 +151,8 @@ async def main():
                 "style": "blackout",
                 "padding": 0.1,
             },
-            "confidenceThreshold": 0.35,
-            "reviewThreshold": 0.50,
+            "confidenceThresholds": {"face": 0.17, "plate": 0.11},
+            "reviewThreshold": 0.35,
         }
         default_format = "JPEG"
     else:  # default image-redact
@@ -167,8 +167,8 @@ async def main():
                 "strength": 25,
                 "padding": 0.1,
             },
-            "confidenceThreshold": 0.35,
-            "reviewThreshold": 0.50,
+            "confidenceThresholds": {"face": 0.17, "plate": 0.11},
+            "reviewThreshold": 0.35,
         }
         default_format = "JPEG"
 

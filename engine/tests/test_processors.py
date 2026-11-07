@@ -24,6 +24,8 @@ try:
         test_output_quality_presets,
         test_alpha_compositing_to_jpeg,
         test_contract_result_summary_schema,
+        test_parse_confidence_thresholds,
+        test_per_class_threshold_filtering,
     )
     from test_whitelist import (
         test_face_embedder_basics,
@@ -42,6 +44,8 @@ except ImportError:
         test_output_quality_presets,
         test_alpha_compositing_to_jpeg,
         test_contract_result_summary_schema,
+        test_parse_confidence_thresholds,
+        test_per_class_threshold_filtering,
     )
     from tests.test_whitelist import (
         test_face_embedder_basics,
@@ -64,6 +68,8 @@ if __name__ == "__main__":
     test_output_quality_presets()
     test_alpha_compositing_to_jpeg()
     test_contract_result_summary_schema()
+    test_parse_confidence_thresholds()
+    test_per_class_threshold_filtering()
 
     # Milestone 2: Whitelisting tests
     print("==================================================")

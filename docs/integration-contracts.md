@@ -77,8 +77,8 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
   "params": {
     "redaction": { "targets": ["face", "plate"], "style": "pixelate", "strength": 12, "padding": 0.1 },
     "output": { "quality": "high" },
-    "confidenceThreshold": 0.35,
-    "reviewThreshold": 0.5,
+    "confidenceThresholds": { "face": 0.17, "plate": 0.11 },
+    "reviewThreshold": 0.35,
     "whitelist": {
       "faces": [ { "bucket": "uploads", "key": "0f1e2d3c-4b5a-4697-8877-665544332211/whitelist/face-1.jpg" } ],
       "similarityThreshold": 0.6
@@ -86,13 +86,13 @@ Phát hiện khuôn mặt/biển số, áp dụng whitelist, che, xuất ảnh k
   }
 }
 ```
-* `confidenceThreshold`: dưới ngưỡng này thì bỏ qua phát hiện.
-* `reviewThreshold`: phát hiện có confidence dưới ngưỡng này vẫn được che, nhưng bị đánh dấu `lowConfidence` để người dùng kiểm tra lại.
+* `confidenceThresholds`: ngưỡng tin cậy riêng biệt cho từng lớp đối tượng (`face`: mặc định 0.17, `plate`: mặc định 0.11); dưới ngưỡng của lớp tương ứng thì bỏ qua phát hiện.
+* `reviewThreshold`: ngưỡng đánh giá (mặc định 0.35); phát hiện có confidence dưới ngưỡng này vẫn được che, nhưng bị đánh dấu `lowConfidence` để người dùng kiểm tra lại.
 * `whitelist.faces`: ảnh chân dung mẫu (tuỳ chọn). Khuôn mặt có cosine similarity ≥ `similarityThreshold` với **bất kỳ** mẫu nào thì **không** bị che. Ưu tiên tránh nhận nhầm người lạ, nên khi phân vân thì che.
 * `whitelist.plates` *(Phase 2, Should, cần OCR, đề xuất)*: danh sách biển số, ví dụ `["30A12345", "51G-678.90"]`. So khớp sau khi chuẩn hoá cả hai phía (viết hoa, bỏ khoảng trắng, `-`, `.`), phải **trùng hoàn toàn**. OCR không đọc được hoặc không chắc thì coi như không khớp (→ vẫn che). Chỉ có chế độ allow: chế độ block (chỉ che cái khớp mẫu) đã bỏ.
 
-### B. `video-redact` (subject `jobs.video`, Phase 2, đề xuất, chờ Engine xác nhận)
-Cùng `params` như `image-redact` (`redaction`, `output.quality` → CRF theo bảng trên, `confidenceThreshold`, `reviewThreshold`, `whitelist`), cùng shape command, `input.key` là `.../input.mp4`, `output.key` là `.../result.mp4`.
+### B. `video-redact` (subject `jobs.video`, Phase 2)
+Cùng `params` như `image-redact` (`redaction`, `output.quality` → CRF theo bảng trên, `confidenceThresholds`, `reviewThreshold`, `whitelist`), cùng shape command, `input.key` là `.../input.mp4`, `output.key` là `.../result.mp4`.
 * Đầu vào: MP4 H.264, 15–60 giây. **Backend** kiểm tra trước khi tạo job (codec, thời lượng); file lọt qua mà Engine không đọc được → `INVALID_INPUT_FILE`.
 * Đầu ra: MP4 H.264, **giữ nguyên độ phân giải và fps**, **copy nguyên audio gốc** (không encode lại). Xoá metadata vị trí.
 * Theo dõi đối tượng (ByteTrack) để mỗi người/biển số là một **track** có `trackId`; vết che không nhấp nháy. Mất phát hiện vài khung trong một track thì nội suy box để vẫn che (giới hạn số khung nội suy do Engine chọn).
@@ -159,7 +159,7 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
 * `whitelistRef`: vị trí (từ 0) của ảnh mẫu trong `params.whitelist.faces` khớp với khuôn mặt này. Chỉ có khi `whitelisted: true`. Dùng để báo cáo "người X xuất hiện trong N ảnh". `similarity` (giá trị cao nhất so với các mẫu) có ở **mọi** khuôn mặt khi batch có whitelist, kể cả khuôn mặt không khớp, để Web biết khuôn mặt nào sát ngưỡng.
 * `model` cho biết model nào đã chạy (pretrained `yolov8n-oiv7` ở Phase 1, model fine-tune sau này), để báo cáo ghi rõ.
 
-### B2. `COMPLETED` (`video-redact`, đề xuất, chờ Engine xác nhận)
+### B2. `COMPLETED` (`video-redact`)
 ```json
 "resultSummary": {
   "video": { "width": 1920, "height": 1080, "fps": 30, "durationMs": 42000, "frames": 1260, "hasAudio": true },
@@ -180,7 +180,7 @@ Mọi event có `jobId`, `status`, `progress` (0–100), `stage`, `timestamp`, v
 }
 ```
 * Một phần tử `tracks` = một người/biển số xuất hiện liên tục (theo `trackId`). Thời gian tính bằng ms từ đầu video. `box` + `bestFrameMs`: box ở khung có confidence cao nhất, để Web hiện ảnh thu nhỏ của track.
-* `lowConfidenceRanges`: các đoạn track có confidence dưới `reviewThreshold` (vẫn được che). `gapRanges`: các đoạn track **mất phát hiện quá giới hạn nội suy**, tức có thể **không được che** trong đoạn đó (rủi ro lớn nhất của video). `similarity`, `whitelistRef`: như ảnh, nhưng theo track.
+* `lowConfidenceRanges`: các đoạn track có confidence dưới `reviewThreshold` (vẫn được che). `gapRanges`: các đoạn track **mất phát hiện quá giới hạn nội suy**, tức có thể **không được che** trong đoạn đó (rủi ro lớn nhất của video). Trên mỗi track có thể xuất hiện `whitelistRef` (khi khớp khuôn mặt allow list) và `plateText` (biển số xe nhận dạng được). Trường `similarity` chỉ xuất hiện khi batch có whitelist.
 * Engine chỉ báo sự thật. **Web** quyết định đoạn nào cần kiểm tra (`lowConfidenceRanges`, `gapRanges`, `similarity` sát ngưỡng) và cho tua tới đó.
 
 ### B3. `COMPLETED` (`image-render`, đề xuất)

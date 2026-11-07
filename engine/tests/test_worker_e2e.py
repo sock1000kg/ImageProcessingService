@@ -150,7 +150,7 @@ def test_worker_video_redact_success():
         "params": {
             "redaction": {"targets": ["face"], "style": "blur", "strength": 15, "padding": 0.1},
             "output": {"quality": "high"},
-            "confidenceThreshold": 0.35,
+            "confidenceThresholds": {"face": 0.35, "plate": 0.35},
             "reviewThreshold": 0.50,
         },
     }

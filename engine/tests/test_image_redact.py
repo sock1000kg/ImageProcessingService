@@ -28,6 +28,7 @@ from PIL import Image
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.processors.image_redact import ImageRedactProcessor, InvalidInputFileError
+from src.processors.base import parse_confidence_thresholds
 
 
 def create_solid_image_with_square(w=400, h=400, bg_color=(200, 200, 200), sq_box=(100, 100, 200, 200), sq_color=(50, 100, 250)) -> bytes:
@@ -185,7 +186,7 @@ def test_contract_result_summary_schema():
                 "strength": 12,
                 "padding": 0.1,
             },
-            "confidenceThreshold": 0.35,
+            "confidenceThresholds": {"face": 0.35, "plate": 0.35},
             "reviewThreshold": 0.50,
         },
         output_key="folder/result.jpg"
@@ -322,6 +323,76 @@ def test_alpha_compositing_to_jpeg():
     print("=> TEST 9 PASSED!\n")
 
 
+def test_parse_confidence_thresholds():
+    print("--- [TEST 10] Parse Confidence Thresholds Defaults & New Field ---")
+    # 1. Defaults
+    d = parse_confidence_thresholds({})
+    assert d == {"face": 0.17, "plate": 0.11}, f"Unexpected defaults: {d}"
+    assert parse_confidence_thresholds(None) == {"face": 0.17, "plate": 0.11}
+
+    # 2. New field
+    t = parse_confidence_thresholds({"confidenceThresholds": {"face": 0.30, "plate": 0.20}})
+    assert t == {"face": 0.30, "plate": 0.20}, f"Unexpected new field parsing: {t}"
+
+    print("  ✅ Parser defaults and new field verified.")
+    print("=> TEST 10 PASSED!\n")
+
+
+def test_per_class_threshold_filtering():
+    print("--- [TEST 11] Per-Class Threshold Filtering in ImageRedact ---")
+    processor = ImageRedactProcessor(model_name="yolov8n-oiv7.pt")
+    img_bytes = create_solid_image_with_square(w=400, h=400)
+
+    class MockBox:
+        def __init__(self, cls_id, conf, xyxy):
+            self.cls = np.array([cls_id])
+            self.conf = np.array([conf])
+            self.xyxy = np.array([xyxy])
+
+    class MockResults:
+        def __init__(self, boxes):
+            self.boxes = boxes
+
+    name_to_id = {v: k for k, v in processor.model.names.items()}
+    face_id = name_to_id.get("Human face", 0)
+    plate_id = name_to_id.get("Vehicle registration plate", 1)
+
+    mock_boxes = [
+        MockBox(face_id, 0.15, [20, 20, 80, 80]),
+        MockBox(plate_id, 0.15, [100, 100, 200, 150]),
+    ]
+
+    orig_predict = processor.model.predict
+    captured_conf = []
+
+    def mock_predict(*args, **kwargs):
+        captured_conf.append(kwargs.get("conf"))
+        return [MockResults(mock_boxes)]
+
+    processor.model.predict = mock_predict
+    try:
+        out_bytes, summary, mime = processor.process(
+            img_bytes,
+            params={
+                "confidenceThresholds": {"face": 0.17, "plate": 0.11},
+                "reviewThreshold": 0.35,
+            },
+            output_key="test_per_class.jpg",
+        )
+        assert captured_conf[0] == 0.11, f"Expected predict conf to be 0.11, got {captured_conf[0]}"
+
+        detections = summary.get("detections", [])
+        assert len(detections) == 1, f"Expected exactly 1 kept detection, got {len(detections)}: {detections}"
+        assert detections[0]["label"] == "plate", f"Expected plate to be kept, got {detections[0]['label']}"
+        assert detections[0]["confidence"] == 0.15
+        assert summary["counts"]["plate"] == 1
+        assert summary["counts"]["face"] == 0
+        print("  ✅ 0.15 plate kept and 0.15 face dropped as expected.")
+        print("=> TEST 11 PASSED!\n")
+    finally:
+        processor.model.predict = orig_predict
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY BỘ UNIT TEST MILESTONE 1 (IMAGE-REDACT)")
@@ -335,6 +406,8 @@ if __name__ == "__main__":
     test_output_quality_presets()
     test_alpha_compositing_to_jpeg()
     test_contract_result_summary_schema()
+    test_parse_confidence_thresholds()
+    test_per_class_threshold_filtering()
     print("==================================================")
     print("🎉 TẤT CẢ UNIT TESTS ĐỀU ĐẠT CHUẨN 100%!")
     print("==================================================")

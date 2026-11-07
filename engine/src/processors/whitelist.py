@@ -93,7 +93,7 @@ class WhitelistManager:
             results = yolo_model.predict(
                 source=pil_img,
                 conf=0.25,  # Slightly lower threshold to ensure we don't miss clear reference portraits
-                imgsz=640,
+                imgsz=640,  # Why: reference photos are large faces, and this keeps matching stable
                 verbose=False,
             )
             result = results[0]

@@ -235,7 +235,7 @@ def test_vlogger_mode_two_persons():
     # Job parameters with known face in whitelist
     params = {
         "redaction": {"targets": ["face"], "style": "blackout", "padding": 0.0},
-        "confidenceThreshold": 0.35,
+        "confidenceThresholds": {"face": 0.35, "plate": 0.35},
         "reviewThreshold": 0.50,
         "whitelist": {
             "faces": [

@@ -40,7 +40,11 @@ export interface ImageRedactCommand {
     output: {
       quality: OutputQuality;
     };
-    confidenceThreshold: number;
+    // Per-class detection thresholds per Contract §2A
+    confidenceThresholds: {
+      face: number;
+      plate: number;
+    };
     reviewThreshold: number;
     whitelist?: {
       faces: Array<{ bucket: string; key: string }>;
@@ -73,12 +77,16 @@ export function buildImageRedactCommand(options: {
     redaction.strength = config.strength;
   }
 
+  // Why: Replaces single threshold with per-class face and plate thresholds per Contract §2A.
   const params: ImageRedactCommand["params"] = {
     redaction,
     output: {
       quality: config.quality,
     },
-    confidenceThreshold: config.confidenceThreshold,
+    confidenceThresholds: {
+      face: config.faceConfidenceThreshold,
+      plate: config.plateConfidenceThreshold,
+    },
     reviewThreshold: config.reviewThreshold,
   };
 

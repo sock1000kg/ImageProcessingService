@@ -101,12 +101,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
 
   return (
     <section className="library-page">
-      <div className="welcome-card">
-        <div>
-          <span className="section-kicker">MEDIA LIBRARY</span>
-          <h2>Media library</h2>
-          <p>Manage stored originals, completed results, and account storage.</p>
-        </div>
+      <div className="page-actions">
         <Link to="/batches/new" className="primary-button">
           Create new batch
         </Link>
@@ -122,7 +117,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
         </div>
       )}
 
-      {loading && batches.length === 0 && <div className="viewer-empty">Loading media library…</div>}
+      {loading && batches.length === 0 && <div className="empty-inline">Loading media library…</div>}
 
       {!loading && batches.length === 0 && (
         <div className="empty-dashboard">
@@ -130,7 +125,6 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
             <Images aria-hidden />
           </span>
           <h3>No batches in library</h3>
-          <p>Create a batch to start protecting your media.</p>
         </div>
       )}
 
@@ -141,7 +135,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
               <article key={batch.id} className="library-card" aria-label={batch.name}>
                 <div className="library-card-header">
                   {batch.thumbnailUrl ? (
-                    <img src={batch.thumbnailUrl} alt={batch.name} className="library-thumbnail" />
+                    <img src={batch.thumbnailUrl} alt={batch.name} className="library-thumbnail" loading="lazy" />
                   ) : (
                     <div className="library-thumbnail placeholder" aria-label="No thumbnail">
                       <Image aria-hidden />

@@ -16,7 +16,6 @@ export function NotFoundPage() {
         <Stack aria-hidden />
       </span>
       <h3>Page not found</h3>
-      <p>The page you are looking for does not exist.</p>
       <button type="button" className="primary-button" onClick={() => navigate("/")}>
         Return to Overview
       </button>

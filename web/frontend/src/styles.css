@@ -325,7 +325,6 @@ input[type="number"] {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.welcome-card,
 .create-form,
 .report-card {
   border: 1px solid var(--border);
@@ -338,8 +337,6 @@ input[type="number"] {
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  padding: 28px 30px;
-  background: var(--surface);
 }
 .welcome-card h2 {
   margin: 0;
@@ -405,7 +402,6 @@ input[type="number"] {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
   gap: 0;
-  overflow: hidden;
 }
 .create-main {
   padding: 25px;
@@ -414,6 +410,13 @@ input[type="number"] {
   padding: 25px;
   border-left: 1px solid var(--border);
   background: var(--surface-2);
+  border-top-right-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
+  position: sticky;
+  top: var(--space-5);
+  align-self: start;
+  max-height: calc(100dvh - 2 * var(--space-5));
+  overflow-y: auto;
 }
 .config-card h3 {
   margin: 0 0 20px;
@@ -1622,8 +1625,16 @@ input[type="range"].comparison-range::-moz-range-thumb {
     grid-template-columns: 1fr;
   }
   .config-card {
+    position: static;
+    top: auto;
+    align-self: auto;
+    max-height: none;
+    overflow-y: visible;
     border-top: 1px solid var(--border);
     border-left: 0;
+    border-top-right-radius: 0;
+    border-bottom-left-radius: var(--radius-lg);
+    border-bottom-right-radius: var(--radius-lg);
   }
   .details-layout {
     grid-template-columns: 1fr;
@@ -1735,7 +1746,6 @@ input[type="range"].comparison-range::-moz-range-thumb {
   }
   .welcome-card {
     display: block;
-    padding: 22px;
   }
   .welcome-card .primary-button {
     margin-top: 18px;
@@ -1963,11 +1973,13 @@ input[type="range"].comparison-range::-moz-range-thumb {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--surface);
+  background: var(--stage-bg);
+  color: var(--stage-text);
 }
+.create-preview-panel .section-kicker,
 .create-preview-panel p {
   margin: 0;
-  color: var(--text-3);
+  color: var(--stage-text);
   font-size: var(--text-xs);
   line-height: 1.5;
 }
@@ -1979,10 +1991,33 @@ input[type="range"].comparison-range::-moz-range-thumb {
   width: 100%;
   height: auto;
 }
+.rerun-source-info,
+.folder-selection {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+.rerun-source-info {
+  margin-bottom: 14px;
+}
+.rerun-source-info p {
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.folder-selection {
+  margin: 8px 0 0;
+}
 .preview-note {
   margin: 16px 0 0;
   color: var(--text-3);
   font-size: var(--text-xs);
+}
+
+.page-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 /* Media Library styles (Task 36) */
@@ -2006,10 +2041,20 @@ input[type="range"].comparison-range::-moz-range-thumb {
   gap: 12px;
   box-shadow: none;
 }
+.library-card:hover {
+  border-color: var(--border-strong);
+}
 .library-card-header {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+}
+.library-card-header:has(> .library-thumbnail) {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  position: relative;
+  gap: 12px;
 }
 .library-thumbnail {
   width: 72px;
@@ -2022,9 +2067,28 @@ input[type="range"].comparison-range::-moz-range-thumb {
   place-items: center;
   flex-shrink: 0;
 }
+.library-card-header:has(> .library-thumbnail) .library-thumbnail {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  box-sizing: border-box;
+}
 .library-thumbnail.placeholder {
   font-size: 1.8rem;
   color: var(--text-3);
+}
+.library-card-header:has(> .library-thumbnail) .library-thumbnail.placeholder {
+  display: grid;
+  place-items: center;
+}
+.library-card-header:has(> .library-thumbnail) .delete-item-button {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  margin-left: 0;
+  background: var(--surface);
+  z-index: 1;
 }
 .library-card-body {
   display: grid;

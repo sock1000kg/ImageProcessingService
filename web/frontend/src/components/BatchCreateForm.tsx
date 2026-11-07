@@ -286,15 +286,6 @@ export function BatchCreateForm({
   return (
     <form className="create-form" aria-label="Create batch form" onSubmit={(event) => void submit(event)}>
       <div className="create-main">
-        <div className="create-preview-panel">
-          <span className="section-kicker">Preview Sample</span>
-          <PreviewCanvas
-            style={config.style}
-            strength={config.strength}
-            targets={config.targets}
-            padding={config.padding}
-          />
-        </div>
         <div className="batch-name-group">
           <label htmlFor="batch-name-input" className="mini-label">
             Batch name (optional)
@@ -335,6 +326,15 @@ export function BatchCreateForm({
         />
       </div>
       <aside className="config-card">
+        <div className="create-preview-panel">
+          <span className="section-kicker">Preview Sample</span>
+          <PreviewCanvas
+            style={config.style}
+            strength={config.strength}
+            targets={config.targets}
+            padding={config.padding}
+          />
+        </div>
         <div className="section-kicker">REDACTION CONFIG</div>
         <h3>Processing profile</h3>
         <RedactionConfigForm config={config} setConfig={setConfig} />

@@ -1104,10 +1104,7 @@ class VideoRedactProcessor(BaseProcessor):
         finally:
             cap.release()
             if ffmpeg_writer is not None:
-                try:
-                    ffmpeg_writer.stdin.close()
-                except Exception:
-                    pass
+                # communicate() closes stdin itself. Closing it first raises ValueError on POSIX, where it flushes stdin.
                 _, stderr_data = ffmpeg_writer.communicate(timeout=60)
                 if ffmpeg_writer.returncode != 0:
                     err_msg = stderr_data.decode("utf-8", errors="ignore") if stderr_data else "Unknown error"

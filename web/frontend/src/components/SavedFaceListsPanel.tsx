@@ -203,7 +203,7 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
       <RejectedFilesNotice issues={rejectedIssues} onDismiss={() => setRejectedIssues([])} />
 
       {loading ? (
-        <div className="viewer-empty">Loading allow lists…</div>
+        <div className="empty-inline">Loading allow lists…</div>
       ) : faceLists.length === 0 ? (
         <div className="empty-dashboard saved-face-lists-empty">
           <span>👤</span>

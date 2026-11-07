@@ -6,6 +6,7 @@ import { Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Banner } from "./ui/Banner";
 import { SyncStatus } from "./SyncStatus";
+import { ThemeToggle } from "./ui/ThemeToggle";
 import { BATCH_SYNC_MS, STATS_SYNC_MS, useSyncStatus } from "../sync";
 
 /**
@@ -106,15 +107,18 @@ function Sidebar({ activeBatchId }: SidebarProps) {
       </nav>
       <footer className="sidebar-footer">
         <div className="sidebar-divider" />
-        {user && (
-          <>
+        <div className="sidebar-footer-row">
+          {user && (
             <span className="user-email" title={user.email}>
               {user.email}
             </span>
-            <button type="button" className="secondary-button" onClick={() => void signOut()}>
-              Sign out
-            </button>
-          </>
+          )}
+          <ThemeToggle />
+        </div>
+        {user && (
+          <button type="button" className="secondary-button" onClick={() => void signOut()}>
+            Sign out
+          </button>
         )}
       </footer>
     </aside>
@@ -135,6 +139,9 @@ export function AuthLayout() {
 
   return (
     <div className="auth-shell">
+      <div className="auth-theme-toggle">
+        <ThemeToggle />
+      </div>
       <Brand />
       <Outlet />
     </div>

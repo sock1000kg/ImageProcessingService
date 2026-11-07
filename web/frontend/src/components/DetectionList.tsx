@@ -28,9 +28,9 @@ export function formatDetectionLabel(label: string | null): string {
 export function formatDetectionStatus(detection: Detection): string {
   if (detection.whitelisted) {
     if (detection.whitelistRef !== null && detection.whitelistRef !== undefined) {
-      return `Kept (whitelist person #${detection.whitelistRef + 1})`;
+      return `Kept (allow list person #${detection.whitelistRef + 1})`;
     }
-    return "Kept (whitelisted)";
+    return "Kept (allow-listed)";
   }
   if (detection.redacted) {
     return "Redacted";

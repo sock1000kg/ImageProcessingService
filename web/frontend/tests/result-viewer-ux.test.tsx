@@ -125,7 +125,7 @@ describe("Step 2 & 3: ImageResultViewer slider and box overlay", () => {
     render(<ImageResultViewer job={sampleJob} detections={sampleDetections} reviewReasons={[]} onRetry={() => {}} />);
 
     const slider = screen.getByLabelText(/before \/ after/i) as HTMLInputElement;
-    expect(slider.value).toBe("50");
+    expect(slider.value).toBe("0");
 
     // Move slider to 25%
     fireEvent.change(slider, { target: { value: "25" } });
@@ -226,7 +226,7 @@ describe("Step 4: DetectionList readable rows and telemetry format", () => {
     expect(within(items[0]).getByText(/92%/)).toBeDefined();
 
     // Row 2: Whitelist reference (whitelistRef 0 -> person #1)
-    expect(within(items[1]).getByText(/whitelist.*1/i)).toBeDefined();
+    expect(within(items[1]).getByText(/allow list.*1/i)).toBeDefined();
 
     // Row 3: Flags and review notes
     expect(within(items[2]).getByText(/licen[sc]e plate/i)).toBeDefined();

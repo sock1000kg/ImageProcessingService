@@ -97,7 +97,7 @@ interface WhitelistPersonSectionProps {
 function WhitelistPersonSection({ batchId, person, onSelectImage }: WhitelistPersonSectionProps) {
   const [open, setOpen] = useState(false);
   const n = person.whitelistRef + 1;
-  const label = person.name && person.name.trim().length > 0 ? person.name : `Whitelist #${n}`;
+  const label = person.name && person.name.trim().length > 0 ? person.name : `Allow list #${n}`;
   const hasImages = Boolean(person.images && person.images.length > 0);
 
   const headerContent = (
@@ -159,7 +159,7 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
     ["Faces", report.totals.faces],
     ["Plates", report.totals.plates],
     ["Redacted", report.totals.redacted],
-    ["Whitelisted", report.totals.whitelisted],
+    ["Allow-listed", report.totals.whitelisted],
     ["Low confidence", report.totals.lowConfidence],
     ["Images needing review", report.reviewImages.length],
     ["Detections needing review", report.reviewDetections.length],
@@ -195,8 +195,8 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
       ) : (
         <Banner variant="success">No images need review.</Banner>
       )}
-      <section className="report-section" aria-label="Whitelist people">
-        <h4>Whitelist people</h4>
+      <section className="report-section" aria-label="Allow list people">
+        <h4>Allow list people</h4>
         {report.whitelistPeople && report.whitelistPeople.length > 0 ? (
           report.whitelistPeople.map((person) => (
             <WhitelistPersonSection
@@ -207,7 +207,7 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
             />
           ))
         ) : (
-          <div className="empty-inline">No whitelist detections were returned by the Engine.</div>
+          <div className="empty-inline">No allow list detections were returned by the Engine.</div>
         )}
       </section>
     </div>

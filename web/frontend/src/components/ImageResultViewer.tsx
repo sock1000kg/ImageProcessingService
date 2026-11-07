@@ -62,7 +62,8 @@ export function ImageResultViewer({
   hasWhitelist = false,
   onRetry,
 }: ImageResultViewerProps) {
-  const [split, setSplit] = useState(50);
+  // Why 0: the original stays hidden until the user drags, so opening an image never reveals faces.
+  const [split, setSplit] = useState(0);
   const [showBoxes, setShowBoxes] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);

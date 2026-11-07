@@ -87,7 +87,7 @@ const THRESHOLD_FIELDS = [
   {
     key: "similarityThreshold",
     label: "Similarity Threshold",
-    hint: "how closely a face must match the whitelist",
+    hint: "how closely a face must match the allow list",
   },
 ] as const;
 

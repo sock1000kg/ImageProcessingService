@@ -190,10 +190,10 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
 
       <DeleteBatchDialog
         open={Boolean(missingFacesConfirm)}
-        title="Missing whitelist faces"
+        title="Missing allow list faces"
         body={
           missingFacesConfirm
-            ? `${missingFacesConfirm.missing} whitelist face${
+            ? `${missingFacesConfirm.missing} allow list face${
                 missingFacesConfirm.missing === 1 ? " isn't" : "s aren't"
               } saved to a list and retrying will blur them.`
             : ""

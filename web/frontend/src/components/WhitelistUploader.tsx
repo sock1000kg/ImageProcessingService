@@ -141,7 +141,7 @@ export function WhitelistUploader({
     <div className="whitelist-box">
       <div className="whitelist-header">
         <div>
-          <h3>Face whitelist</h3>
+          <h3>Face allow list</h3>
           <p>
             Reference faces will not be redacted when similarity is above the threshold. One person per photo. Only the
             largest face is used.

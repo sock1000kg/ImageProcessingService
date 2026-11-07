@@ -23,9 +23,11 @@ export const configSchema = z.object({
     .int()
     .positive()
     .default(50 * 1024 * 1024),
-  BATCH_MAX_FILES: z.coerce.number().int().positive().default(100),
-  // Global multiplier scaling all per-minute base limits (1 = defaults, 100 = load tests, 0.5 = stricter).
+  BATCH_MAX_FILES: z.coerce.number().int().positive().default(1000),
+  // General multiplier scaling login, refresh, and allow list creation per-minute base limits.
   RATE_LIMIT_MULTIPLIER: z.coerce.number().positive().default(1),
+  // Multiplier scaling transfer-heavy per-minute base limits (batch create, file uploads, zip downloads).
+  TRANSFER_RATE_LIMIT_MULTIPLIER: z.coerce.number().positive().default(1),
   CLEANUP_INTERVAL_MS: z.coerce
     .number()
     .int()

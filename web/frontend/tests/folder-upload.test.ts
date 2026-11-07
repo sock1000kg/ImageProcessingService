@@ -2,12 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   selectFolderFiles,
   formatFolderSummary,
-  getFolderLimitMessage,
-  getSelectionLimitMessage,
   isHiddenOrSystemFile,
   getInferredImageType,
   ensureFileType,
-  MAX_BATCH_FILES,
   MAX_FILE_BYTES,
   validateImageFiles,
   getFileRejectionReason,
@@ -227,42 +224,18 @@ describe("Folder Summary formatting (formatFolderSummary)", () => {
   });
 });
 
-describe("Limit Rules (Acceptance criteria: 100 accepted, 101 rejected whole)", () => {
-  it("accepts exactly 100 images from a folder", () => {
-    const files = Array.from({ length: MAX_BATCH_FILES }, (_, i) =>
-      makeFile(`img_${i}.jpg`, `batch100/img_${i}.jpg`, "image/jpeg"),
+describe("Folder selection with large batches (>100 accepted)", () => {
+  it("accepts more than 100 images from a folder", () => {
+    const files = Array.from({ length: 150 }, (_, i) =>
+      makeFile(`img_${i}.jpg`, `batch150/img_${i}.jpg`, "image/jpeg"),
     );
     const result = selectFolderFiles(files);
 
-    expect(result.images.length).toBe(100);
-    expect(result.images.length <= MAX_BATCH_FILES).toBe(true);
+    expect(result.images.length).toBe(150);
   });
 
-  it("rejects 101 images whole with clear message for folder", () => {
-    const count = MAX_BATCH_FILES + 1; // 101
-    const files = Array.from({ length: count }, (_, i) =>
-      makeFile(`img_${i}.jpg`, `batch101/img_${i}.jpg`, "image/jpeg"),
-    );
-    const result = selectFolderFiles(files);
-
-    expect(result.images.length).toBe(101);
-    expect(result.images.length > MAX_BATCH_FILES).toBe(true);
-
-    const message = getFolderLimitMessage(result.images.length);
-    expect(message).toBe("The folder has 101 images; the limit is 100 per batch. Pick a smaller folder or split it.");
-  });
-
-  it("rejects 101 images whole with clear message for manual file selection", () => {
-    const count = 101;
-    const messageInitial = getSelectionLimitMessage(count, 0);
-    expect(messageInitial).toBe("The selection has 101 images; the limit is 100 per batch. Pick fewer images.");
-
-    const messageAddition = getSelectionLimitMessage(85, 20);
-    expect(messageAddition).toBe("Adding 85 images would exceed the limit of 100 per batch (currently 20).");
-  });
-
-  it("validateImageFiles allows up to 100 valid images without error", () => {
-    const files = Array.from({ length: 100 }, (_, i) => makeFile(`img_${i}.jpg`, `img_${i}.jpg`, "image/jpeg"));
+  it("validateImageFiles allows more than 100 valid images without error", () => {
+    const files = Array.from({ length: 150 }, (_, i) => makeFile(`img_${i}.jpg`, `img_${i}.jpg`, "image/jpeg"));
     const issues = validateImageFiles(files);
     expect(issues).toHaveLength(0);
   });

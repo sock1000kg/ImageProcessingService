@@ -29,13 +29,23 @@ export class ApiError extends Error {
   readonly code?: string;
   readonly details?: unknown;
   readonly status: number;
+  readonly retryAfterSeconds?: number;
 
-  constructor(message: string, options?: { code?: string; details?: unknown; status: number }) {
+  constructor(
+    message: string,
+    options?: {
+      code?: string;
+      details?: unknown;
+      status: number;
+      retryAfterSeconds?: number;
+    },
+  ) {
     super(message);
     this.name = "ApiError";
     this.code = options?.code;
     this.details = options?.details;
     this.status = options?.status ?? 500;
+    this.retryAfterSeconds = options?.retryAfterSeconds;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
@@ -45,7 +55,17 @@ async function parseApiError(response: Response): Promise<ApiError> {
   const message = data.error?.message ?? (typeof data.error === "string" ? data.error : "Request failed");
   const code = typeof data.error?.code === "string" ? data.error.code : undefined;
   const details = data.error?.details;
-  return new ApiError(message, { code, details, status: response.status });
+
+  let retryAfterSeconds: number | undefined;
+  const retryHeader = typeof response.headers?.get === "function" ? response.headers.get("Retry-After") : undefined;
+  if (retryHeader) {
+    const parsed = Number(retryHeader);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      retryAfterSeconds = parsed;
+    }
+  }
+
+  return new ApiError(message, { code, details, status: response.status, retryAfterSeconds });
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -80,6 +100,7 @@ export type UploadProgress = {
   done: number;
   total: number;
   failed: File[];
+  waitSeconds?: number;
 };
 
 /**
@@ -169,7 +190,17 @@ export async function startBatch(batchId: string): Promise<{ batch: Batch }> {
 }
 
 /**
+ * Sleep helper for fake-timer compatible worker pauses.
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
  * Coordinates draft creation, parallel file upload workers (concurrency 2), and execution kickoff.
+ *
+ * Why shared pauseUntil: When rate limited (429), both workers wait on the same cooldown window
+ * so retried requests respect the server's Retry-After header without thrashing the endpoint.
  */
 export async function uploadBatch(
   files: File[],
@@ -180,7 +211,7 @@ export async function uploadBatch(
   name?: string,
   faceListId?: string,
   faceListIds?: string[],
-): Promise<{ batch: Batch; failed: File[] }> {
+): Promise<{ batch: Batch; failed: File[]; limitReason?: string }> {
   let batchId = existingBatchId;
   let batch: Batch;
 
@@ -198,23 +229,107 @@ export async function uploadBatch(
   const total = files.length;
 
   let currentIndex = 0;
-  async function worker() {
-    while (currentIndex < files.length) {
-      const index = currentIndex++;
-      const file = files[index];
+  let pauseUntil = 0;
+  let limitReason: string | undefined = undefined;
+  let pausePromise: Promise<void> | null = null;
+  let wakePause: (() => void) | null = null;
 
-      try {
-        await uploadFileToBatch(batchId!, file);
-      } catch {
+  async function waitIfPaused(): Promise<void> {
+    while (Date.now() < pauseUntil && !limitReason) {
+      if (!pausePromise) {
+        pausePromise = (async () => {
+          let wasPaused = false;
+          try {
+            while (Date.now() < pauseUntil && !limitReason) {
+              wasPaused = true;
+              const waitSeconds = Math.max(1, Math.ceil((pauseUntil - Date.now()) / 1000));
+              onProgress?.({ done, total, failed: [...failed], waitSeconds });
+              const sleepMs = Math.min(1000, Math.max(50, pauseUntil - Date.now()));
+              await new Promise<void>((resolve) => {
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                wakePause = () => {
+                  if (timer) clearTimeout(timer);
+                  resolve();
+                };
+                timer = setTimeout(() => {
+                  wakePause = null;
+                  resolve();
+                }, sleepMs);
+              });
+            }
+          } finally {
+            if (wasPaused) {
+              onProgress?.({ done, total, failed: [...failed], waitSeconds: 0 });
+            }
+            pausePromise = null;
+            wakePause = null;
+          }
+        })();
+      }
+      await pausePromise;
+    }
+  }
+
+  async function worker() {
+    while (true) {
+      if (limitReason) return;
+      await waitIfPaused();
+      if (limitReason) return;
+
+      if (currentIndex >= files.length) {
+        return;
+      }
+      const file = files[currentIndex++];
+
+      let hasRetried = false;
+      while (true) {
+        if (limitReason) {
+          failed.push(file);
+          return;
+        }
+        await waitIfPaused();
+        if (limitReason) {
+          failed.push(file);
+          return;
+        }
+
         try {
           await uploadFileToBatch(batchId!, file);
-        } catch {
+          done++;
+          onProgress?.({ done, total, failed: [...failed] });
+          break;
+        } catch (err) {
+          // Status 429: set shared pause cooldown and retry the same file without consuming normal retry.
+          if (err instanceof ApiError && err.status === 429) {
+            const seconds = err.retryAfterSeconds && err.retryAfterSeconds > 0 ? err.retryAfterSeconds : 5;
+            pauseUntil = Math.max(pauseUntil, Date.now() + seconds * 1000);
+            continue;
+          }
+
+          // Code BATCH_FULL: batch is full; stop taking new files and fail all remaining unstarted files.
+          if (err instanceof ApiError && err.code === "BATCH_FULL") {
+            limitReason = err.message;
+            pauseUntil = 0;
+            wakePause?.();
+            failed.push(file);
+            while (currentIndex < files.length) {
+              failed.push(files[currentIndex++]);
+            }
+            return;
+          }
+
+          // Any other error: one immediate retry, then mark failed.
+          if (!hasRetried) {
+            hasRetried = true;
+            continue;
+          }
+
           failed.push(file);
+          done++;
+          onProgress?.({ done, total, failed: [...failed] });
+          break;
         }
       }
-
-      done++;
-      onProgress?.({ done, total, failed: [...failed] });
     }
   }
 
@@ -223,7 +338,7 @@ export async function uploadBatch(
   await Promise.all(workers);
 
   if (failed.length > 0) {
-    return { batch, failed };
+    return { batch, failed, ...(limitReason ? { limitReason } : {}) };
   }
 
   const started = await startBatch(batchId);

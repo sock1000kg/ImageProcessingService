@@ -7,6 +7,7 @@
  * while retry continues working while the list exists.
  */
 import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { UserList, X } from "@phosphor-icons/react";
 import { addWhitelistFiles, FileSelectionIssue, MAX_FACE_LIST_FILES, MAX_WHITELIST_FILES } from "./file-selection";
 import { FilePreviewList } from "./FilePreviewList";
 import { RejectedFilesNotice } from "./RejectedFilesNotice";
@@ -141,7 +142,7 @@ export function WhitelistUploader({
     <div className="whitelist-box">
       <div className="whitelist-header">
         <div>
-          <h3>Face whitelist</h3>
+          <h3>Face allow list</h3>
           <p>
             Reference faces will not be redacted when similarity is above the threshold. One person per photo. Only the
             largest face is used.
@@ -194,7 +195,7 @@ export function WhitelistUploader({
                   aria-label={`Remove allow list ${list.name}`}
                   onClick={() => handleRemoveList(list.id)}
                 >
-                  ×
+                  <X aria-hidden />
                 </button>
               </div>
             ))}
@@ -209,9 +210,8 @@ export function WhitelistUploader({
           <div className="batch-name-group">
             <input
               type="text"
-              className="text-input"
+              className="text-input space-below-2"
               placeholder="Name this allow list…"
-              style={{ marginBottom: "8px" }}
               aria-label="Allow list name"
               value={listName}
               onChange={(e) => setListName(e.target.value)}
@@ -245,7 +245,9 @@ export function WhitelistUploader({
         >
           {savedLists.length === 0 ? (
             <div className="empty-dashboard saved-face-lists-empty">
-              <span>👤</span>
+              <span>
+                <UserList aria-hidden />
+              </span>
               <h3>No allow lists</h3>
               <p>Create an allow list on the overview to select it here.</p>
             </div>
@@ -279,7 +281,7 @@ export function WhitelistUploader({
                       </button>
                       <button
                         type="button"
-                        className={isAdded ? "secondary-button" : "primary-button"}
+                        className="secondary-button"
                         disabled={!isAdded && wouldExceed}
                         title={!isAdded && wouldExceed ? exceedReason : undefined}
                         onClick={() => {

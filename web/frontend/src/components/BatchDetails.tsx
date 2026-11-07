@@ -1,7 +1,7 @@
 /**
  * Comprehensive batch workspace view displaying header, image navigator, viewer, and report.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError, getBatchReport, getBatchZipUrl, retryJob } from "../api";
 import { Batch, BatchReport as Report, Job, MessageHandler } from "../types";
@@ -25,6 +25,7 @@ export interface BatchDetailsProps {
  */
 export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDetailsProps) {
   const navigate = useNavigate();
+  const detailsLayoutRef = useRef<HTMLDivElement>(null);
   const [selectedId, setSelectedId] = useState(batch.jobs[0]?.id ?? null);
   const [report, setReport] = useState<Report | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -33,6 +34,14 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
     missing: number;
     total: number;
   } | null>(null);
+
+  const handleSelectReportImage = (jobId: string) => {
+    setSelectedId(jobId);
+    const prefersReducedMotion =
+      typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
+    detailsLayoutRef.current?.scrollIntoView?.({ behavior, block: "start" });
+  };
 
   const isDraft = batch.status === "DRAFT" || !batch.startedAt;
 
@@ -128,7 +137,7 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
         </Banner>
       )}
 
-      <div className="details-layout">
+      <div className="details-layout" ref={detailsLayoutRef}>
         <div>
           <BatchImageList
             batch={batch}
@@ -154,7 +163,7 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
 
         <div className="report-card details-report-card">
           <div className="section-kicker">BATCH REPORT</div>
-          <BatchReport report={report} onSelectImage={(jobId) => setSelectedId(jobId)} />
+          <BatchReport report={report} onSelectImage={handleSelectReportImage} />
           <div className="report-downloads">
             <button
               type="button"
@@ -190,10 +199,10 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
 
       <DeleteBatchDialog
         open={Boolean(missingFacesConfirm)}
-        title="Missing whitelist faces"
+        title="Missing allow list faces"
         body={
           missingFacesConfirm
-            ? `${missingFacesConfirm.missing} whitelist face${
+            ? `${missingFacesConfirm.missing} allow list face${
                 missingFacesConfirm.missing === 1 ? " isn't" : "s aren't"
               } saved to a list and retrying will blur them.`
             : ""

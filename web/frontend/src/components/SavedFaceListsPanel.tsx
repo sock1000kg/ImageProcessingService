@@ -17,11 +17,11 @@ import { FaceListItem, MessageHandler } from "../types";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { FaceListViewer } from "./FaceListViewer";
 import { WhitelistUploader } from "./WhitelistUploader";
+import { Trash, UserList } from "@phosphor-icons/react";
 import { Banner } from "./ui/Banner";
 import { RejectedFilesNotice } from "./RejectedFilesNotice";
 import { addWhitelistFiles, FileSelectionIssue, MAX_FACE_LIST_FILES } from "./file-selection";
 import { InlineRename } from "./InlineRename";
-import { TrashIcon } from "./ui/TrashIcon";
 import { FaceListThumbnails, SavedFaceThumbnail } from "./FaceListThumbnails";
 
 export { SavedFaceThumbnail };
@@ -181,9 +181,10 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
     }
   };
 
+  // Why section: allow lists panel is styled within regular workspace layout
   return (
-    <section className="details-card saved-face-lists-section">
-      <div className="section-header saved-face-lists-header">
+    <section className="saved-face-lists-section">
+      <div className="saved-face-lists-header">
         <h2>Allow lists</h2>
         <p className="subtitle saved-face-lists-subtitle">
           Reusable allow lists kept under your account until deleted.
@@ -203,10 +204,12 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
       <RejectedFilesNotice issues={rejectedIssues} onDismiss={() => setRejectedIssues([])} />
 
       {loading ? (
-        <div className="viewer-empty">Loading allow lists…</div>
+        <div className="empty-inline">Loading allow lists…</div>
       ) : faceLists.length === 0 ? (
         <div className="empty-dashboard saved-face-lists-empty">
-          <span>👤</span>
+          <span>
+            <UserList aria-hidden />
+          </span>
           <h3>No allow lists</h3>
           <p>Create an allow list below to reuse reference faces across batches.</p>
         </div>
@@ -242,13 +245,13 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
                   aria-label={`Delete ${list.name}`}
                   onClick={() => setDeletingList(list)}
                 >
-                  <TrashIcon />
+                  <Trash aria-hidden />
                 </button>
               </div>
               <div className="library-card-actions">
                 <button
                   type="button"
-                  className="primary-button"
+                  className="secondary-button"
                   onClick={() => setViewingList({ list, initialIndex: 1 })}
                 >
                   View
@@ -281,8 +284,7 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
           <input
             id="new-face-list-name"
             type="text"
-            className="text-input"
-            style={{ marginTop: "4px" }}
+            className="text-input space-above-1"
             maxLength={100}
             placeholder="e.g. VIP Team, Family"
             aria-label="Name"

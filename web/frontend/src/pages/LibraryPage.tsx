@@ -9,7 +9,7 @@ import { InlineRename } from "../components/InlineRename";
 import { Banner } from "../components/ui/Banner";
 import { StatTile } from "../components/ui/StatTile";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { TrashIcon } from "../components/ui/TrashIcon";
+import { Image, Images, Trash } from "@phosphor-icons/react";
 import { AccountUsage, BatchSummaryItem, MessageHandler } from "../types";
 import { formatBytes } from "../utils/format";
 
@@ -101,14 +101,9 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
 
   return (
     <section className="library-page">
-      <div className="welcome-card">
-        <div>
-          <span className="section-kicker">MEDIA LIBRARY</span>
-          <h2>Media library</h2>
-          <p>Manage stored originals, completed results, and account storage.</p>
-        </div>
+      <div className="page-actions">
         <Link to="/batches/new" className="primary-button">
-          Create new batch <span>→</span>
+          Create new batch
         </Link>
       </div>
 
@@ -122,13 +117,14 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
         </div>
       )}
 
-      {loading && batches.length === 0 && <div className="viewer-empty">Loading media library…</div>}
+      {loading && batches.length === 0 && <div className="empty-inline">Loading media library…</div>}
 
       {!loading && batches.length === 0 && (
         <div className="empty-dashboard">
-          <span>✦</span>
+          <span>
+            <Images aria-hidden />
+          </span>
           <h3>No batches in library</h3>
-          <p>Create a batch to start protecting your media.</p>
         </div>
       )}
 
@@ -139,10 +135,10 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
               <article key={batch.id} className="library-card" aria-label={batch.name}>
                 <div className="library-card-header">
                   {batch.thumbnailUrl ? (
-                    <img src={batch.thumbnailUrl} alt={batch.name} className="library-thumbnail" />
+                    <img src={batch.thumbnailUrl} alt={batch.name} className="library-thumbnail" loading="lazy" />
                   ) : (
                     <div className="library-thumbnail placeholder" aria-label="No thumbnail">
-                      <span>🖼</span>
+                      <Image aria-hidden />
                     </div>
                   )}
                   <div className="library-card-body">
@@ -162,7 +158,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                     aria-label={`Delete ${batch.name}`}
                     onClick={() => setDeletingBatch(batch)}
                   >
-                    <TrashIcon />
+                    <Trash aria-hidden />
                   </button>
                 </div>
                 <div className="library-card-meta">
@@ -176,7 +172,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                   <span>{new Date(batch.createdAt).toLocaleDateString()}</span>
                 </div>
                 <div className="library-card-actions">
-                  <Link to={`/batches/${batch.id}`} className="primary-button">
+                  <Link to={`/batches/${batch.id}`} className="secondary-button">
                     Open
                   </Link>
                   <button

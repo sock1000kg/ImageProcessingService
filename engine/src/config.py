@@ -6,22 +6,13 @@ from pydantic import BaseModel, Field
 
 
 def _detect_binary(bin_name: str) -> str:
-    """Detect available FFmpeg/FFprobe binary in PATH or common Windows directories."""
+    """Find FFmpeg/FFprobe: the FFMPEG_BIN/FFPROBE_BIN env var first, then PATH."""
     env_bin = os.getenv(f"{bin_name.upper()}_BIN")
     if env_bin:
         return env_bin
     which_bin = shutil.which(bin_name)
     if which_bin:
         return which_bin
-    candidates = [
-        r"C:\Users\ADMIN\anaconda3\envs\huyduc\Library\bin\\" + f"{bin_name}.exe",
-        r"C:\Users\ADMIN\anaconda3\pkgs\ffmpeg-6.1.1-haa678a1_5\Library\bin\\" + f"{bin_name}.exe",
-        os.path.expanduser(f"~/anaconda3/envs/huyduc/Library/bin/{bin_name}.exe"),
-        os.path.expanduser(f"~/anaconda3/Library/bin/{bin_name}.exe"),
-    ]
-    for p in candidates:
-        if os.path.exists(p) and os.path.isfile(p):
-            return p
     return bin_name
 
 

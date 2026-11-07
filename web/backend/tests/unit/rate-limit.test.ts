@@ -38,9 +38,11 @@ describe("scaleLimit", () => {
 
 describe("rateLimit", () => {
   const originalMultiplier = config.RATE_LIMIT_MULTIPLIER;
+  const originalTransferMultiplier = config.TRANSFER_RATE_LIMIT_MULTIPLIER;
 
   afterEach(() => {
     config.RATE_LIMIT_MULTIPLIER = originalMultiplier;
+    config.TRANSFER_RATE_LIMIT_MULTIPLIER = originalTransferMultiplier;
   });
 
   it("allows max requests per window, then answers 429", () => {
@@ -113,6 +115,39 @@ describe("rateLimit", () => {
     }
     expect(run(limiter, req)).toMatchObject({ status: 429, code: "RATE_LIMITED" });
     expect(createRateLimiter).toBe(buildRateLimiter);
+  });
+
+  it("raising TRANSFER_RATE_LIMIT_MULTIPLIER does not raise the login limit", () => {
+    config.RATE_LIMIT_MULTIPLIER = 1;
+    config.TRANSFER_RATE_LIMIT_MULTIPLIER = 100;
+    const loginLimiter = rateLimit(RATE_LIMIT_BASES.auth);
+    const req = fakeRequest("192.168.2.1");
+    for (let i = 0; i < 10; i++) {
+      expect(run(loginLimiter, req)).toBeUndefined();
+    }
+    expect(run(loginLimiter, req)).toMatchObject({ status: 429, code: "RATE_LIMITED" });
+  });
+
+  it("raising RATE_LIMIT_MULTIPLIER does not raise a transfer limit", () => {
+    config.RATE_LIMIT_MULTIPLIER = 100;
+    config.TRANSFER_RATE_LIMIT_MULTIPLIER = 1;
+    const transferLimiter = rateLimit(RATE_LIMIT_BASES.createBatch, clientIp, "transfer");
+    const req = fakeRequest("192.168.2.2");
+    for (let i = 0; i < 20; i++) {
+      expect(run(transferLimiter, req)).toBeUndefined();
+    }
+    expect(run(transferLimiter, req)).toMatchObject({ status: 429, code: "RATE_LIMITED" });
+  });
+
+  it("a transfer limiter scales by its own multiplier", () => {
+    config.RATE_LIMIT_MULTIPLIER = 1;
+    config.TRANSFER_RATE_LIMIT_MULTIPLIER = 2;
+    const transferLimiter = rateLimit(RATE_LIMIT_BASES.createBatch, clientIp, "transfer");
+    const req = fakeRequest("192.168.2.3");
+    for (let i = 0; i < 40; i++) {
+      expect(run(transferLimiter, req)).toBeUndefined();
+    }
+    expect(run(transferLimiter, req)).toMatchObject({ status: 429, code: "RATE_LIMITED" });
   });
 });
 

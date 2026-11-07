@@ -2,6 +2,7 @@
  * Shared inline rename component supporting keyboard shortcuts (Enter/Escape) and blur save.
  */
 import { useEffect, useRef, useState } from "react";
+import { PencilSimple } from "@phosphor-icons/react";
 
 export interface InlineRenameProps {
   name: string;
@@ -138,7 +139,7 @@ export function InlineRename({
               title={title ?? "Rename batch"}
               aria-label={ariaLabel ?? title ?? "Rename batch"}
             >
-              ✎
+              <PencilSimple aria-hidden />
             </button>
           </div>
         )}

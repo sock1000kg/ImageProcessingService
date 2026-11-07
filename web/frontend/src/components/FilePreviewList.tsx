@@ -2,6 +2,7 @@
  * File thumbnail list displaying staged files, dimensions/types, and removal actions.
  */
 import { useEffect, useState } from "react";
+import { X } from "@phosphor-icons/react";
 import { getFileIdentity, getFilePath } from "./file-selection";
 import { formatBytes } from "../utils/format";
 
@@ -71,7 +72,7 @@ export function FilePreviewList({ files, errors = {}, onRemove, label, title, on
               onClick={() => onRemove(index)}
               aria-label={`Remove ${displayPath}`}
             >
-              ×
+              <X aria-hidden />
             </button>
           </div>
         );

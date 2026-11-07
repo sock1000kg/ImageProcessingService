@@ -2,6 +2,7 @@
  * Batch report presentation component displaying detection aggregate totals and flagged review images.
  */
 import React, { useEffect, useState } from "react";
+import { CaretDown } from "@phosphor-icons/react";
 import { BatchReport as Report, ReportWhitelistPerson } from "../types";
 import { Banner } from "./ui/Banner";
 import { StatTile } from "./ui/StatTile";
@@ -97,7 +98,7 @@ interface WhitelistPersonSectionProps {
 function WhitelistPersonSection({ batchId, person, onSelectImage }: WhitelistPersonSectionProps) {
   const [open, setOpen] = useState(false);
   const n = person.whitelistRef + 1;
-  const label = person.name && person.name.trim().length > 0 ? person.name : `Whitelist #${n}`;
+  const label = person.name && person.name.trim().length > 0 ? person.name : `Allow list #${n}`;
   const hasImages = Boolean(person.images && person.images.length > 0);
 
   const headerContent = (
@@ -111,7 +112,7 @@ function WhitelistPersonSection({ batchId, person, onSelectImage }: WhitelistPer
       </div>
       {hasImages && (
         <span className={`chevron ${open ? "open" : ""}`} aria-hidden="true">
-          ▾
+          <CaretDown aria-hidden />
         </span>
       )}
     </>
@@ -159,7 +160,7 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
     ["Faces", report.totals.faces],
     ["Plates", report.totals.plates],
     ["Redacted", report.totals.redacted],
-    ["Whitelisted", report.totals.whitelisted],
+    ["Allow-listed", report.totals.whitelisted],
     ["Low confidence", report.totals.lowConfidence],
     ["Images needing review", report.reviewImages.length],
     ["Detections needing review", report.reviewDetections.length],
@@ -173,41 +174,46 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
         ))}
       </div>
 
-      {report.reviewImages.length > 0 ? (
-        <section className="review-report-list scroll-list" aria-label="Review candidates">
-          <Banner variant="warning">{report.reviewImages.length} image(s) need review.</Banner>
-          {report.reviewImages.map((image) => {
-            const notes =
-              image.reviewNotes && image.reviewNotes.length > 0
-                ? image.reviewNotes.join(" · ")
-                : image.reviewReasons.join(" · ");
+      <div className="report-column">
+        <h4>Needs review</h4>
+        {report.reviewImages.length > 0 ? (
+          <section className="review-report-list scroll-list" aria-label="Review candidates">
+            <Banner variant="warning">{report.reviewImages.length} image(s) need review.</Banner>
+            {report.reviewImages.map((image) => {
+              const notes =
+                image.reviewNotes && image.reviewNotes.length > 0
+                  ? image.reviewNotes.join(" · ")
+                  : image.reviewReasons.join(" · ");
 
-            return (
-              <ReportImageItem
-                key={image.jobId}
-                title={image.originalFilename}
-                detail={notes}
-                onSelect={onSelectImage ? () => onSelectImage(image.jobId) : undefined}
-              />
-            );
-          })}
-        </section>
-      ) : (
-        <Banner variant="success">No images need review.</Banner>
-      )}
-      <section className="report-section" aria-label="Whitelist people">
-        <h4>Whitelist people</h4>
-        {report.whitelistPeople && report.whitelistPeople.length > 0 ? (
-          report.whitelistPeople.map((person) => (
-            <WhitelistPersonSection
-              key={person.whitelistRef}
-              batchId={report.batchId}
-              person={person}
-              onSelectImage={onSelectImage}
-            />
-          ))
+              return (
+                <ReportImageItem
+                  key={image.jobId}
+                  title={image.originalFilename}
+                  detail={notes}
+                  onSelect={onSelectImage ? () => onSelectImage(image.jobId) : undefined}
+                />
+              );
+            })}
+          </section>
         ) : (
-          <div className="empty-inline">No whitelist detections were returned by the Engine.</div>
+          <Banner variant="success">No images need review.</Banner>
+        )}
+      </div>
+      <section className="report-section" aria-label="Allow list people">
+        <h4>Allow list people</h4>
+        {report.whitelistPeople && report.whitelistPeople.length > 0 ? (
+          <div className="scroll-list">
+            {report.whitelistPeople.map((person) => (
+              <WhitelistPersonSection
+                key={person.whitelistRef}
+                batchId={report.batchId}
+                person={person}
+                onSelectImage={onSelectImage}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="empty-inline">No allow list detections were returned by the Engine.</div>
         )}
       </section>
     </div>

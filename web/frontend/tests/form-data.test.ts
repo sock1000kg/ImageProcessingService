@@ -179,8 +179,8 @@ describe("Frontend Batch Upload and Validation", () => {
     expect(validateImageFiles(files)).toHaveLength(0);
   });
 
-  it("sorts failed, review, low-confidence, then remaining jobs", () => {
-    const jobs = ["normal", "review", "failed", "low"].map((id, index) => ({
+  it("sorts failed first, then larger flagged face before smaller, then low-confidence and remaining jobs", () => {
+    const jobs = ["normal", "review-small", "failed", "review-large", "low"].map((id, index) => ({
       id,
       originalFilename: `${id}.jpg`,
       status: id === "failed" ? "FAILED" : "COMPLETED",
@@ -193,13 +193,15 @@ describe("Frontend Batch Upload and Validation", () => {
       updatedAt: new Date(2026, 9, 30, 0, index).toISOString(),
     }));
     const report = [
-      { jobId: "review", needsReview: true, lowestRedactedConfidence: 0.7 },
+      { jobId: "review-small", needsReview: true, largestReviewFaceWidth: 20, lowestRedactedConfidence: 0.2 },
+      { jobId: "review-large", needsReview: true, largestReviewFaceWidth: 60, lowestRedactedConfidence: 0.7 },
       { jobId: "low", needsReview: false, lowestRedactedConfidence: 0.2 },
     ];
 
     expect(sortBatchJobs({ jobs } as never, report as never).map((job) => job.id)).toEqual([
       "failed",
-      "review",
+      "review-large",
+      "review-small",
       "low",
       "normal",
     ]);

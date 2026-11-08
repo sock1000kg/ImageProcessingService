@@ -19,7 +19,9 @@ export interface BatchImageListProps {
 }
 
 /**
- * Sorts batch jobs prioritising failed jobs first, then review candidates sorted by lowest confidence.
+ * Sorts batch jobs prioritising failed jobs first, then review candidates (similarity near whitelist
+ * threshold first, then largest flagged face width descending with null last, then lowest redacted confidence),
+ * followed by non-review jobs.
  */
 export function sortBatchJobs(batch: Batch, report: ReportImage[]): Job[] {
   const reportByJob = new Map(report.map((image) => [image.jobId, image]));
@@ -34,13 +36,45 @@ export function sortBatchJobs(batch: Batch, report: ReportImage[]): Job[] {
     const failed = Number(b.status === "FAILED") - Number(a.status === "FAILED");
     if (failed !== 0) return failed;
 
-    const review = Number(needsReview(b)) - Number(needsReview(a));
-    if (review !== 0) return review;
+    const reviewA = needsReview(a);
+    const reviewB = needsReview(b);
+    if (reviewA !== reviewB) {
+      return Number(reviewB) - Number(reviewA);
+    }
+
+    if (reviewA && reviewB) {
+      const imgA = reportByJob.get(a.id);
+      const imgB = reportByJob.get(b.id);
+
+      const simA = imgA?.reviewReasons?.includes("Similarity near whitelist threshold") ? 1 : 0;
+      const simB = imgB?.reviewReasons?.includes("Similarity near whitelist threshold") ? 1 : 0;
+      if (simA !== simB) {
+        return simB - simA;
+      }
+
+      const widthA = imgA?.largestReviewFaceWidth ?? null;
+      const widthB = imgB?.largestReviewFaceWidth ?? null;
+      if (widthA !== null && widthB !== null) {
+        if (widthA !== widthB) {
+          return widthB - widthA;
+        }
+      } else if (widthA !== null) {
+        return -1;
+      } else if (widthB !== null) {
+        return 1;
+      }
+    }
 
     const confidence = reviewRank(a) - reviewRank(b);
     if (confidence !== 0) return confidence;
 
-    return a.createdAt.localeCompare(b.createdAt);
+    const createdCmp = a.createdAt.localeCompare(b.createdAt);
+    if (createdCmp !== 0) return createdCmp;
+
+    const filenameCmp = a.originalFilename.localeCompare(b.originalFilename);
+    if (filenameCmp !== 0) return filenameCmp;
+
+    return a.id.localeCompare(b.id);
   });
 }
 

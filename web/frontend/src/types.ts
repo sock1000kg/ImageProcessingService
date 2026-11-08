@@ -55,6 +55,7 @@ export type ReportImage = {
   reviewReasons: ReviewReason[];
   reviewNotes?: string[];
   lowestRedactedConfidence: number | null;
+  largestReviewFaceWidth: number | null;
   reviewDetections: Detection[];
   model: string | null;
   processingTimeMs: number | null;

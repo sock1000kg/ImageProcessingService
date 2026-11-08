@@ -49,7 +49,7 @@ describe("Command Builder and Extension Mapping (§2A & §5)", () => {
         },
         output: { quality: "high" },
         confidenceThresholds: { face: 0.17, plate: 0.11 },
-        reviewThreshold: 0.35,
+        reviewThreshold: 0.25,
       },
     });
   });
@@ -88,7 +88,7 @@ describe("Command Builder and Extension Mapping (§2A & §5)", () => {
         },
         output: { quality: "max" },
         confidenceThresholds: { face: 0.17, plate: 0.11 },
-        reviewThreshold: 0.35,
+        reviewThreshold: 0.25,
         whitelist: {
           faces: [
             { bucket: "uploads", key: "batch-456/whitelist/face-1.jpg" },

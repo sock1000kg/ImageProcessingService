@@ -34,7 +34,7 @@ spec:
               containerPort: 3000
           resources:
             requests:
-              cpu: 100m
+              cpu: 500m
               memory: 128Mi
             limits:
               cpu: "1"
@@ -117,6 +117,12 @@ spec:
             - name: COOKIE_SECURE
               value: "true"
             # Requests arrive through cloudflared + Traefik; Cloudflare sets the real client IP here.
+            - name: RATE_LIMIT_MULTIPLIER
+              value: "1"
+            - name: TRANSFER_RATE_LIMIT_MULTIPLIER
+              value: "1"
+            - name: BATCH_MAX_FILES
+              value: "1000"
             - name: CLIENT_IP_HEADER
               value: cf-connecting-ip
       volumes:

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { X } from "@phosphor-icons/react";
 import { getFileIdentity, getFilePath } from "./file-selection";
 import { formatBytes } from "../utils/format";
+import { useInView } from "../hooks/useInView";
 
 export interface FilePreviewListProps {
   files: File[];
@@ -24,16 +25,31 @@ export interface FilePreviewListProps {
 
 const formatSize = formatBytes;
 
+/**
+ * Renders an image thumbnail only when the item is near or in the viewport.
+ * Revokes the object URL as soon as the row scrolls away to minimize memory usage.
+ */
 function FileThumbnail({ file }: { file: File }) {
+  const { ref, inView } = useInView<HTMLDivElement>();
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    const objectUrl = URL.createObjectURL(file);
-    setUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [file]);
+    if (inView) {
+      const objectUrl = URL.createObjectURL(file);
+      setUrl(objectUrl);
+      return () => {
+        URL.revokeObjectURL(objectUrl);
+        setUrl(null);
+      };
+    }
+    setUrl(null);
+  }, [file, inView]);
 
-  return <img src={url ?? undefined} alt="" />;
+  return (
+    <div ref={ref} className="thumbnail-frame">
+      {inView && url ? <img src={url} alt="" decoding="async" /> : <div className="thumbnail-placeholder" />}
+    </div>
+  );
 }
 
 /**

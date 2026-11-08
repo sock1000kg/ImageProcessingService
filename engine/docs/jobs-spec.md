@@ -35,7 +35,7 @@ Tác vụ nhận một file ảnh từ MinIO, sử dụng YOLOv8 để nhận di
 | **`redaction.strength`** | `int` | `25` (blur), `12` (pixelate) | Bán kính làm mờ hoặc kích thước khối pixel. Bỏ qua nếu chọn `blackout`. |
 | **`redaction.padding`** | `float` (0.0 – 0.5) | `0.1` | Tỷ lệ nới rộng khung bao (`box`) để đảm bảo che kín viền mặt/biển số (cắt trong biên ảnh). |
 | **`confidenceThresholds`** | `dict` | `{"face": 0.17, "plate": 0.11}` | Ngưỡng tin cậy tối thiểu cho từng lớp đối tượng; dưới ngưỡng này sẽ bị bỏ qua. |
-| **`reviewThreshold`** | `float` (0.0 – 1.0) | `0.35` | Ngưỡng đánh giá rủi ro; phát hiện có confidence < `reviewThreshold` vẫn được che nhưng đánh dấu `lowConfidence: true`. |
+| **`reviewThreshold`** | `float` (0.0 – 1.0) | `0.25` | Ngưỡng đánh giá rủi ro; phát hiện có confidence < `reviewThreshold` vẫn được che nhưng đánh dấu `lowConfidence: true`. |
 | **`whitelist.faces`** | `list[object]` | `[]` *(tuỳ chọn)* | Danh sách các ảnh chân dung mẫu `{bucket, key}` của chủ thể/người quen cần giữ lại. |
 | **`whitelist.similarityThreshold`**| `float` (0.0 – 1.0) | `0.60` | Ngưỡng tương đồng Cosine tối thiểu để xem là cùng 1 người. Ưu tiên tránh nhận nhầm người lạ (phân vân thì che). |
 
@@ -61,7 +61,7 @@ Tác vụ nhận một file ảnh từ MinIO, sử dụng YOLOv8 để nhận di
       "padding": 0.1
     },
     "confidenceThresholds": { "face": 0.17, "plate": 0.11 },
-    "reviewThreshold": 0.35,
+    "reviewThreshold": 0.25,
     "whitelist": {
       "faces": [
         {

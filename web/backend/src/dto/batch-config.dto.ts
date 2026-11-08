@@ -25,7 +25,7 @@ export const rawBatchConfigSchema = z.object({
   format: outputFormatSchema.default("original"),
   faceConfidenceThreshold: z.number().min(0).max(1).default(0.17),
   plateConfidenceThreshold: z.number().min(0).max(1).default(0.11),
-  reviewThreshold: z.number().min(0).max(1).default(0.35),
+  reviewThreshold: z.number().min(0).max(1).default(0.25),
   similarityThreshold: z.number().min(0).max(1).default(0.45),
 });
 
@@ -38,7 +38,7 @@ export const batchConfigSchema = z.object({
   format: outputFormatSchema,
   faceConfidenceThreshold: z.number().min(0).max(1).default(0.17),
   plateConfidenceThreshold: z.number().min(0).max(1).default(0.11),
-  reviewThreshold: z.number().min(0).max(1).default(0.35),
+  reviewThreshold: z.number().min(0).max(1).default(0.25),
   similarityThreshold: z.number().min(0).max(1).default(0.45),
 });
 

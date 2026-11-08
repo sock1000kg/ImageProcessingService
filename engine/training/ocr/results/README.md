@@ -49,8 +49,9 @@ What each step taught us:
 3. Repeated digits close together merge when the crop is squeezed to the recogniser's input height (`43A-444.44` read as
    `43A444`). 1.3× fixes it; more starts misreading other characters (`71A` as `Z1A`), and padding hurts.
 4. The method holds on a second dataset. One-line plates are nearly solved (97.9%); two-line motorbike plates are the
-   weak spot (86.6%). About a quarter of those misses are label errors (`59-T1 221.89` labelled `59T12219`); the rest
-   are mostly letter-digit swaps in the top line (B/8, D/0, Z/2, S/6, L/4).
+   weak spot (86.6%). About a quarter of those misses are mistakes in the dataset's own label for that plate, where
+   RapidOCR actually read it right (`59-T1 221.89` labelled `59T12219`, a digit missing). The rest are RapidOCR
+   misreads, mostly letter-digit swaps in the top line (B/8, D/0, Z/2, S/6, L/4).
 5. The crops are tight, so the gap is near the middle anyway, and the remaining misses are misread characters, not bad
    cuts.
 

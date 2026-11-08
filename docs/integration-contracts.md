@@ -100,7 +100,7 @@ Cùng `params` như `image-redact` (`redaction`, `output.quality` → CRF theo b
 * Whitelist so theo **track** (embedding của track, không phải từng khung).
 * Tiến độ: event `PROCESSING` với `progress` = % số khung đã xử lý, tối đa ~1 event/2 giây.
 
-### C. `image-render` (subject `jobs.image`, Phase 2 Could, đề xuất, chờ Engine xác nhận)
+### C. `image-render` (subject `jobs.image`, Phase 2 Should, đề xuất, chờ Engine xác nhận)
 Che lại một ảnh theo **danh sách box có sẵn**, không chạy model. Dùng cho nút "Sửa ảnh" của Web: người dùng bật/tắt box, vẽ thêm box, đổi style/độ mạnh. Mỗi lần sửa là một job mới (`jobId` mới, kết quả ở key mới theo mục 5), ảnh kết quả cũ giữ nguyên tới khi Backend xoá.
 ```json
 {

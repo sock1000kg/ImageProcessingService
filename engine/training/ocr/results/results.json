@@ -1,0 +1,70 @@
+{
+ "trungdinh-val": {
+  "plates": 536,
+  "two_line": 440,
+  "methods": {
+   "RapidOCR, full pipeline": {
+    "exact": 0.6586,
+    "exact_one_line": 0.0521,
+    "exact_two_line": 0.7909,
+    "char_error_rate": 0.1434,
+    "median_seconds": 0.4013
+   },
+   "Recognition only, whole crop": {
+    "exact": 0.1754,
+    "exact_one_line": 0.9792,
+    "exact_two_line": 0.0,
+    "char_error_rate": 0.5315,
+    "median_seconds": 0.0171
+   },
+   "Recognition only, whole or split": {
+    "exact": 0.8806,
+    "exact_one_line": 0.9792,
+    "exact_two_line": 0.8591,
+    "char_error_rate": 0.0164,
+    "median_seconds": 0.0629
+   },
+   "Recognition only, whole or split, widened 1.3x": {
+    "exact": 0.8862,
+    "exact_one_line": 0.9792,
+    "exact_two_line": 0.8659,
+    "char_error_rate": 0.0172,
+    "median_seconds": 0.069
+   }
+  }
+ },
+ "uet-handread": {
+  "plates": 80,
+  "two_line": 16,
+  "methods": {
+   "RapidOCR, full pipeline": {
+    "exact": 0.5375,
+    "exact_one_line": 0.4375,
+    "exact_two_line": 0.9375,
+    "char_error_rate": 0.1676,
+    "median_seconds": 0.7574
+   },
+   "Recognition only, whole crop": {
+    "exact": 0.75,
+    "exact_one_line": 0.9219,
+    "exact_two_line": 0.0625,
+    "char_error_rate": 0.1031,
+    "median_seconds": 0.0173
+   },
+   "Recognition only, whole or split": {
+    "exact": 0.925,
+    "exact_one_line": 0.9219,
+    "exact_two_line": 0.9375,
+    "char_error_rate": 0.0172,
+    "median_seconds": 0.0552
+   },
+   "Recognition only, whole or split, widened 1.3x": {
+    "exact": 1.0,
+    "exact_one_line": 1.0,
+    "exact_two_line": 1.0,
+    "char_error_rate": 0.0,
+    "median_seconds": 0.0589
+   }
+  }
+ }
+}

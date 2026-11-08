@@ -8,7 +8,13 @@ import numpy as np
 import cv2
 from PIL import Image
 
-from .base import BaseProcessor, parse_confidence_thresholds, DEFAULT_REVIEW_THRESHOLD
+from .base import (
+    BaseProcessor,
+    parse_confidence_thresholds,
+    DEFAULT_REVIEW_THRESHOLD,
+    DEFAULT_REDACTION_STRENGTHS,
+    apply_redaction_style,
+)
 from .face_embedding import FaceEmbedder
 from .whitelist import WhitelistManager
 
@@ -89,29 +95,9 @@ class ImageRedactProcessor(BaseProcessor):
         return self.whitelist_manager
 
     @staticmethod
-    def _apply_redaction_style(roi: np.ndarray, style: str, strength: int) -> np.ndarray:
+    def _apply_redaction_style(roi: np.ndarray, style: str, strength: Optional[int] = None) -> np.ndarray:
         """Apply blur, pixelate, or blackout to a single region of interest."""
-        h, w = roi.shape[:2]
-        if h <= 0 or w <= 0:
-            return roi
-
-        if style == "blackout":
-            return np.zeros_like(roi)
-
-        elif style == "pixelate":
-            block_size = max(1, int(strength))
-            small_w = max(1, w // block_size)
-            small_h = max(1, h // block_size)
-            # Downscale using linear interpolation, then upscale using nearest neighbor (mosaic)
-            small = cv2.resize(roi, (small_w, small_h), interpolation=cv2.INTER_LINEAR)
-            return cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
-
-        else:  # Default: Gaussian blur
-            ksize = int(strength)
-            if ksize % 2 == 0:
-                ksize += 1
-            ksize = max(3, ksize)
-            return cv2.GaussianBlur(roi, (ksize, ksize), 0)
+        return apply_redaction_style(roi, style, strength)
 
     def process(
         self,
@@ -162,7 +148,7 @@ class ImageRedactProcessor(BaseProcessor):
         if style not in ("blur", "pixelate", "blackout"):
             style = "blur"
 
-        default_strength = 25 if style == "blur" else 12
+        default_strength = DEFAULT_REDACTION_STRENGTHS.get(style, 15)
         strength = int(redaction_cfg.get("strength", default_strength))
 
         padding = float(redaction_cfg.get("padding", 0.1))

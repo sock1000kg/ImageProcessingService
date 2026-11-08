@@ -29,7 +29,13 @@ from typing import Tuple, Dict, Any, Optional, List, Callable
 import numpy as np
 import cv2
 
-from .base import BaseProcessor, parse_confidence_thresholds, DEFAULT_REVIEW_THRESHOLD
+from .base import (
+    BaseProcessor,
+    parse_confidence_thresholds,
+    DEFAULT_REVIEW_THRESHOLD,
+    DEFAULT_REDACTION_STRENGTHS,
+    apply_redaction_style,
+)
 from .image_redact import InvalidInputFileError
 from .face_embedding import FaceEmbedder
 from .whitelist import WhitelistManager
@@ -687,33 +693,9 @@ class VideoRedactProcessor(BaseProcessor):
         return self.whitelist_manager
 
     @staticmethod
-    def _apply_redaction_style(roi: np.ndarray, style: str, strength: int) -> np.ndarray:
+    def _apply_redaction_style(roi: np.ndarray, style: str, strength: Optional[int] = None) -> np.ndarray:
         """Apply blur, pixelate, or blackout to a single region of interest."""
-        h, w = roi.shape[:2]
-        if h <= 0 or w <= 0:
-            return roi
-
-        if style == "blackout":
-            return np.zeros_like(roi)
-
-        elif style == "pixelate":
-            # Target mosaic blocks proportional to ROI
-            block_size = max(6, int(min(w, h) * (float(strength) / 100.0)))
-            down_w = max(1, w // block_size)
-            down_h = max(1, h // block_size)
-            small = cv2.resize(roi, (down_w, down_h), interpolation=cv2.INTER_LINEAR)
-            return cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
-
-        else:  # blur
-            # Adaptive Gaussian blur based on ROI dimensions and relative strength
-            rel_strength = max(0.5, float(strength) / 25.0)
-            ksize = int(min(w, h) * 0.50 * rel_strength)
-            if ksize % 2 == 0:
-                ksize += 1
-            max_k = max(3, (min(w, h) // 2) * 2 - 1)
-            ksize = max(15, min(max_k, ksize))
-            sigma = ksize / 3.0
-            return cv2.GaussianBlur(roi, (ksize, ksize), sigma)
+        return apply_redaction_style(roi, style, strength)
 
     def _evaluate_face_whitelist(
         self,
@@ -831,7 +813,7 @@ class VideoRedactProcessor(BaseProcessor):
         if style not in ("blur", "pixelate", "blackout"):
             style = "blur"
 
-        default_strength = 25 if style == "blur" else 12
+        default_strength = DEFAULT_REDACTION_STRENGTHS.get(style, 15)
         strength = int(redaction_cfg.get("strength", default_strength))
         padding = max(0.0, min(0.5, float(redaction_cfg.get("padding", 0.1))))
 

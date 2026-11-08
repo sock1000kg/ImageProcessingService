@@ -46,7 +46,7 @@ Tất cả stream, consumer và bucket do **Infra tạo sẵn** (xem mục 4). A
 | :--- | :--- | :--- | :--- |
 | `targets` | `["face","plate"]` | cả hai | Loại đối tượng cần che. |
 | `style` | `"blur"` \| `"pixelate"` \| `"blackout"` | `"blur"` | Gaussian blur / mosaic / băng đen. |
-| `strength` | số nguyên | blur: 15, pixelate: 8 | **Tương đối theo kích thước box** (sau khi nới `padding`), để mặt to hay nhỏ đều bị che như nhau. blur: bán kính Gaussian = `strength`% chiều rộng box (1–50). pixelate: số ô theo chiều rộng box (3–32, càng nhỏ càng thô). Bỏ qua với `blackout`. *(Đề xuất, chờ Engine xác nhận. Trước đây là số px cố định: pixelate 12px trên mặt 600px còn ~50×50 ô, vẫn nhận ra người.)* |
+| `strength` | số nguyên | blur: 15, pixelate: 8 | **Tương đối theo kích thước box** (sau khi nới `padding`), để mặt to hay nhỏ đều bị che như nhau. blur: bán kính Gaussian = `strength`% chiều rộng box (1–50). pixelate: số ô theo chiều rộng box (3–32, càng nhỏ càng thô). Bỏ qua với `blackout`. |
 | `padding` | số thực 0–0.5 | 0.1 | Nới rộng box theo tỉ lệ để che kín mép. |
 
 ### Chất lượng đầu ra (`params.output`, dùng chung cho mọi loại)

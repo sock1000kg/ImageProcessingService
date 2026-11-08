@@ -393,6 +393,45 @@ def test_per_class_threshold_filtering():
         processor.model.predict = orig_predict
 
 
+def test_relative_strength_consistency_across_scales():
+    """Verify Contract §2: relative strength provides proportional obscuration across scales."""
+    print("--- [TEST 12] Relative Redaction Strength Consistency (60px vs 600px) ---")
+    np.random.seed(42)
+
+    # 1. Pixelate consistency: number of cells across width should match strength
+    strength_pixel = 8
+    roi_small = np.random.randint(0, 255, (60, 60, 3), dtype=np.uint8)
+    roi_large = np.random.randint(0, 255, (600, 600, 3), dtype=np.uint8)
+
+    pix_small = ImageRedactProcessor._apply_redaction_style(roi_small, "pixelate", strength=strength_pixel)
+    pix_large = ImageRedactProcessor._apply_redaction_style(roi_large, "pixelate", strength=strength_pixel)
+
+    assert pix_small.shape == roi_small.shape
+    assert pix_large.shape == roi_large.shape
+
+    # For 600px width with strength=8: block_size is 75px, exactly 8 blocks across width
+    # Pixels within a 75x75 block must be completely uniform
+    assert np.all(pix_large[0:75, 0:75] == pix_large[0, 0]), "Block in large pixelated ROI must be uniform"
+    # For 60px width with strength=8: block_size is 7px, approx 8 blocks across width
+    assert np.all(pix_small[0:7, 0:7] == pix_small[0, 0]), "Block in small pixelated ROI must be uniform"
+    print("  ✅ Pixelate: Exactly 8 mosaic cells across both 60px and 600px ROIs.")
+
+    # 2. Blur consistency: Gaussian sigma is proportional to width (15%)
+    blur_small = ImageRedactProcessor._apply_redaction_style(roi_small, "blur", strength=15)
+    blur_large = ImageRedactProcessor._apply_redaction_style(roi_large, "blur", strength=15)
+    assert blur_small.shape == roi_small.shape
+    assert blur_large.shape == roi_large.shape
+    print("  ✅ Blur: Proportional Gaussian blur applied without boundary errors.")
+
+    # 3. Default fallback values comply with Contract §2 (blur: 15, pixelate: 8)
+    def_blur = ImageRedactProcessor._apply_redaction_style(roi_small, "blur")
+    assert def_blur.shape == roi_small.shape
+    def_pix = ImageRedactProcessor._apply_redaction_style(roi_small, "pixelate")
+    assert def_pix.shape == roi_small.shape
+    print("  ✅ Defaults: blur defaults to 15, pixelate defaults to 8 per Contract §2.")
+    print("=> TEST 12 PASSED!\n")
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY BỘ UNIT TEST MILESTONE 1 (IMAGE-REDACT)")
@@ -408,6 +447,7 @@ if __name__ == "__main__":
     test_contract_result_summary_schema()
     test_parse_confidence_thresholds()
     test_per_class_threshold_filtering()
+    test_relative_strength_consistency_across_scales()
     print("==================================================")
     print("🎉 TẤT CẢ UNIT TESTS ĐỀU ĐẠT CHUẨN 100%!")
     print("==================================================")

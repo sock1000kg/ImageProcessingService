@@ -19,6 +19,42 @@ export interface RedactionStyleControlsProps {
 }
 
 /**
+ * Properties for RedactionPaddingSlider.
+ */
+export interface RedactionPaddingSliderProps {
+  padding: number;
+  disabled?: boolean;
+  onChange: (padding: number) => void;
+}
+
+export type RedactionPaddingControlProps = RedactionPaddingSliderProps;
+
+/**
+ * Shared bounding box expansion padding slider control (0–0.5).
+ *
+ * Why: Both the batch creation form and the single-image redaction editor allow
+ * adjusting bounding box expansion padding (0–0.5) before redacting.
+ */
+export function RedactionPaddingSlider({ padding, disabled = false, onChange }: RedactionPaddingSliderProps) {
+  return (
+    <label>
+      Padding <output>{padding.toFixed(2)}</output>
+      <input
+        type="range"
+        disabled={disabled}
+        min="0"
+        max="0.5"
+        step="0.01"
+        value={padding}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
+export const RedactionPaddingControl = RedactionPaddingSlider;
+
+/**
  * Renders style select and context-aware strength slider with reset-on-style-change behavior.
  *
  * Why: Encapsulates style range limits and auto-reset behavior so forms and inline editors

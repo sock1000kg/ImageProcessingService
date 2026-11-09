@@ -14,7 +14,13 @@ import { drawRedaction } from "../redaction-draw";
 import { DetectionList } from "./DetectionList";
 import { boxToPercent, ImageStage, stageCoordsToPixelBox } from "./ui/ImageStage";
 import { StatusBadge } from "./ui/StatusBadge";
-import { REDACTION_STRENGTH_RANGES, RedactionStyle, RedactionStyleControls } from "./RedactionStyleControls";
+import { DEFAULT_FORM_CONFIG } from "./RedactionConfigForm";
+import {
+  REDACTION_STRENGTH_RANGES,
+  RedactionPaddingSlider,
+  RedactionStyle,
+  RedactionStyleControls,
+} from "./RedactionStyleControls";
 
 export interface ImageResultViewerProps {
   job: Job;
@@ -98,6 +104,7 @@ export function ImageResultViewer({
   const [redactIndices, setRedactIndices] = useState<Set<number>>(new Set());
   const [editStyle, setEditStyle] = useState<RedactionStyle>("blur");
   const [editStrength, setEditStrength] = useState<number>(REDACTION_STRENGTH_RANGES.blur.default);
+  const [editPadding, setEditPadding] = useState<number>(DEFAULT_FORM_CONFIG.padding);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [dragCurrent, setDragCurrent] = useState<{ x: number; y: number } | null>(null);
   const [isDraggingSlider, setIsDraggingSlider] = useState(false);
@@ -131,7 +138,12 @@ export function ImageResultViewer({
       typeof batchConfig?.strength === "number" && !Number.isNaN(batchConfig.strength)
         ? Math.min(range.max, Math.max(range.min, Math.round(batchConfig.strength)))
         : range.default;
-    return { initialIndices, style, strength };
+    // Why: Clamp or fallback padding according to Engine Contract §2 bounds (0 to 0.5)
+    const padding =
+      typeof batchConfig?.padding === "number" && batchConfig.padding >= 0 && batchConfig.padding <= 0.5
+        ? batchConfig.padding
+        : DEFAULT_FORM_CONFIG.padding;
+    return { initialIndices, style, strength, padding };
   }, [detections, batchConfig]);
 
   const handleStartEdit = () => {
@@ -139,6 +151,7 @@ export function ImageResultViewer({
     setAddedBoxes([]);
     setEditStyle(initialValues.style);
     setEditStrength(initialValues.strength);
+    setEditPadding(initialValues.padding);
     setIsEditing(true);
   };
 
@@ -151,18 +164,20 @@ export function ImageResultViewer({
     setRedactIndices(new Set(initialValues.initialIndices));
     setEditStyle(initialValues.style);
     setEditStrength(initialValues.strength);
+    setEditPadding(initialValues.padding);
   };
 
   const hasChanges = useMemo(() => {
     if (addedBoxes.length > 0) return true;
     if (editStyle !== initialValues.style) return true;
     if (editStyle !== "blackout" && editStrength !== initialValues.strength) return true;
+    if (Math.abs(editPadding - initialValues.padding) > 0.001) return true;
     if (redactIndices.size !== initialValues.initialIndices.size) return true;
     for (const idx of initialValues.initialIndices) {
       if (!redactIndices.has(idx)) return true;
     }
     return false;
-  }, [addedBoxes, editStyle, editStrength, redactIndices, initialValues]);
+  }, [addedBoxes, editStyle, editStrength, editPadding, redactIndices, initialValues]);
 
   const handleToggleRedact = (index: number) => {
     setRedactIndices((prev) => {
@@ -203,6 +218,7 @@ export function ImageResultViewer({
         addedBoxes,
         style: editStyle,
         strength: editStyle !== "blackout" ? editStrength : undefined,
+        padding: editPadding,
       };
       const res = await editJob(job.id, payload);
       setIsEditing(false);
@@ -268,11 +284,6 @@ export function ImageResultViewer({
       }
     }
 
-    const effectivePadding =
-      typeof batchConfig?.padding === "number" && batchConfig.padding >= 0 && batchConfig.padding <= 0.5
-        ? batchConfig.padding
-        : 0.1;
-
     // Apply checked detections
     detections.forEach((d, idx) => {
       if (redactIndices.has(idx) && d.box && d.box.length >= 4) {
@@ -283,7 +294,7 @@ export function ImageResultViewer({
           width: (x2 - x1) * scale,
           height: (y2 - y1) * scale,
         };
-        drawRedaction(context, box, editStyle, editStrength, effectivePadding);
+        drawRedaction(context, box, editStyle, editStrength, editPadding);
       }
     });
 
@@ -296,9 +307,9 @@ export function ImageResultViewer({
         width: (x2 - x1) * scale,
         height: (y2 - y1) * scale,
       };
-      drawRedaction(context, box, editStyle, editStrength, effectivePadding);
+      drawRedaction(context, box, editStyle, editStrength, editPadding);
     }
-  }, [isEditing, effectiveSize, batchConfig?.padding, detections, redactIndices, addedBoxes, editStyle, editStrength]);
+  }, [isEditing, effectiveSize, editPadding, detections, redactIndices, addedBoxes, editStyle, editStrength]);
 
   useEffect(() => {
     if (!originalUrl) return;
@@ -439,6 +450,13 @@ export function ImageResultViewer({
             onChange={(style, strength) => {
               setEditStyle(style);
               setEditStrength(strength);
+            }}
+          />
+          <RedactionPaddingSlider
+            padding={editPadding}
+            disabled={isSubmitting}
+            onChange={(padding) => {
+              setEditPadding(padding);
             }}
           />
         </div>

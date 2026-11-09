@@ -489,4 +489,131 @@ describe("Task 93: 'Sửa ảnh' Redaction Editor (Frontend)", () => {
       expect(applyBtn.disabled).toBe(false);
     });
   });
+
+  describe("9. Padding slider in redaction editor (Task 95)", () => {
+    it("changing the padding slider and applying sends the new padding in the edit request", async () => {
+      const editSpy = vi.spyOn(api, "editJob").mockResolvedValue({
+        job: { ...mockCompletedJob, id: "job-new-padding", status: "QUEUED" },
+      });
+
+      render(
+        <ImageResultViewer
+          job={mockCompletedJob}
+          detections={mockDetections}
+          reviewReasons={[]}
+          batchConfig={{ style: "blur", strength: 15, padding: 0.15 }}
+          onRetry={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /edit redaction/i }));
+
+      const paddingSlider = screen.getByLabelText(/padding/i, { selector: "input" }) as HTMLInputElement;
+      expect(paddingSlider.value).toBe("0.15");
+      expect(screen.getByText("0.15")).toBeDefined();
+
+      // Apply button starts disabled since nothing changed yet
+      const applyBtn = screen.getByRole("button", { name: /apply/i }) as HTMLButtonElement;
+      expect(applyBtn.disabled).toBe(true);
+
+      // Change padding slider to 0.35
+      fireEvent.change(paddingSlider, { target: { value: "0.35" } });
+      expect(paddingSlider.value).toBe("0.35");
+      expect(screen.getByText("0.35")).toBeDefined();
+      expect(applyBtn.disabled).toBe(false);
+
+      fireEvent.click(applyBtn);
+
+      await waitFor(() => {
+        expect(editSpy).toHaveBeenCalledTimes(1);
+      });
+
+      const calledPayload = editSpy.mock.calls[0][1];
+      expect(calledPayload.padding).toBe(0.35);
+      expect(calledPayload.style).toBe("blur");
+      expect(calledPayload.strength).toBe(15);
+    });
+
+    it("applying without touching padding sends the batch padding and behaves as before", async () => {
+      const editSpy = vi.spyOn(api, "editJob").mockResolvedValue({
+        job: { ...mockCompletedJob, id: "job-untouched-padding", status: "QUEUED" },
+      });
+
+      render(
+        <ImageResultViewer
+          job={mockCompletedJob}
+          detections={mockDetections}
+          reviewReasons={[]}
+          batchConfig={{ style: "blur", strength: 15, padding: 0.2 }}
+          onRetry={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /edit redaction/i }));
+
+      // Uncheck detection #1 to produce changes
+      fireEvent.click(screen.getByRole("checkbox", { name: /redact detection #1/i }));
+
+      const applyBtn = screen.getByRole("button", { name: /apply/i }) as HTMLButtonElement;
+      expect(applyBtn.disabled).toBe(false);
+
+      fireEvent.click(applyBtn);
+
+      await waitFor(() => {
+        expect(editSpy).toHaveBeenCalledTimes(1);
+      });
+
+      const calledPayload = editSpy.mock.calls[0][1];
+      expect(calledPayload.padding).toBe(0.2);
+      expect(calledPayload.redactIndices).toEqual([1]);
+    });
+
+    it("cancel resets padding slider back to initial value and discards edits", () => {
+      render(
+        <ImageResultViewer
+          job={mockCompletedJob}
+          detections={mockDetections}
+          reviewReasons={[]}
+          batchConfig={{ style: "blur", strength: 15, padding: 0.12 }}
+          onRetry={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /edit redaction/i }));
+
+      const paddingSlider = screen.getByLabelText(/padding/i, { selector: "input" }) as HTMLInputElement;
+      expect(paddingSlider.value).toBe("0.12");
+
+      fireEvent.change(paddingSlider, { target: { value: "0.45" } });
+      expect(paddingSlider.value).toBe("0.45");
+
+      // Cancel edit mode
+      fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+      // Re-enter edit mode and verify padding reset to initial 0.12
+      fireEvent.click(screen.getByRole("button", { name: /edit redaction/i }));
+      const resetSlider = screen.getByLabelText(/padding/i, { selector: "input" }) as HTMLInputElement;
+      expect(resetSlider.value).toBe("0.12");
+      const applyBtn = screen.getByRole("button", { name: /apply/i }) as HTMLButtonElement;
+      expect(applyBtn.disabled).toBe(true);
+    });
+
+    it("initialises padding to default 0.10 when batch padding is missing or outside 0-0.5", () => {
+      render(
+        <ImageResultViewer
+          job={mockCompletedJob}
+          detections={mockDetections}
+          reviewReasons={[]}
+          batchConfig={{ style: "blur", strength: 15, padding: 0.99 }}
+          onRetry={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /edit redaction/i }));
+
+      const paddingSlider = screen.getByLabelText(/padding/i, { selector: "input" }) as HTMLInputElement;
+      expect(paddingSlider.value).toBe("0.1");
+      expect(screen.getByText("0.10")).toBeDefined();
+    });
+  });
 });

@@ -4,12 +4,25 @@
 import { Dispatch, SetStateAction } from "react";
 import {
   REDACTION_STRENGTH_RANGES,
+  RedactionPaddingControl,
+  RedactionPaddingSlider,
   RedactionStyleControls,
+  type RedactionPaddingControlProps,
+  type RedactionPaddingSliderProps,
   type RedactionStyle,
   type RedactionStyleControlsProps,
 } from "./RedactionStyleControls";
 
-export { REDACTION_STRENGTH_RANGES, RedactionStyleControls, type RedactionStyle, type RedactionStyleControlsProps };
+export {
+  REDACTION_STRENGTH_RANGES,
+  RedactionPaddingControl,
+  RedactionPaddingSlider,
+  RedactionStyleControls,
+  type RedactionPaddingControlProps,
+  type RedactionPaddingSliderProps,
+  type RedactionStyle,
+  type RedactionStyleControlsProps,
+};
 
 export type FormConfig = {
   targets: string[];
@@ -165,17 +178,7 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
         }}
       />
 
-      <label>
-        Padding <output>{config.padding.toFixed(2)}</output>
-        <input
-          type="range"
-          min="0"
-          max="0.5"
-          step="0.01"
-          value={config.padding}
-          onChange={(event) => update("padding", Number(event.target.value))}
-        />
-      </label>
+      <RedactionPaddingSlider padding={config.padding} onChange={(padding) => update("padding", padding)} />
 
       <label>
         Output quality

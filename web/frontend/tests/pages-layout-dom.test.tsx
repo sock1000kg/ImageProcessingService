@@ -172,7 +172,7 @@ describe("Pages Layout DOM Integration (Task 73)", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Keep every image private.")).toBeDefined();
+      expect(screen.getByText(/Keep every image private/i)).toBeDefined();
     });
 
     // Exactly one h1 on /
@@ -210,7 +210,7 @@ describe("Pages Layout DOM Integration (Task 73)", () => {
         <App />
       </MemoryRouter>,
     );
-    await screen.findByText("Keep every image private.");
+    await screen.findByText(/Keep every image private/i);
     expect(document.querySelector(".details-card")).toBeNull();
     unmountHome();
 

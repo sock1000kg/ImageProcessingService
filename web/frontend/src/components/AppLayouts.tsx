@@ -47,7 +47,7 @@ function Topbar() {
         ? "Media library"
         : isBatch
           ? "Batch review"
-          : "Your privacy workspace";
+          : "Your workspace";
 
   const subtitle = isRerun
     ? "Rerun a batch with different configs"

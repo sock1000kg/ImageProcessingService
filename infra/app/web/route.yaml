@@ -10,8 +10,6 @@ spec:
       namespace: traefik
   rules:
     # Default route for the web application (frontend and API).
-    # The existing minio-results route (/results/) stays as it is and wins by
-    # longest-prefix match under Gateway API route matching rules.
     - matches:
         - path:
             type: PathPrefix

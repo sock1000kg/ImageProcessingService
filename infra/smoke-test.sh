@@ -73,6 +73,7 @@ done
 
 NS="imgproc"
 HOST="imgproc.sock1000kg.io.vn"
+BLOB_HOST="blob-imgproc.sock1000kg.io.vn"
 
 TEST_UUID="$(date +%s)-$$"
 TEST_KEY="smoke-$TEST_UUID/hello.txt"
@@ -323,31 +324,43 @@ check_minio() {
 route_check() {
   local base_url="$1"
   local label="$2"
-  local tmp status body list_status web_status
-  web_status="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $HOST" "$base_url/health")"
+  local web_status blob_status list_status
+  local blob_url="$base_url"
+  local host_hdr_web=() host_hdr_blob=()
+
+  if [ "$label" = "in-cluster" ]; then
+    host_hdr_web=(-H "Host: $HOST")
+    host_hdr_blob=(-H "Host: $BLOB_HOST")
+  else
+    blob_url="https://$BLOB_HOST"
+  fi
+
+  web_status="$(curl -s -o /dev/null -w '%{http_code}' "${host_hdr_web[@]}" "$base_url/health")"
   if [ "$web_status" = "200" ]; then
     pass "web route ($label): GET /health -> 200"
   else
     fail "web route ($label): GET /health -> $web_status (expected 200)"
   fi
-  tmp="$(mktemp)"
-  status="$(curl -s -o "$tmp" -w '%{http_code}' -H "Host: $HOST" "$base_url/results/$TEST_KEY")"
-  body="$(cat "$tmp")"
-  if [ "$status" = "200" ] && [ "$body" = "$TEST_BODY" ]; then
-    pass "results route ($label): GET /results/$TEST_KEY -> 200 with expected body"
-  else
-    fail "results route ($label): GET /results/$TEST_KEY -> $status body='$body'"
-  fi
-  list_status="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $HOST" "$base_url/results/")"
-  case "$list_status" in
+
+  blob_status="$(curl -s -o /dev/null -w '%{http_code}' "${host_hdr_blob[@]}" "$blob_url/results/$TEST_KEY")"
+  case "$blob_status" in
     403|404)
-      pass "results route ($label): anonymous listing denied ($list_status)"
+      pass "blob route ($label): anonymous GET of a known key on the blob host is denied ($blob_status)"
       ;;
     *)
-      fail "results route ($label): anonymous listing returned $list_status (expected 403/404)"
+      fail "blob route ($label): anonymous GET of a known key on the blob host returned $blob_status (expected 403 or 404)"
       ;;
   esac
-  rm -f "$tmp"
+
+  list_status="$(curl -s -o /dev/null -w '%{http_code}' "${host_hdr_blob[@]}" "$blob_url/results/")"
+  case "$list_status" in
+    403|404)
+      pass "blob route ($label): anonymous listing denied ($list_status)"
+      ;;
+    *)
+      fail "blob route ($label): anonymous listing returned $list_status (expected 403/404)"
+      ;;
+  esac
 }
 
 check_route_incluster() {
@@ -368,7 +381,7 @@ check_route_incluster() {
   done
   if [ "$status" -ne 0 ]; then
     kill "$pf_pid" 2>/dev/null
-    fail "results route (in-cluster): could not reach traefik via port-forward (see /tmp/smoke-pf-$NS.log)"
+    fail "traefik route (in-cluster): could not reach traefik via port-forward (see /tmp/smoke-pf-$NS.log)"
     return
   fi
   route_check "http://localhost:$port" "in-cluster"

@@ -386,6 +386,8 @@ The report keeps Engine-provided review signals authoritative. An image is marke
 
 The batch page and media library provide **Download zip**, which requests a short-lived signed download token via `POST /api/batches/:id/download-token` (60 s TTL) and streams the entire batch of completed results as an uncompressed zip archive (`GET /api/batches/:id/download.zip?token=…`). The archive is streamed directly from MinIO into the response without buffering in server memory or writing temporary files, deduplicating names inside the archive (`name (2).jpg`), listing any missing results in `MISSING.txt`, and aborting the stream cleanly if the client disconnects. The local PreviewCanvas draws on a bundled street photo (`frontend/public/preview-sample.jpg`: Jorge Láscar, CC BY 2.0, cropped; credited under the preview) with hand-marked face and plate boxes. It is never uploaded.
 
+The result viewer provides an **Edit redaction** mode on completed images: users can toggle individual detection boxes on or off, drag on the stage to draw custom bounding boxes, adjust style and strength, and apply edits to enqueue a re-render job without re-running AI detection.
+
 ## Error response format
 
 API errors use `ErrorDTO`:

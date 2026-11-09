@@ -34,6 +34,57 @@ export function boxToPercent(box: number[], naturalWidth: number, naturalHeight:
   return { left, top, width, height };
 }
 
+/**
+ * Converts percentage values (0-100) relative to naturalWidth and naturalHeight
+ * back into bounding box coordinates [x1, y1, x2, y2] in original image pixels.
+ *
+ * Why: Pure inverse of boxToPercent used to round-trip and convert percentage selections
+ * or pointer coordinates back into original image pixels.
+ */
+export function percentToBox(
+  percent: BoxPercent,
+  naturalWidth: number,
+  naturalHeight: number,
+): [number, number, number, number] {
+  if (naturalWidth <= 0 || naturalHeight <= 0) {
+    return [0, 0, 0, 0];
+  }
+  const x1 = Math.round((percent.left / 100) * naturalWidth);
+  const y1 = Math.round((percent.top / 100) * naturalHeight);
+  const x2 = Math.round(((percent.left + percent.width) / 100) * naturalWidth);
+  const y2 = Math.round(((percent.top + percent.height) / 100) * naturalHeight);
+  return [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)];
+}
+
+/**
+ * Converts pointer drag positions on the stage element into original-image bounding box coordinates.
+ *
+ * Why: Reuses the same effectiveSize and percentage projection logic as boxToPercent and percentToBox,
+ * ensuring seamless round trips regardless of viewport scale or aspect fit.
+ */
+export function stageCoordsToPixelBox(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  stageSize: { width: number; height: number },
+  naturalSize: { width: number; height: number },
+): [number, number, number, number] {
+  if (stageSize.width <= 0 || stageSize.height <= 0 || naturalSize.width <= 0 || naturalSize.height <= 0) {
+    return [0, 0, 0, 0];
+  }
+  const minX = Math.max(0, Math.min(start.x, end.x));
+  const maxX = Math.min(stageSize.width, Math.max(start.x, end.x));
+  const minY = Math.max(0, Math.min(start.y, end.y));
+  const maxY = Math.min(stageSize.height, Math.max(start.y, end.y));
+
+  const percent: BoxPercent = {
+    left: (minX / stageSize.width) * 100,
+    top: (minY / stageSize.height) * 100,
+    width: ((maxX - minX) / stageSize.width) * 100,
+    height: ((maxY - minY) / stageSize.height) * 100,
+  };
+  return percentToBox(percent, naturalSize.width, naturalSize.height);
+}
+
 export interface ImageStageProps {
   naturalWidth?: number;
   naturalHeight?: number;

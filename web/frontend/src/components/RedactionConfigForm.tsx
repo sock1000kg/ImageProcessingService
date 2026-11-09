@@ -2,6 +2,14 @@
  * Redaction configuration form for privacy targets, styles, padding, and advanced thresholds.
  */
 import { Dispatch, SetStateAction } from "react";
+import {
+  REDACTION_STRENGTH_RANGES,
+  RedactionStyleControls,
+  type RedactionStyle,
+  type RedactionStyleControlsProps,
+} from "./RedactionStyleControls";
+
+export { REDACTION_STRENGTH_RANGES, RedactionStyleControls, type RedactionStyle, type RedactionStyleControlsProps };
 
 export type FormConfig = {
   targets: string[];
@@ -15,15 +23,6 @@ export type FormConfig = {
   reviewThreshold: number;
   similarityThreshold: number;
 };
-
-/**
- * Redaction strength bounds and defaults mirroring Engine Contract §2 relative formulas.
- * Blur is 1-50% of box width (default 15); pixelate is 3-32 mosaic cells across box width (default 8).
- */
-export const REDACTION_STRENGTH_RANGES = {
-  blur: { min: 1, max: 50, default: 15 },
-  pixelate: { min: 3, max: 32, default: 8 },
-} as const;
 
 export const DEFAULT_FORM_CONFIG: FormConfig = {
   targets: ["face", "plate"],
@@ -158,43 +157,13 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
         </div>
       </div>
 
-      <label>
-        Redaction style
-        <select
-          value={config.style}
-          onChange={(event) => {
-            const style = event.target.value as FormConfig["style"];
-            update("style", style);
-            // Why: Reset strength to style-relative default when switching between blur and pixelate
-            if (style === "blur") update("strength", REDACTION_STRENGTH_RANGES.blur.default);
-            if (style === "pixelate") update("strength", REDACTION_STRENGTH_RANGES.pixelate.default);
-          }}
-        >
-          <option value="blur">Blur</option>
-          <option value="pixelate">Pixelate</option>
-          <option value="blackout">Blackout</option>
-        </select>
-      </label>
-
-      {config.style !== "blackout" && (
-        <label>
-          Strength{" "}
-          <output>
-            {config.style === "blur" ? `${config.strength}% of face/plate width` : `${config.strength} cells across`}
-          </output>
-          <input
-            type="range"
-            min={
-              config.style === "pixelate" ? REDACTION_STRENGTH_RANGES.pixelate.min : REDACTION_STRENGTH_RANGES.blur.min
-            }
-            max={
-              config.style === "pixelate" ? REDACTION_STRENGTH_RANGES.pixelate.max : REDACTION_STRENGTH_RANGES.blur.max
-            }
-            value={config.strength}
-            onChange={(event) => update("strength", Number(event.target.value))}
-          />
-        </label>
-      )}
+      <RedactionStyleControls
+        style={config.style}
+        strength={config.strength}
+        onChange={(style, strength) => {
+          setConfig((current) => ({ ...current, style, strength }));
+        }}
+      />
 
       <label>
         Padding <output>{config.padding.toFixed(2)}</output>

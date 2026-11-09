@@ -381,6 +381,30 @@ export function retryJob(id: string, options?: { acceptMissingFaces?: boolean })
 }
 
 /**
+ * Request payload for POST /api/jobs/:id/edit.
+ */
+export interface EditJobBody {
+  redactIndices: number[];
+  addedBoxes?: Array<{ box: [number, number, number, number] }>;
+  style?: "blur" | "pixelate" | "blackout";
+  strength?: number;
+  padding?: number;
+}
+
+/**
+ * Enqueues an edited re-render job replacing this completed job with modified boxes, style, or strength.
+ *
+ * Why: Allows users to tune redactions on a finished image without re-running AI detection.
+ */
+export function editJob(id: string, body: EditJobBody): Promise<{ job: Job }> {
+  return request(`/api/jobs/${id}/edit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
  * Lists user batches with pagination and whole-account usage statistics.
  */
 export function listBatches(params?: { limit?: number; cursor?: string }): Promise<BatchListResponse> {

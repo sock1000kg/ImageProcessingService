@@ -17,6 +17,7 @@ from .base import (
 )
 from .face_embedding import FaceEmbedder
 from .whitelist import WhitelistManager
+from .plate_ocr import PlateWhitelistManager
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class ImageRedactProcessor(BaseProcessor):
         imgsz: int = 1280,
         face_embedder: Optional[FaceEmbedder] = None,
         whitelist_manager: Optional[WhitelistManager] = None,
+        plate_whitelist_manager: Optional[PlateWhitelistManager] = None,
         storage_client: Optional[Any] = None,
     ):
         from ultralytics import YOLO
@@ -60,6 +62,7 @@ class ImageRedactProcessor(BaseProcessor):
         self.face_embedding_model = face_embedding_model
         self.face_embedder = face_embedder
         self.whitelist_manager = whitelist_manager
+        self.plate_whitelist_manager = plate_whitelist_manager
         self.storage_client = storage_client
 
         # Search for model weights locally
@@ -93,6 +96,12 @@ class ImageRedactProcessor(BaseProcessor):
                 self.face_embedder = FaceEmbedder(model_name=self.face_embedding_model)
             self.whitelist_manager = WhitelistManager(embedder=self.face_embedder)
         return self.whitelist_manager
+
+    def _get_plate_whitelist_manager(self) -> PlateWhitelistManager:
+        """Lazily initialize PlateWhitelistManager."""
+        if self.plate_whitelist_manager is None:
+            self.plate_whitelist_manager = PlateWhitelistManager()
+        return self.plate_whitelist_manager
 
     @staticmethod
     def _apply_redaction_style(roi: np.ndarray, style: str, strength: Optional[int] = None) -> np.ndarray:
@@ -159,15 +168,17 @@ class ImageRedactProcessor(BaseProcessor):
         target_thresholds = [thresholds[t] for t in targets_set if t in thresholds]
         floor = min(target_thresholds) if target_thresholds else min(thresholds.values())
 
-        # 2b. Parse Whitelist configuration (Milestone 2)
+        # 2b. Parse Whitelist configuration (Milestone 2 & Phase 2)
         whitelist_cfg = params.get("whitelist", {}) if params else {}
         face_specs = whitelist_cfg.get("faces", []) if isinstance(whitelist_cfg, dict) else []
+        plate_specs = whitelist_cfg.get("plates", []) if isinstance(whitelist_cfg, dict) else []
         similarity_threshold = float(whitelist_cfg.get("similarityThreshold", 0.45)) if isinstance(whitelist_cfg, dict) else 0.45
-        has_whitelist = bool(face_specs and len(face_specs) > 0)
+        has_face_whitelist = bool(face_specs and len(face_specs) > 0)
+        has_plate_whitelist = bool(plate_specs and len(plate_specs) > 0)
 
         ref_embeddings = []
         whitelist_mgr = None
-        if has_whitelist:
+        if has_face_whitelist:
             whitelist_mgr = self._get_whitelist_manager()
             active_storage = storage_client or self.storage_client
             ref_embeddings = whitelist_mgr.load_reference_embeddings(
@@ -221,7 +232,7 @@ class ImageRedactProcessor(BaseProcessor):
                 is_low_conf = bool(conf < review_threshold)
 
                 # Whitelist evaluation for face detections
-                if norm_label == "face" and has_whitelist and ref_embeddings and whitelist_mgr is not None:
+                if norm_label == "face" and has_face_whitelist and ref_embeddings and whitelist_mgr is not None:
                     face_roi = img_bgr[y1:y2, x1:x2]
                     try:
                         det_emb = whitelist_mgr.embedder.extract_embedding(face_roi)
@@ -258,8 +269,27 @@ class ImageRedactProcessor(BaseProcessor):
                         "lowConfidence": is_low_conf,
                     })
 
+                elif norm_label == "plate" and has_plate_whitelist:
+                    plate_roi = img_bgr[y1:y2, x1:x2]
+                    plate_mgr = self._get_plate_whitelist_manager()
+                    is_whitelisted, norm_plate, plate_conf = plate_mgr.evaluate_plate(
+                        plate_bgr=plate_roi,
+                        whitelist_plates=plate_specs,
+                    )
+                    det_data = {
+                        "label": "plate",
+                        "confidence": conf,
+                        "box": [x1, y1, x2, y2],
+                        "redacted": not is_whitelisted,
+                        "whitelisted": is_whitelisted,
+                        "lowConfidence": is_low_conf,
+                    }
+                    if norm_plate:
+                        det_data["plateText"] = norm_plate
+                    detections.append(det_data)
+
                 else:
-                    # License plate or custom target
+                    # License plate or custom target without whitelist
                     detections.append({
                         "label": norm_label,
                         "confidence": conf,
@@ -341,19 +371,24 @@ class ImageRedactProcessor(BaseProcessor):
 
         face_count = sum(1 for d in detections if d["label"] == "face")
         plate_count = sum(1 for d in detections if d["label"] == "plate")
-        whitelisted_count = sum(1 for d in detections if d.get("whitelisted", False))
+        whitelisted_face_count = sum(1 for d in detections if d["label"] == "face" and d.get("whitelisted", False))
+        whitelisted_plate_count = sum(1 for d in detections if d["label"] == "plate" and d.get("whitelisted", False))
         redacted_count = sum(1 for d in detections if d.get("redacted", False))
         low_conf_count = sum(1 for d in detections if d.get("lowConfidence", False))
 
+        counts = {
+            "face": face_count,
+            "plate": plate_count,
+            "whitelistedFace": whitelisted_face_count,
+            "redacted": redacted_count,
+            "lowConfidence": low_conf_count,
+        }
+        if has_plate_whitelist:
+            counts["whitelistedPlate"] = whitelisted_plate_count
+
         result_summary = {
             "imageSize": [orig_w, orig_h],
-            "counts": {
-                "face": face_count,
-                "plate": plate_count,
-                "whitelistedFace": whitelisted_count,
-                "redacted": redacted_count,
-                "lowConfidence": low_conf_count,
-            },
+            "counts": counts,
             "detections": detections,
             "redaction": {
                 "style": style,

@@ -765,6 +765,83 @@ def test_plate_whitelist_video_e2e():
         processor._track_pass = orig_track_pass
 
 
+def test_spatial_temporal_plate_whitelist_inheritance():
+    """Verify that contiguous fragmented tracks inherit whitelist status while foreign tracks stay redacted."""
+    print("Test 17b: Kiểm tra kế thừa Whitelist theo chuỗi không gian - thời gian (Track Inheritance)...")
+    processor = VideoRedactProcessor(ffmpeg_bin="ffmpeg")
+    track_mgr = TrackManager(fps=30.0, orig_w=1920, orig_h=1080)
+
+    # Track 1: Confirmed whitelisted plate (frames 0..30)
+    for f in range(0, 30):
+        track_mgr.add_detection(track_id=1, label="plate", frame_idx=f, frame_ms=f * 33, box=[800, 600, 950, 700], confidence=0.90)
+    t1 = track_mgr.tracks[1]
+    t1.whitelisted = True
+    t1.redacted = False
+    t1.plate_text = "67L178560"
+
+    # Track 2: Fragmented continuation of Track 1 (frames 33..60), spatially adjacent (IoU > 0.5)
+    # Blurred OCR -> initially unwhitelisted
+    for f in range(33, 60):
+        track_mgr.add_detection(track_id=2, label="plate", frame_idx=f, frame_ms=f * 33, box=[805, 605, 955, 705], confidence=0.85)
+    t2 = track_mgr.tracks[2]
+    t2.whitelisted = False
+    t2.redacted = True
+    t2.plate_text = None
+
+    # Track 3: Foreign vehicle on the left side of the street (frames 30..60) -> should NOT inherit
+    for f in range(30, 60):
+        track_mgr.add_detection(track_id=3, label="plate", frame_idx=f, frame_ms=f * 33, box=[100, 500, 200, 560], confidence=0.80)
+    t3 = track_mgr.tracks[3]
+    t3.whitelisted = False
+    t3.redacted = True
+    t3.plate_text = "84A00732"
+
+    # Run plate whitelist evaluation with inheritance
+    processor._evaluate_plate_whitelist(track_mgr=track_mgr, whitelist_plates=["67L1-785.60"])
+
+    # Verify Track 2 inherited Whitelist
+    assert t2.whitelisted is True, "Track 2 should inherit whitelist from contiguous Track 1"
+    assert t2.redacted is False, "Track 2 should not be redacted"
+    assert t2.plate_text == "67L178560"
+
+    # Verify Track 3 stays redacted
+    assert t3.whitelisted is False, "Foreign Track 3 must not inherit whitelist"
+    assert t3.redacted is True, "Foreign Track 3 must be redacted"
+
+    # Track 4: Stranger vehicle with short OCR fragment "0122" nearby -> MUST NOT inherit
+    for f in range(32, 50):
+        track_mgr.add_detection(track_id=4, label="plate", frame_idx=f, frame_ms=f * 33, box=[810, 610, 960, 710], confidence=0.70)
+    t4 = track_mgr.tracks[4]
+    t4.whitelisted = False
+    t4.redacted = True
+    t4.plate_text = "0122"
+
+    processor._evaluate_plate_whitelist(track_mgr=track_mgr, whitelist_plates=["67L1-785.60"])
+    assert t4.whitelisted is False, "Stranger vehicle with conflicting plate text must NOT inherit whitelist"
+    assert t4.redacted is True, "Stranger vehicle must remain redacted"
+    print("  -> PASS: Track kế thừa Whitelist thành công, xe lạ giữ nguyên chế độ che an toàn.")
+
+
+def test_cockpit_accessory_filter():
+    """Verify that circular auxiliary lights (spotlights) in the motorcycle cockpit are excluded."""
+    print("Test 17c: Kiểm tra bộ lọc loại bỏ đèn trợ sáng ghi-đông xe máy...")
+    processor = VideoRedactProcessor(ffmpeg_bin="ffmpeg")
+    w, h = 1920, 1080
+
+    # 1. Motorcycle handlebar spotlight: lower-right cockpit, near-circular aspect ratio
+    spotlight_box = [1146, 614, 1276, 731]  # w=130, h=117, aspect=1.11, y1=614 > 518
+    assert processor._is_vehicle_cockpit_artifact("face", spotlight_box, w, h) is True
+
+    # 2. Real pedestrian/cyclist face on the road: upper/middle area
+    pedestrian_face = [1678, 335, 1706, 366]  # y1=335 < 518
+    assert processor._is_vehicle_cockpit_artifact("face", pedestrian_face, w, h) is False
+
+    # 3. License plate in cockpit area (should never filter plates)
+    plate_box = [1146, 614, 1276, 731]
+    assert processor._is_vehicle_cockpit_artifact("plate", plate_box, w, h) is False
+    print("  -> PASS: Đèn trợ sáng ghi-đông xe máy được lọc thành công, khuôn mặt thật được bảo toàn.")
+
+
 def test_track_manager_low_confidence_track_count():
     """Verify that a track with high mean confidence and a brief dip isn't counted as low confidence."""
     print("Test 18: Kiểm tra đếm lowConfidenceTracks theo meanConfidence thay vì dip đơn lẻ...")

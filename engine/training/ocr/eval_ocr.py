@@ -16,14 +16,23 @@ Usage, from the repo root, after ``engine/training/ocr/fetch.sh`` and ``infra/be
 Needs ``rapidocr-onnxruntime`` and ``opencv-python``.
 """
 
+import argparse
 import json
 import re
 import sys
 import time
 from pathlib import Path
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 import cv2
 import numpy as np
+from tqdm import tqdm
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -70,12 +79,21 @@ def load_sets():
             crop = cv2.imread(str(DATA / "images/val" / f"{label.stem}.jpg"))
             if crop is not None:
                 sets["trungdinh-val"].append((crop, text, n_lines))
-    for item in json.loads((HERE / "uet-plates-text.json").read_text()):
-        image = cv2.imread(str(UET_IMAGES / Path(item["image"]).name))
-        x1, y1, x2, y2 = map(int, item["box"])
-        crop = image[max(0, y1 - 4) : y2 + 4, max(0, x1 - 4) : x2 + 4]
-        n_lines = 2 if crop.shape[0] / crop.shape[1] >= 0.5 else 1  # for reporting only
-        sets["uet-handread"].append((crop, item["text"], n_lines))
+    if UET_IMAGES.exists():
+        for item in json.loads((HERE / "uet-plates-text.json").read_text()):
+            img_file = UET_IMAGES / Path(item["image"]).name
+            if not img_file.exists():
+                continue
+            image = cv2.imread(str(img_file))
+            if image is None:
+                continue
+            x1, y1, x2, y2 = map(int, item["box"])
+            crop = image[max(0, y1 - 4) : y2 + 4, max(0, x1 - 4) : x2 + 4]
+            n_lines = 2 if crop.shape[0] / crop.shape[1] >= 0.5 else 1  # for reporting only
+            sets["uet-handread"].append((crop, item["text"], n_lines))
+
+    # Keep only available datasets
+    sets = {k: v for k, v in sets.items() if len(v) > 0}
     return sets
 
 
@@ -129,17 +147,50 @@ def char_error_rate(got: str, want: str) -> float:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Evaluate OCR methods on Vietnamese license plates.")
+    parser.add_argument("--limit", type=int, default=0, help="Evaluate only first N plates (for quick testing).")
+    parser.add_argument(
+        "--skip-full",
+        action="store_true",
+        help="Skip the slow full pipeline method (Text Detection + Recognition).",
+    )
+    parser.add_argument(
+        "--method",
+        type=str,
+        default="",
+        help="Evaluate only methods containing this keyword (e.g. 'widen', 'split').",
+    )
+    args = parser.parse_args()
+
     sets, readers = load_sets(), build_readers()
+
+    if args.skip_full:
+        readers = {k: v for k, v in readers.items() if "full pipeline" not in k.lower()}
+    if args.method:
+        readers = {k: v for k, v in readers.items() if args.method.lower() in k.lower()}
+
     results = {}
     for set_name, items in sets.items():
+        if args.limit > 0:
+            items = items[: args.limit]
+        print(f"\nEvaluating dataset: {set_name} ({len(items)} plates)...")
         results[set_name] = {"plates": len(items), "two_line": sum(n == 2 for *_, n in items), "methods": {}}
-        for method, read in readers.items():
+
+        for m_idx, (method, read) in enumerate(readers.items(), 1):
             scored, times = [], []
-            for crop, text, n_lines in items:
+            pbar = tqdm(items, desc=f"[{m_idx}/{len(readers)}] {method[:35]:<35}", unit="plate", ncols=105)
+            for crop, text, n_lines in pbar:
                 start = time.time()
                 got = normalize_plate_text(read(crop))
-                times.append(time.time() - start)
-                scored.append((got == text, char_error_rate(got, text), n_lines))
+                elapsed = time.time() - start
+                times.append(elapsed)
+                is_correct = got == text
+                cer = char_error_rate(got, text)
+                scored.append((is_correct, cer, n_lines))
+                # Update live accuracy on progress bar
+                curr_acc = float(np.mean([s[0] for s in scored]))
+                pbar.set_postfix({"acc": f"{curr_acc:.1%}", "lat": f"{elapsed:.3f}s"})
+
             one = [s[0] for s in scored if s[2] == 1]
             two = [s[0] for s in scored if s[2] == 2]
             results[set_name]["methods"][method] = {
@@ -149,9 +200,19 @@ def main():
                 "char_error_rate": round(float(np.mean([s[1] for s in scored])), 4),
                 "median_seconds": round(float(np.median(times)), 4),
             }
-    (HERE / "results/results.json").write_text(json.dumps(results, indent=1) + "\n")
+
+    out_file = HERE / "results/results.json"
+    all_results = {}
+    if out_file.exists():
+        try:
+            all_results = json.loads(out_file.read_text())
+        except Exception:
+            all_results = {}
+    all_results.update(results)
+    out_file.write_text(json.dumps(all_results, indent=1) + "\n")
+
     for set_name, r in results.items():
-        print(f"\n{set_name}: {r['plates']} plates ({r['two_line']} two-line)")
+        print(f"\n==================== RESULTS: {set_name} ({r['plates']} plates) ====================")
         for method, m in r["methods"].items():
             pct = lambda v: "-" if v is None else f"{v:.1%}"  # noqa: E731
             print(

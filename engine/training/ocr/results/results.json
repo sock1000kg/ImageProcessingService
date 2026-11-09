@@ -3,33 +3,26 @@
   "plates": 536,
   "two_line": 440,
   "methods": {
-   "RapidOCR, full pipeline": {
-    "exact": 0.6586,
-    "exact_one_line": 0.0521,
-    "exact_two_line": 0.7909,
-    "char_error_rate": 0.1434,
-    "median_seconds": 0.4013
-   },
    "Recognition only, whole crop": {
     "exact": 0.1754,
     "exact_one_line": 0.9792,
     "exact_two_line": 0.0,
     "char_error_rate": 0.5315,
-    "median_seconds": 0.0171
+    "median_seconds": 0.0172
    },
    "Recognition only, whole or split": {
     "exact": 0.8806,
     "exact_one_line": 0.9792,
     "exact_two_line": 0.8591,
     "char_error_rate": 0.0164,
-    "median_seconds": 0.0629
+    "median_seconds": 0.0519
    },
    "Recognition only, whole or split, widened 1.3x": {
     "exact": 0.8862,
     "exact_one_line": 0.9792,
     "exact_two_line": 0.8659,
     "char_error_rate": 0.0172,
-    "median_seconds": 0.069
+    "median_seconds": 0.0731
    }
   }
  },

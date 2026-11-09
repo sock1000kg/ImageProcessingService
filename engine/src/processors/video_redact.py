@@ -20,10 +20,12 @@ Complies strictly with Contract §2B, §3 B2, and §4:
 """
 import os
 import time
+import math
 import json
 import logging
 import tempfile
 import subprocess
+import shutil
 from dataclasses import dataclass
 from typing import Tuple, Dict, Any, Optional, List, Callable
 import numpy as np
@@ -43,6 +45,49 @@ from .plate_ocr import PlateWhitelistManager
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_ffmpeg_bin(custom_path: Optional[str] = None) -> str:
+    """Resolve usable ffmpeg binary.
+
+    Resolution order:
+    1. Explicit custom_path if existing on disk or executable in PATH.
+    2. 'ffmpeg' executable found in system PATH.
+    3. Bundled binary via `imageio_ffmpeg.get_ffmpeg_exe()`.
+    4. Fallback string 'ffmpeg'.
+    """
+    if custom_path and custom_path != "ffmpeg":
+        if os.path.exists(custom_path) or shutil.which(custom_path):
+            return custom_path
+
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+
+    try:
+        import imageio_ffmpeg
+
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.exists(exe):
+            return exe
+    except Exception:
+        pass
+
+    return custom_path or "ffmpeg"
+
+
+def resolve_ffprobe_bin(custom_path: Optional[str] = None) -> str:
+    """Resolve usable ffprobe binary."""
+    if custom_path and custom_path != "ffprobe":
+        if os.path.exists(custom_path) or shutil.which(custom_path):
+            return custom_path
+
+    found = shutil.which("ffprobe")
+    if found:
+        return found
+
+    return custom_path or "ffprobe"
+
 
 # Contract §2 CRF mapping for H.264 video encoding
 CRF_MAP: Dict[str, int] = {
@@ -109,6 +154,7 @@ class Track:
         self.best_quality_score: float = -1.0
         self.best_face_roi: Optional[np.ndarray] = None
         self.best_plate_roi: Optional[np.ndarray] = None
+        self.plate_candidates: List[np.ndarray] = []
         self.plate_text: Optional[str] = None
 
         # Whitelist status per Contract §3 B2
@@ -162,6 +208,12 @@ class Track:
                 self.best_face_roi = face_roi.copy()
             if plate_roi is not None and plate_roi.size > 0:
                 self.best_plate_roi = plate_roi.copy()
+                if len(self.plate_candidates) < 5:
+                    self.plate_candidates.append(plate_roi.copy())
+                else:
+                    self.plate_candidates[-1] = plate_roi.copy()
+        elif plate_roi is not None and plate_roi.size > 0 and len(self.plate_candidates) < 5:
+            self.plate_candidates.append(plate_roi.copy())
 
 
 class TrackManager:
@@ -404,16 +456,18 @@ class VideoProbe:
     """Utility to probe video metadata using ffprobe with OpenCV fallback."""
 
     @staticmethod
-    def probe(video_path: str, ffprobe_bin: str = "ffprobe") -> VideoMetadata:
+    def probe(video_path: str, ffprobe_bin: str = "ffprobe", ffmpeg_bin: str = "ffmpeg") -> VideoMetadata:
         """Extract metadata from video file."""
         if not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
             raise InvalidInputFileError(f"Video file is empty or does not exist: {video_path}")
 
-        metadata = VideoProbe._probe_with_ffprobe(video_path, ffprobe_bin)
+        resolved_ffprobe = resolve_ffprobe_bin(ffprobe_bin)
+        metadata = VideoProbe._probe_with_ffprobe(video_path, resolved_ffprobe)
         if metadata is not None:
             return metadata
 
-        return VideoProbe._probe_with_opencv(video_path, ffprobe_bin)
+        resolved_ffmpeg = resolve_ffmpeg_bin(ffmpeg_bin)
+        return VideoProbe._probe_with_opencv(video_path, resolved_ffmpeg)
 
     @staticmethod
     def _probe_with_ffprobe(video_path: str, ffprobe_bin: str) -> Optional[VideoMetadata]:
@@ -500,7 +554,8 @@ class VideoProbe:
 
         has_audio = False
         try:
-            cmd = ["ffmpeg" if ffmpeg_bin == "ffprobe" else ffmpeg_bin, "-i", video_path]
+            resolved_bin = resolve_ffmpeg_bin(ffmpeg_bin)
+            cmd = [resolved_bin, "-i", video_path]
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
             has_audio = "Audio:" in res.stderr
         except Exception:
@@ -523,8 +578,9 @@ class AudioHandler:
     @staticmethod
     def extract_audio(input_video_path: str, output_audio_path: str, ffmpeg_bin: str = "ffmpeg") -> bool:
         """Extract original audio stream without re-encoding."""
+        resolved_bin = resolve_ffmpeg_bin(ffmpeg_bin)
         cmd = [
-            ffmpeg_bin,
+            resolved_bin,
             "-y",
             "-i", input_video_path,
             "-vn",
@@ -621,8 +677,8 @@ class VideoRedactProcessor(BaseProcessor):
         self.whitelist_manager = whitelist_manager
         self.plate_whitelist_manager = plate_whitelist_manager
         self.storage_client = storage_client
-        self.ffmpeg_bin = ffmpeg_bin
-        self.ffprobe_bin = ffprobe_bin
+        self.ffmpeg_bin = resolve_ffmpeg_bin(ffmpeg_bin)
+        self.ffprobe_bin = resolve_ffprobe_bin(ffprobe_bin)
         self.tracker_config = tracker_config
         self.model_name = model_name
 
@@ -757,36 +813,168 @@ class VideoRedactProcessor(BaseProcessor):
         track_mgr: TrackManager,
         whitelist_plates: List[str],
     ):
-        """Evaluate license plate OCR whitelist matching per track."""
+        """Evaluate license plate OCR whitelist matching per track using temporal candidate consensus."""
         plate_mgr = self._get_plate_whitelist_manager()
         for track in track_mgr.tracks.values():
             if track.label != "plate":
                 continue
 
+            crops_to_eval = []
             if track.best_plate_roi is not None and track.best_plate_roi.size > 0:
+                crops_to_eval.append(track.best_plate_roi)
+            if hasattr(track, "plate_candidates"):
+                crops_to_eval.extend([c for c in track.plate_candidates if c is not None and c.size > 0])
+
+            matched = bool(track.whitelisted)
+            best_text = track.plate_text
+            best_conf = 0.0
+
+            for crop in crops_to_eval:
                 is_white, norm_text, conf = plate_mgr.evaluate_plate(
-                    plate_bgr=track.best_plate_roi,
+                    plate_bgr=crop,
                     whitelist_plates=whitelist_plates,
                 )
-                track.plate_text = norm_text if norm_text else None
+                if conf > best_conf or best_text is None:
+                    best_conf = conf
+                    best_text = norm_text
                 if is_white:
-                    track.whitelisted = True
-                    track.redacted = False
-                    logger.info(
-                        f"Track {track.track_id} (plate '{norm_text}') WHITELISTED (conf={conf:.2f})"
-                    )
-                else:
-                    track.whitelisted = False
-                    track.redacted = True
-                    logger.info(
-                        f"Track {track.track_id} (plate '{norm_text}') REDACTED"
-                    )
+                    matched = True
+                    best_text = norm_text
+                    break
+
+            track.plate_text = best_text if best_text else None
+            if matched:
+                track.whitelisted = True
+                track.redacted = False
+                logger.info(
+                    f"Track {track.track_id} (plate '{best_text}') WHITELISTED (conf={best_conf:.2f})"
+                )
             else:
                 track.whitelisted = False
                 track.redacted = True
+                logger.info(
+                    f"Track {track.track_id} (plate '{best_text}') REDACTED"
+                )
 
             # Free plate crop memory
             track.best_plate_roi = None
+            if hasattr(track, "plate_candidates"):
+                track.plate_candidates.clear()
+
+        # Step 2: Spatial-Temporal Whitelist Inheritance (Hàn gắn quỹ đạo & Kế thừa quyền Whitelist)
+        # In real-world motorcycle footage, vibration and road bumps cause ByteTrack to split
+        # a single continuous vehicle trajectory into multiple fragmented Track IDs.
+        # Spatially contiguous tracks that follow or precede a confirmed whitelisted vehicle
+        # within a reasonable time window inherit whitelist exemption (unless conflicting stranger plate).
+        norm_whitelist = plate_mgr.normalize_whitelist(whitelist_plates)
+        plate_tracks = [t for t in track_mgr.tracks.values() if t.label == "plate" and t.detections]
+
+        # Only tracks that directly matched OCR act as seeds to prevent cascading whitelist leaks
+        seed_whitelisted = {t.track_id for t in plate_tracks if t.whitelisted}
+        if not seed_whitelisted:
+            return
+
+        max_gap_frames = min(45, max(15, round(track_mgr.fps * 1.5)))
+
+        for t_w_id in seed_whitelisted:
+            t_w = track_mgr.tracks[t_w_id]
+            f_w = sorted(t_w.detections.keys())
+            min_w, max_w = f_w[0], f_w[-1]
+            box_w_start = t_w.detections[min_w].box
+            box_w_end = t_w.detections[max_w].box
+
+            for t_u in plate_tracks:
+                if t_u.whitelisted or not t_u.detections:
+                    continue
+
+                # If t_u recognized a plate text of >= 3 characters that does not match whitelist, do NOT inherit
+                if t_u.plate_text and len(t_u.plate_text) >= 3:
+                    is_m, _ = plate_mgr.is_plate_match(t_u.plate_text, norm_whitelist)
+                    if not is_m:
+                        continue
+
+                f_u = sorted(t_u.detections.keys())
+                min_u, max_u = f_u[0], f_u[-1]
+                box_u_start = t_u.detections[min_u].box
+                box_u_end = t_u.detections[max_u].box
+
+                is_contiguous = False
+
+                # Case A: t_u follows t_w (t_u starts shortly after t_w ends)
+                if 0 <= (min_u - max_w) <= max_gap_frames:
+                    gap_a = min_u - max_w
+                    iou = self._box_iou(box_w_end, box_u_start)
+                    dist = self._box_center_dist(box_w_end, box_u_start)
+                    w_size = max(box_w_end[2] - box_w_end[0], box_w_end[3] - box_w_end[1], 25)
+                    if iou >= 0.10 or (dist <= max(w_size * 1.5, 90) and gap_a <= round(track_mgr.fps * 1.0)):
+                        is_contiguous = True
+
+                # Case B: t_u precedes t_w (t_u ended shortly before t_w starts)
+                elif 0 <= (min_w - max_u) <= max_gap_frames:
+                    gap_b = min_w - max_u
+                    iou = self._box_iou(box_u_end, box_w_start)
+                    dist = self._box_center_dist(box_u_end, box_w_start)
+                    w_size = max(box_w_start[2] - box_w_start[0], box_w_start[3] - box_w_start[1], 25)
+                    if iou >= 0.10 or (dist <= max(w_size * 1.5, 90) and gap_b <= round(track_mgr.fps * 1.0)):
+                        is_contiguous = True
+
+                # Case C: Overlapping or concurrent frames (slight tracking overlap <= 15 frames)
+                elif abs(min_u - min_w) <= 15 or abs(max_u - max_w) <= 15:
+                    common_f = max(min_u, min_w)
+                    if common_f in t_w.detections and common_f in t_u.detections:
+                        iou = self._box_iou(t_w.detections[common_f].box, t_u.detections[common_f].box)
+                        if iou >= 0.25:
+                            is_contiguous = True
+
+                if is_contiguous:
+                    t_u.whitelisted = True
+                    t_u.redacted = False
+                    if not t_u.plate_text and t_w.plate_text:
+                        t_u.plate_text = t_w.plate_text
+                    logger.info(
+                        f"Track {t_u.track_id} inherited WHITELIST from seed Track {t_w.track_id}"
+                    )
+
+    @staticmethod
+    def _box_iou(b1: List[int], b2: List[int]) -> float:
+        """Calculate Intersection over Union (IoU) of two bounding boxes."""
+        ix1 = max(b1[0], b2[0])
+        iy1 = max(b1[1], b2[1])
+        ix2 = min(b1[2], b2[2])
+        iy2 = min(b1[3], b2[3])
+        inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+        union = (b1[2] - b1[0]) * (b1[3] - b1[1]) + (b2[2] - b2[0]) * (b2[3] - b2[1]) - inter
+        return float(inter / union) if union > 0 else 0.0
+
+    @staticmethod
+    def _box_center_dist(b1: List[int], b2: List[int]) -> float:
+        """Calculate Euclidean distance between bounding box centers."""
+        cx1 = (b1[0] + b1[2]) / 2.0
+        cy1 = (b1[1] + b1[3]) / 2.0
+        cx2 = (b2[0] + b2[2]) / 2.0
+        cy2 = (b2[1] + b2[3]) / 2.0
+        return float(math.hypot(cx1 - cx2, cy1 - cy2))
+
+    @staticmethod
+    def _is_vehicle_cockpit_artifact(label: str, box: List[int], width: int, height: int) -> bool:
+        """Filter out false positive detections on host vehicle accessories (e.g. handlebar spotlights).
+
+        In dashcam or chest-mounted motorbike footage, circular auxiliary lights (đèn trợ sáng)
+        under the handlebar mirror frequently trigger false positive 'Human face' detections with
+        near-square/circular bounding boxes in the lower-right cockpit quadrant.
+        """
+        if label == "face":
+            x1, y1, x2, y2 = box
+            # Spotlight is located in the host motorcycle cockpit zone (lower-right: y > 0.48*H, x in 0.50*W..0.75*W)
+            # with circular/square aspect ratio (0.70 <= w/h <= 1.35)
+            if y1 > height * 0.48 and y2 < height * 0.85:
+                if width * 0.50 <= x1 and x2 <= width * 0.75:
+                    w = x2 - x1
+                    h = y2 - y1
+                    aspect = w / h if h > 0 else 1.0
+                    if 0.70 <= aspect <= 1.35:
+                        return True
+        return False
 
     def process(
         self,
@@ -986,9 +1174,9 @@ class VideoRedactProcessor(BaseProcessor):
         temp_tracker_path = None
         configured_tracker = getattr(settings, "video_tracker", self.tracker_config)
         if configured_tracker == "bytetrack.yaml" and self.tracker_config == "bytetrack.yaml":
-            # The buffer is about one second whatever the frame rate, and low scores
-            # must reach the tracker for its recovery stage to work.
-            track_buffer = max(30, round(metadata.fps))
+            # 2-second buffer prevents ID fragmentation over vibration/camera shake.
+            # match_thresh 0.75 prevents track breakage during bumps.
+            track_buffer = max(60, round(metadata.fps * 2))
             temp_tracker = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
             temp_tracker.write(
                 f"tracker_type: bytetrack\n"
@@ -996,7 +1184,7 @@ class VideoRedactProcessor(BaseProcessor):
                 f"new_track_thresh: {floor}\n"
                 f"track_low_thresh: {track_low_thresh}\n"
                 f"track_buffer: {track_buffer}\n"
-                f"match_thresh: 0.9\n"
+                f"match_thresh: 0.75\n"
                 f"fuse_score: True\n"
             )
             temp_tracker.close()
@@ -1039,20 +1227,6 @@ class VideoRedactProcessor(BaseProcessor):
                             conf = float(box.conf[0].item())
                             class_threshold = thresholds.get(norm_label, floor)
 
-                            # Keep a box if its confidence reaches its class's threshold,
-                            # or if its track ID is already in the TrackManager (low-score recovery).
-                            # Otherwise drop it. Boxes with no ID keep their untracked_counter handling
-                            # and use the class threshold.
-                            if box.id is not None:
-                                track_id = int(box.id[0].item())
-                                if conf < class_threshold and not track_mgr.has_track(track_id):
-                                    continue
-                            else:
-                                if conf < class_threshold:
-                                    continue
-                                track_id = untracked_counter
-                                untracked_counter += 1
-
                             xyxy = box.xyxy[0].tolist()
                             x1 = max(0, min(metadata.width, int(round(xyxy[0]))))
                             y1 = max(0, min(metadata.height, int(round(xyxy[1]))))
@@ -1061,6 +1235,45 @@ class VideoRedactProcessor(BaseProcessor):
 
                             if x2 <= x1 or y2 <= y1:
                                 continue
+
+                            # Skip false positive detections on host vehicle accessories (e.g. handlebar spotlights)
+                            if self._is_vehicle_cockpit_artifact(norm_label, [x1, y1, x2, y2], metadata.width, metadata.height):
+                                continue
+
+                            # Keep a box if its confidence reaches its class's threshold,
+                            # or if its track ID is already in the TrackManager (low-score recovery).
+                            # If box.id is None, perform spatial IoU recovery before creating untracked ID.
+                            if box.id is not None:
+                                track_id = int(box.id[0].item())
+                                if conf < class_threshold and not track_mgr.has_track(track_id):
+                                    continue
+                            else:
+                                if conf < class_threshold:
+                                    continue
+                                matched_tid = None
+                                best_iou = 0.0
+                                for tid, trk in track_mgr.tracks.items():
+                                    if trk.label != norm_label:
+                                        continue
+                                    for check_f in (frame_idx - 1, frame_idx - 2):
+                                        pdet = trk.detections.get(check_f)
+                                        if pdet is not None:
+                                            pb = pdet.box
+                                            ix1 = max(x1, pb[0])
+                                            iy1 = max(y1, pb[1])
+                                            ix2 = min(x2, pb[2])
+                                            iy2 = min(y2, pb[3])
+                                            inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+                                            union = (x2 - x1) * (y2 - y1) + (pb[2] - pb[0]) * (pb[3] - pb[1]) - inter
+                                            iou = inter / union if union > 0 else 0.0
+                                            if iou > 0.40 and iou > best_iou:
+                                                best_iou = iou
+                                                matched_tid = tid
+                                if matched_tid is not None:
+                                    track_id = matched_tid
+                                else:
+                                    track_id = untracked_counter
+                                    untracked_counter += 1
 
                             face_roi = None
                             plate_roi = None

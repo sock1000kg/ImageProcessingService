@@ -12,5 +12,9 @@ if [ ! -f vn-plate-ocr.zip ]; then
   mv vn-plate-ocr.zip.tmp vn-plate-ocr.zip
 fi
 echo "$SHA  vn-plate-ocr.zip" | sha256sum -c -
-rm -rf vn-plate-ocr && mkdir vn-plate-ocr && unzip -q vn-plate-ocr.zip -d vn-plate-ocr
+if command -v unzip >/dev/null 2>&1; then
+  rm -rf vn-plate-ocr && mkdir vn-plate-ocr && unzip -q vn-plate-ocr.zip -d vn-plate-ocr
+else
+  python -c "import zipfile, os, shutil; shutil.rmtree('vn-plate-ocr', ignore_errors=True); os.makedirs('vn-plate-ocr', exist_ok=True); zipfile.ZipFile('vn-plate-ocr.zip').extractall('vn-plate-ocr')"
+fi
 echo "Ready: $(pwd)/vn-plate-ocr/OCR (images/{train,val}, labels/{train,val})"

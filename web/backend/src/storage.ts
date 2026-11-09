@@ -12,6 +12,7 @@ import {
   DeleteObjectCommand,
   CopyObjectCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import { config } from "./config";
 
@@ -22,6 +23,23 @@ const endpoint = `${config.MINIO_USE_SSL ? "https" : "http"}://${config.MINIO_EN
 
 export const s3Client = new S3Client({
   endpoint,
+  region: "us-east-1",
+  credentials: {
+    accessKeyId: config.MINIO_ACCESS_KEY,
+    secretAccessKey: config.MINIO_SECRET_KEY,
+  },
+  forcePathStyle: true,
+});
+
+/**
+ * Public S3 client configured with S3_PUBLIC_ENDPOINT used exclusively for generating presigned URLs.
+ *
+ * Why a second client: The browser-facing signature covers host and path. Signing with a client
+ * configured with S3_PUBLIC_ENDPOINT ensures browser GET requests validate correctly, while normal
+ * internal reads and writes keep using s3Client on the internal cluster endpoint.
+ */
+export const s3PublicClient = new S3Client({
+  endpoint: config.S3_PUBLIC_ENDPOINT,
   region: "us-east-1",
   credentials: {
     accessKeyId: config.MINIO_ACCESS_KEY,
@@ -183,6 +201,51 @@ export async function verifyBuckets(): Promise<void> {
   }
 }
 
+/**
+ * Options controlling expiration and response header overrides for presigned GET URLs.
+ */
+export interface PresignGetUrlOptions {
+  ttlSeconds: number;
+  cacheControl?: string;
+  contentDisposition?: string;
+}
+
+/**
+ * Result returned by presignGetUrl containing the signed URL and ISO timestamp of expiration.
+ */
+export interface PresignedUrlResult {
+  url: string;
+  expiresAt: string;
+}
+
+/**
+ * Generates an AWS SigV4 presigned GET URL for an object without sending network requests to MinIO.
+ *
+ * Why local presigning: Presigning is a purely cryptographic operation on the client; no storage
+ * roundtrip is needed. The signature is computed against S3_PUBLIC_ENDPOINT with optional override
+ * headers (ResponseCacheControl, ResponseContentDisposition).
+ */
+export async function presignGetUrl(
+  bucket: string,
+  key: string,
+  options: PresignGetUrlOptions,
+): Promise<PresignedUrlResult> {
+  const cleanKey = key.startsWith("/") ? key.slice(1) : key;
+  const command = new GetObjectCommand({
+    Bucket: bucket,
+    Key: cleanKey,
+    ...(options.cacheControl ? { ResponseCacheControl: options.cacheControl } : {}),
+    ...(options.contentDisposition ? { ResponseContentDisposition: options.contentDisposition } : {}),
+  });
+
+  const url = await getSignedUrl(s3PublicClient, command, {
+    expiresIn: options.ttlSeconds,
+  });
+  const expiresAt = new Date(Date.now() + options.ttlSeconds * 1000).toISOString();
+
+  return { url, expiresAt };
+}
+
 export const storage = {
   bucketExists,
   putObject,
@@ -193,4 +256,5 @@ export const storage = {
   copyObject,
   deletePrefix,
   verifyBuckets,
+  presignGetUrl,
 };

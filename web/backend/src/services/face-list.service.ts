@@ -7,6 +7,7 @@
  */
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { config } from "../config";
 import { storage, UPLOADS_BUCKET } from "../storage";
 import { conflict, notFound } from "../errors";
 import { FaceList } from "../generated/prisma/client";
@@ -195,6 +196,35 @@ export async function getFaceStream(
   }
 
   return streamInfo;
+}
+
+/**
+ * Generates a presigned GET URL for a specific face in a user's allow list.
+ *
+ * Why owner verification: Ensures only the authenticated owner can access their saved reference photos.
+ * Other users receive a 404 response to avoid information disclosure.
+ * Why key matching: Matches faceId against list.keys to prevent reading arbitrary storage objects.
+ * Why private, no-store: Instructs intermediate proxies and browsers never to cache biometric photos.
+ */
+export async function getFacePresignedUrl(
+  id: string,
+  faceId: string,
+  userId: string,
+): Promise<{ url: string; expiresAt: string }> {
+  const list = await getFaceListOwnedByUser(id, userId);
+  if (!list) {
+    throw notFound("Face list not found");
+  }
+
+  const key = list.keys.find((k) => faceIdFromKey(k) === faceId);
+  if (!key) {
+    throw notFound("Face reference not found");
+  }
+
+  return storage.presignGetUrl(UPLOADS_BUCKET, key, {
+    ttlSeconds: config.PRESIGN_PRIVATE_TTL_SECONDS,
+    cacheControl: "private, no-store",
+  });
 }
 
 /**

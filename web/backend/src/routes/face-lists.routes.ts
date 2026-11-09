@@ -12,6 +12,7 @@ import {
   deleteFaceFromListHandler,
   deleteFaceListHandler,
   getFaceStreamHandler,
+  getFaceUrlHandler,
   listFaceListsHandler,
   renameFaceListHandler,
 } from "../controllers/face-lists.controller";
@@ -69,6 +70,14 @@ faceListsRouter.post(
  * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
  */
 faceListsRouter.get("/:id/faces/:faceId", requireAuth, getFaceStreamHandler);
+
+/**
+ * GET /api/face-lists/:id/faces/:faceId/url
+ * Request: Params id (UUID) and faceId (unique face identifier within list)
+ * Response: 200 { url: string, expiresAt: string }
+ * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
+ */
+faceListsRouter.get("/:id/faces/:faceId/url", requireAuth, getFaceUrlHandler);
 
 /**
  * DELETE /api/face-lists/:id/faces/:faceId

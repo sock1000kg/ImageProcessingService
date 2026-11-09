@@ -17,6 +17,7 @@ import {
   getBatchHandler,
   getBatchReportHandler,
   getBatchWhitelistPhotoHandler,
+  getBatchWhitelistPhotoUrlHandler,
   listBatchesHandler,
   rerunBatchHandler,
   startBatchHandler,
@@ -160,6 +161,14 @@ batchesRouter.get("/:id/report", requireAuth, validateId, getBatchReportHandler)
  * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
  */
 batchesRouter.get("/:id/whitelist/:n", requireAuth, getBatchWhitelistPhotoHandler);
+
+/**
+ * GET /api/batches/:id/whitelist/:n/url
+ * Request: None
+ * Response: 200 { url: string, expiresAt: string }
+ * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
+ */
+batchesRouter.get("/:id/whitelist/:n/url", requireAuth, getBatchWhitelistPhotoUrlHandler);
 
 /**
  * DELETE /api/batches/:id

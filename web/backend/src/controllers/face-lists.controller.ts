@@ -7,6 +7,7 @@ import {
   createFaceList,
   deleteFaceFromList,
   deleteFaceList,
+  getFacePresignedUrl,
   getFaceStream,
   listFaceLists,
   renameFaceList,
@@ -100,6 +101,24 @@ export async function getFaceStreamHandler(request: Request, response: Response,
     const streamInfo = await getFaceStream(id, faceId, userId);
 
     streamPrivateObject(response, next, streamInfo);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/face-lists/:id/faces/:faceId/url
+ * Returns a presigned GET URL for a biometric face photo with private no-store headers.
+ */
+export async function getFaceUrlHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = parseListId(request.params.id);
+    const faceId = parseFaceId(request.params.faceId);
+
+    const userId = request.authUser!.id;
+    const result = await getFacePresignedUrl(id, faceId, userId);
+
+    response.json(result);
   } catch (error) {
     next(error);
   }

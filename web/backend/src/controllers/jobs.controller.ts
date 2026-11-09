@@ -2,7 +2,14 @@
  * HTTP request controllers for single-job inspection, stream downloads, and retries.
  */
 import { NextFunction, Request, Response } from "express";
-import { deleteJobById, getJobById, getJobOriginalStream, retryFailedJob } from "../services/batch.service";
+import {
+  deleteJobById,
+  getJobById,
+  getJobOriginalPresignedUrl,
+  getJobOriginalStream,
+  getJobResultPresignedUrl,
+  retryFailedJob,
+} from "../services/batch.service";
 import { notFound } from "../errors";
 import { validateIdParam } from "../dto";
 import { streamPrivateObject } from "./private-stream";
@@ -29,6 +36,44 @@ export async function getJobOriginalHandler(request: Request, response: Response
     }
 
     streamPrivateObject(response, next, streamInfo);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/jobs/:id/result-url
+ * Returns a presigned GET URL for the completed job's result image.
+ *
+ * Why query download: Setting ?download=1 signs an RFC attachment header on the S3 response,
+ * directing the browser to download rather than display inline.
+ */
+export async function getJobResultUrlHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = validateIdParam(request.params);
+    const userId = request.authUser!.id;
+    const download = request.query.download === "1";
+    const result = await getJobResultPresignedUrl(id, userId, { download });
+    response.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/jobs/:id/original-url
+ * Returns a presigned GET URL for the job's unredacted original image with private no-store headers.
+ */
+export async function getJobOriginalUrlHandler(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const id = validateIdParam(request.params);
+    const userId = request.authUser!.id;
+    const result = await getJobOriginalPresignedUrl(id, userId);
+    response.json(result);
   } catch (error) {
     next(error);
   }

@@ -6,6 +6,8 @@ import {
   deleteJobHandler,
   getJobHandler,
   getJobOriginalHandler,
+  getJobOriginalUrlHandler,
+  getJobResultUrlHandler,
   retryJobHandler,
 } from "../controllers/jobs.controller";
 import { requireAuth } from "../middleware/auth.middleware";
@@ -37,6 +39,22 @@ jobsRouter.get("/:id", requireAuth, validateId, getJobHandler);
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
 jobsRouter.get("/:id/original", requireAuth, validateId, getJobOriginalHandler);
+
+/**
+ * GET /api/jobs/:id/result-url
+ * Request: Query ?download=1 (optional)
+ * Response: 200 { url: string, expiresAt: string }
+ * Errors: 400 INVALID_UUID, 401 UNAUTHORIZED, 404 NOT_FOUND
+ */
+jobsRouter.get("/:id/result-url", requireAuth, validateId, getJobResultUrlHandler);
+
+/**
+ * GET /api/jobs/:id/original-url
+ * Request: None
+ * Response: 200 { url: string, expiresAt: string }
+ * Errors: 400 INVALID_UUID, 401 UNAUTHORIZED, 404 NOT_FOUND
+ */
+jobsRouter.get("/:id/original-url", requireAuth, validateId, getJobOriginalUrlHandler);
 
 /**
  * POST /api/jobs/:id/retry

@@ -176,3 +176,51 @@ describe("TRANSFER_RATE_LIMIT_MULTIPLIER config schema validation", () => {
     expect(() => configSchema.shape.TRANSFER_RATE_LIMIT_MULTIPLIER.parse({})).toThrow();
   });
 });
+
+describe("S3_PUBLIC_ENDPOINT config schema validation", () => {
+  it("defaults to http://localhost:9000 when undefined", () => {
+    expect(configSchema.shape.S3_PUBLIC_ENDPOINT.parse(undefined)).toBe("http://localhost:9000");
+  });
+
+  it("accepts custom valid URL strings", () => {
+    expect(configSchema.shape.S3_PUBLIC_ENDPOINT.parse("https://blob-imgproc.sock1000kg.io.vn")).toBe(
+      "https://blob-imgproc.sock1000kg.io.vn",
+    );
+  });
+
+  it("rejects empty string", () => {
+    expect(() => configSchema.shape.S3_PUBLIC_ENDPOINT.parse("")).toThrow();
+  });
+});
+
+describe("PRESIGN_RESULT_TTL_SECONDS config schema validation", () => {
+  it("defaults to 3600 when undefined", () => {
+    expect(configSchema.shape.PRESIGN_RESULT_TTL_SECONDS.parse(undefined)).toBe(3600);
+  });
+
+  it("accepts positive integers and numeric strings", () => {
+    expect(configSchema.shape.PRESIGN_RESULT_TTL_SECONDS.parse(1800)).toBe(1800);
+    expect(configSchema.shape.PRESIGN_RESULT_TTL_SECONDS.parse("7200")).toBe(7200);
+  });
+
+  it("rejects non-positive numbers", () => {
+    expect(() => configSchema.shape.PRESIGN_RESULT_TTL_SECONDS.parse(0)).toThrow();
+    expect(() => configSchema.shape.PRESIGN_RESULT_TTL_SECONDS.parse(-10)).toThrow();
+  });
+});
+
+describe("PRESIGN_PRIVATE_TTL_SECONDS config schema validation", () => {
+  it("defaults to 300 when undefined", () => {
+    expect(configSchema.shape.PRESIGN_PRIVATE_TTL_SECONDS.parse(undefined)).toBe(300);
+  });
+
+  it("accepts positive integers and numeric strings", () => {
+    expect(configSchema.shape.PRESIGN_PRIVATE_TTL_SECONDS.parse(600)).toBe(600);
+    expect(configSchema.shape.PRESIGN_PRIVATE_TTL_SECONDS.parse("120")).toBe(120);
+  });
+
+  it("rejects non-positive numbers", () => {
+    expect(() => configSchema.shape.PRESIGN_PRIVATE_TTL_SECONDS.parse(0)).toThrow();
+    expect(() => configSchema.shape.PRESIGN_PRIVATE_TTL_SECONDS.parse(-5)).toThrow();
+  });
+});

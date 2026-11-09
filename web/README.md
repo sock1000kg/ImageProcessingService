@@ -128,6 +128,9 @@ MINIO_ACCESS_KEY=imgproclocal
 MINIO_SECRET_KEY=CHANGE_ME_minio_local
 MINIO_USE_SSL=false
 PUBLIC_RESULTS_BASE_URL=/results
+S3_PUBLIC_ENDPOINT=http://localhost:9000
+PRESIGN_RESULT_TTL_SECONDS=3600
+PRESIGN_PRIVATE_TTL_SECONDS=300
 UPLOAD_MAX_BYTES=52428800
 BATCH_MAX_FILES=1000
 RATE_LIMIT_MULTIPLIER=1
@@ -240,38 +243,42 @@ The Engine must have its Python environment, model weights, and configuration re
 
 ## API endpoints
 
-| Method   | Path                                | Description                                                                                                                               |
-| -------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`    | `/api/batches`                      | List authed user's batches (`?limit`, `?cursor`): items with thumbnail, status, size, and total account storage                           |
-| `POST`   | `/api/batches`                      | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`)                          |
-| `POST`   | `/api/batches/:id/files`            | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`)                                                            |
-| `POST`   | `/api/batches/:id/start`            | Start batch processing for pending jobs. Returns 202 `{ batch }`                                                                          |
-| `GET`    | `/api/batches/:id`                  | Batch details and jobs (includes `name`)                                                                                                  |
-| `PATCH`  | `/api/batches/:id`                  | Rename batch with JSON `{ name }`. Returns 200 `{ batch }`                                                                                |
-| `GET`    | `/api/batches/:id/report`           | Batch report with totals, review images/reasons, `batchName`, `whitelistPeople` (with `name`), and detections when provided by Engine     |
-| `GET`    | `/api/batches/:id/whitelist/:n`     | Stream the batch's nth reference photo (1-based) with `Cache-Control: private, no-store`                                                  |
-| `DELETE` | `/api/batches/:id`                  | Delete the batch and its `uploads`/`results` objects                                                                                      |
-| `POST`   | `/api/batches/:id/download-token`   | Issue short-lived (60 s) signed token for streaming batch zip (owner only)                                                                |
-| `GET`    | `/api/batches/:id/download.zip`     | Stream all completed results as a zip archive using signed token                                                                          |
-| `GET`    | `/api/face-lists`                   | List authenticated user's allow lists: `{ lists: [{ id, name, faceCount, faceNames, createdAt }] }`                                       |
-| `POST`   | `/api/face-lists`                   | Create allow list: multipart `name` (1..100) and 1..5 `faces` image files. Returns 201 `{ list }`                                         |
-| `POST`   | `/api/face-lists/:id/faces`         | Append faces to allow list: multipart 1..5 `faces` image files. Returns 200 `{ list }`                                                    |
-| `GET`    | `/api/face-lists/:id/faces/:faceId` | Stream individual face thumbnail with `Cache-Control: private, no-store`                                                                  |
-| `DELETE` | `/api/face-lists/:id/faces/:faceId` | Delete single face from allow list (deletes list if last face; MinIO purged immediately). Returns 200 `{ list }`                          |
-| `PATCH`  | `/api/face-lists/:id`               | Rename allow list with JSON `{ name }`. Returns 200 `{ list }`                                                                            |
-| `DELETE` | `/api/face-lists/:id`               | Permanently delete allow list and immediately purge its MinIO objects (`lists/<userId>/<id>/`). Returns 204                               |
-| `GET`    | `/api/jobs/:id`                     | Job status and details                                                                                                                    |
-| `DELETE` | `/api/jobs/:id`                     | Delete single image job and its storage objects (deletes batch if last job; 409 if active)                                                |
-| `POST`   | `/api/jobs/:id/retry`               | Retry a `FAILED` job with a new job ID and output key (409 `WHITELIST_FACES_MISSING` if faces missing without `acceptMissingFaces: true`) |
-| `GET`    | `/api/jobs/:id/original`            | Stream the private original image with `Cache-Control: private, no-store`                                                                 |
-| `GET`    | `/api/system/stats`                 | Job counts grouped by status                                                                                                              |
-| `POST`   | `/api/auth/register`                | Create an account with email, password, and `REGISTER_KEY`                                                                                |
-| `POST`   | `/api/auth/login`                   | Sign in and receive a short-lived access token                                                                                            |
-| `POST`   | `/api/auth/refresh`                 | Rotate the `httpOnly` refresh cookie and issue a new access token                                                                         |
-| `POST`   | `/api/auth/logout`                  | Revoke the current refresh token and clear the cookie                                                                                     |
-| `GET`    | `/api/auth/me`                      | Return the authenticated user's public profile                                                                                            |
-| `GET`    | `/health`                           | Liveness check                                                                                                                            |
-| `GET`    | `/ready`                            | PostgreSQL, NATS, and MinIO readiness check                                                                                               |
+| Method   | Path                                    | Description                                                                                                                               |
+| -------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/batches`                          | List authed user's batches (`?limit`, `?cursor`): items with thumbnail, status, size, and total account storage                           |
+| `POST`   | `/api/batches`                          | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`)                          |
+| `POST`   | `/api/batches/:id/files`                | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`)                                                            |
+| `POST`   | `/api/batches/:id/start`                | Start batch processing for pending jobs. Returns 202 `{ batch }`                                                                          |
+| `GET`    | `/api/batches/:id`                      | Batch details and jobs (includes `name`)                                                                                                  |
+| `PATCH`  | `/api/batches/:id`                      | Rename batch with JSON `{ name }`. Returns 200 `{ batch }`                                                                                |
+| `GET`    | `/api/batches/:id/report`               | Batch report with totals, review images/reasons, `batchName`, `whitelistPeople` (with `name`), and detections when provided by Engine     |
+| `GET`    | `/api/batches/:id/whitelist/:n`         | Stream the batch's nth reference photo (1-based) with `Cache-Control: private, no-store`                                                  |
+| `GET`    | `/api/batches/:id/whitelist/:n/url`     | Issue presigned GET URL (`{ url, expiresAt }`, 5 min, `private, no-store`) for batch's nth reference photo                                |
+| `DELETE` | `/api/batches/:id`                      | Delete the batch and its `uploads`/`results` objects                                                                                      |
+| `POST`   | `/api/batches/:id/download-token`       | Issue short-lived (60 s) signed token for streaming batch zip (owner only)                                                                |
+| `GET`    | `/api/batches/:id/download.zip`         | Stream all completed results as a zip archive using signed token                                                                          |
+| `GET`    | `/api/face-lists`                       | List authenticated user's allow lists: `{ lists: [{ id, name, faceCount, faceNames, createdAt }] }`                                       |
+| `POST`   | `/api/face-lists`                       | Create allow list: multipart `name` (1..100) and 1..5 `faces` image files. Returns 201 `{ list }`                                         |
+| `POST`   | `/api/face-lists/:id/faces`             | Append faces to allow list: multipart 1..5 `faces` image files. Returns 200 `{ list }`                                                    |
+| `GET`    | `/api/face-lists/:id/faces/:faceId`     | Stream individual face thumbnail with `Cache-Control: private, no-store`                                                                  |
+| `GET`    | `/api/face-lists/:id/faces/:faceId/url` | Issue presigned GET URL (`{ url, expiresAt }`, 5 min, `private, no-store`) for allow list face photo                                      |
+| `DELETE` | `/api/face-lists/:id/faces/:faceId`     | Delete single face from allow list (deletes list if last face; MinIO purged immediately). Returns 200 `{ list }`                          |
+| `PATCH`  | `/api/face-lists/:id`                   | Rename allow list with JSON `{ name }`. Returns 200 `{ list }`                                                                            |
+| `DELETE` | `/api/face-lists/:id`                   | Permanently delete allow list and immediately purge its MinIO objects (`lists/<userId>/<id>/`). Returns 204                               |
+| `GET`    | `/api/jobs/:id`                         | Job status and details                                                                                                                    |
+| `GET`    | `/api/jobs/:id/result-url`              | Issue presigned GET URL (`{ url, expiresAt }`, 1 hr) for completed result; `?download=1` sets `response-content-disposition`              |
+| `GET`    | `/api/jobs/:id/original-url`            | Issue presigned GET URL (`{ url, expiresAt }`, 5 min, `private, no-store`) for unredacted original image                                  |
+| `DELETE` | `/api/jobs/:id`                         | Delete single image job and its storage objects (deletes batch if last job; 409 if active)                                                |
+| `POST`   | `/api/jobs/:id/retry`                   | Retry a `FAILED` job with a new job ID and output key (409 `WHITELIST_FACES_MISSING` if faces missing without `acceptMissingFaces: true`) |
+| `GET`    | `/api/jobs/:id/original`                | Stream the private original image with `Cache-Control: private, no-store`                                                                 |
+| `GET`    | `/api/system/stats`                     | Job counts grouped by status                                                                                                              |
+| `POST`   | `/api/auth/register`                    | Create an account with email, password, and `REGISTER_KEY`                                                                                |
+| `POST`   | `/api/auth/login`                       | Sign in and receive a short-lived access token                                                                                            |
+| `POST`   | `/api/auth/refresh`                     | Rotate the `httpOnly` refresh cookie and issue a new access token                                                                         |
+| `POST`   | `/api/auth/logout`                      | Revoke the current refresh token and clear the cookie                                                                                     |
+| `GET`    | `/api/auth/me`                          | Return the authenticated user's public profile                                                                                            |
+| `GET`    | `/health`                               | Liveness check                                                                                                                            |
+| `GET`    | `/ready`                                | PostgreSQL, NATS, and MinIO readiness check                                                                                               |
 
 ### Upload flow (Per-image upload)
 

@@ -10,6 +10,7 @@ import {
   deleteBatchById,
   getBatchById,
   getBatchReportById,
+  getBatchWhitelistPresignedUrl,
   getBatchWhitelistStream,
   listBatches,
   renameBatch,
@@ -23,6 +24,7 @@ import { RESULTS_BUCKET, storage } from "../storage";
 import { getBatch, getBatchOwnedByUser, getJobsByBatchId } from "../repositories/job.repository";
 import { JobStatus } from "../generated/prisma/client";
 import { streamPrivateObject } from "./private-stream";
+import { buildAttachmentContentDisposition, sanitizeAttachmentFilename } from "../attachment";
 
 export async function listBatchesHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
@@ -162,17 +164,8 @@ export async function deleteBatchHandler(request: Request, response: Response, n
  * and UTF-8 encoded filename*.
  */
 export function buildZipContentDisposition(batchName: string): string {
-  const raw = (batchName || "").trim();
-  const base =
-    raw
-      .replace(/[/\\?%*:|"<>]/g, "")
-      .replace(/[\x00-\x1f\x7f-\x9f]/g, "")
-      .replace(/\.\.+/g, "")
-      .trim() || "batch";
-
-  const ascii = base.replace(/[^\w\s.-]/g, "_").trim() || "batch";
-  const utf8 = encodeURIComponent(`${base}.zip`);
-  return `attachment; filename="${ascii}.zip"; filename*=UTF-8''${utf8}`;
+  const base = sanitizeAttachmentFilename(batchName, "batch");
+  return buildAttachmentContentDisposition(`${base}.zip`, "batch.zip");
 }
 
 /**
@@ -413,6 +406,24 @@ export async function downloadBatchZipHandler(request: Request, response: Respon
 }
 
 /**
+ * Parses a 1-based whitelist photo index from request parameters strictly.
+ *
+ * Why strict digits regex: Prevents parseInt from loosely accepting trailing non-numeric
+ * characters (e.g. "1abc" being parsed as 1). Non-numeric or non-positive indices return 404.
+ */
+function parseWhitelistIndex(nParam: unknown): number {
+  const rawN = Array.isArray(nParam) ? nParam[0] : nParam;
+  if (typeof rawN !== "string" || !/^\d+$/.test(rawN)) {
+    throw notFound("Whitelist photo not found");
+  }
+  const n = parseInt(rawN, 10);
+  if (n < 1) {
+    throw notFound("Whitelist photo not found");
+  }
+  return n;
+}
+
+/**
  * GET /api/batches/:id/whitelist/:n
  * Streams the batch's nth reference photo (1-based index) with private no-store headers.
  *
@@ -431,17 +442,36 @@ export async function getBatchWhitelistPhotoHandler(
       throw notFound("Batch not found");
     }
 
-    const nParam = request.params.n;
-    const rawN = Array.isArray(nParam) ? nParam[0] : nParam;
-    const n = typeof rawN === "string" ? parseInt(rawN, 10) : NaN;
-    if (Number.isNaN(n) || n < 1) {
-      throw notFound("Whitelist photo not found");
-    }
-
+    const n = parseWhitelistIndex(request.params.n);
     const userId = request.authUser!.id;
     const streamInfo = await getBatchWhitelistStream(id, n, userId);
 
     streamPrivateObject(response, next, streamInfo);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/batches/:id/whitelist/:n/url
+ * Returns a presigned GET URL for the batch's nth reference photo (1-based index) with private no-store headers.
+ */
+export async function getBatchWhitelistPhotoUrlHandler(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const rawId = request.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (typeof id !== "string" || !id) {
+      throw notFound("Batch not found");
+    }
+
+    const n = parseWhitelistIndex(request.params.n);
+    const userId = request.authUser!.id;
+    const result = await getBatchWhitelistPresignedUrl(id, n, userId);
+    response.json(result);
   } catch (error) {
     next(error);
   }

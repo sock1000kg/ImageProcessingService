@@ -7,7 +7,7 @@ describe("Batch Config Schema and Defaults", () => {
     const config = parseBatchConfig({});
     expect(config.targets).toEqual(["face", "plate"]);
     expect(config.style).toBe("blur");
-    expect(config.strength).toBe(25);
+    expect(config.strength).toBe(15);
     expect(config.padding).toBe(0.1);
     expect(config.quality).toBe("high");
     expect(config.format).toBe("original");
@@ -29,10 +29,15 @@ describe("Batch Config Schema and Defaults", () => {
     expect(config.plateConfidenceThreshold).toBe(0.11);
   });
 
-  it("applies pixelate default strength of 12 when style is pixelate", () => {
+  it("applies pixelate default strength of 8 when style is pixelate", () => {
     const config = parseBatchConfig({ style: "pixelate" });
     expect(config.style).toBe("pixelate");
-    expect(config.strength).toBe(12);
+    expect(config.strength).toBe(8);
+  });
+
+  it("defaults strength to 15 for blur and 8 for pixelate when strength is omitted", () => {
+    expect(parseBatchConfig({ style: "blur" }).strength).toBe(15);
+    expect(parseBatchConfig({ style: "pixelate" }).strength).toBe(8);
   });
 
   it("omits strength by default when style is blackout", () => {
@@ -56,7 +61,7 @@ describe("Batch Config Schema and Defaults", () => {
     const config = parseBatchConfigJson(jsonStr);
     expect(config.targets).toEqual(["face"]);
     expect(config.style).toBe("pixelate");
-    expect(config.strength).toBe(12);
+    expect(config.strength).toBe(8);
     expect(config.quality).toBe("max");
     expect(config.format).toBe("png");
   });

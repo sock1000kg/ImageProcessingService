@@ -71,13 +71,16 @@ function drawRedaction(
       context.beginPath();
       context.rect(x, y, width, height);
       context.clip();
-      context.filter = `blur(${Math.max(1, strength / 3)}px)`;
+      // Why: Match Engine Contract §2 Gaussian sigma = strength% of padded box width (sigma >= 0.8)
+      const blurRadius = Math.max(0.8, (width * strength) / 100);
+      context.filter = `blur(${blurRadius}px)`;
       context.drawImage(copy, 0, 0);
       context.restore();
     }
     return;
   }
-  const pixelSize = Math.max(2, Math.round(strength / 2));
+  // Why: Match Engine Contract §2 pixelate mosaic cell size = padded box width / strength
+  const pixelSize = Math.max(1, width / Math.max(1, strength));
   const temporary = document.createElement("canvas");
   temporary.width = Math.max(1, Math.ceil(width / pixelSize));
   temporary.height = Math.max(1, Math.ceil(height / pixelSize));

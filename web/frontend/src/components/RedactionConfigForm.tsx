@@ -16,10 +16,19 @@ export type FormConfig = {
   similarityThreshold: number;
 };
 
+/**
+ * Redaction strength bounds and defaults mirroring Engine Contract §2 relative formulas.
+ * Blur is 1-50% of box width (default 15); pixelate is 3-32 mosaic cells across box width (default 8).
+ */
+export const REDACTION_STRENGTH_RANGES = {
+  blur: { min: 1, max: 50, default: 15 },
+  pixelate: { min: 3, max: 32, default: 8 },
+} as const;
+
 export const DEFAULT_FORM_CONFIG: FormConfig = {
   targets: ["face", "plate"],
   style: "blur",
-  strength: 25,
+  strength: REDACTION_STRENGTH_RANGES.blur.default,
   padding: 0.1,
   quality: "high",
   format: "original",
@@ -33,14 +42,19 @@ export const DEFAULT_FORM_CONFIG: FormConfig = {
  * Maps a stored batch config object to form configuration fields with standard fallbacks.
  *
  * Why fallback defaults: Stored batches may lack optional fields or have older schemas;
- * applying defaults ensures the re-run form remains completely interactive and valid.
+ * applying defaults and clamping strengths to style ranges ensures the re-run form remains
+ * completely interactive and valid within Engine Contract §2 bounds.
  */
 export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): FormConfig {
   const c = raw ?? {};
   const style =
     c.style === "pixelate" || c.style === "blackout" || c.style === "blur" ? c.style : DEFAULT_FORM_CONFIG.style;
-  const defaultStrength = style === "pixelate" ? 12 : 25;
-  const strength = typeof c.strength === "number" && c.strength > 0 ? c.strength : defaultStrength;
+  const range = style === "pixelate" ? REDACTION_STRENGTH_RANGES.pixelate : REDACTION_STRENGTH_RANGES.blur;
+  // Why: Stored strengths from older batches (e.g. blur 60) or invalid values are clamped to style range
+  const strength =
+    typeof c.strength === "number" && !Number.isNaN(c.strength)
+      ? Math.min(range.max, Math.max(range.min, Math.round(c.strength)))
+      : range.default;
   const targets =
     Array.isArray(c.targets) && c.targets.length > 0
       ? (c.targets as string[]).filter((t) => t === "face" || t === "plate")
@@ -151,8 +165,9 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
           onChange={(event) => {
             const style = event.target.value as FormConfig["style"];
             update("style", style);
-            if (style === "blur") update("strength", 25);
-            if (style === "pixelate") update("strength", 12);
+            // Why: Reset strength to style-relative default when switching between blur and pixelate
+            if (style === "blur") update("strength", REDACTION_STRENGTH_RANGES.blur.default);
+            if (style === "pixelate") update("strength", REDACTION_STRENGTH_RANGES.pixelate.default);
           }}
         >
           <option value="blur">Blur</option>
@@ -163,11 +178,18 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
 
       {config.style !== "blackout" && (
         <label>
-          Strength <output>{config.strength}</output>
+          Strength{" "}
+          <output>
+            {config.style === "blur" ? `${config.strength}% of face/plate width` : `${config.strength} cells across`}
+          </output>
           <input
             type="range"
-            min="1"
-            max="60"
+            min={
+              config.style === "pixelate" ? REDACTION_STRENGTH_RANGES.pixelate.min : REDACTION_STRENGTH_RANGES.blur.min
+            }
+            max={
+              config.style === "pixelate" ? REDACTION_STRENGTH_RANGES.pixelate.max : REDACTION_STRENGTH_RANGES.blur.max
+            }
             value={config.strength}
             onChange={(event) => update("strength", Number(event.target.value))}
           />

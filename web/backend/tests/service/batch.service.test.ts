@@ -183,7 +183,7 @@ describe("Batch Service Integration Tests", () => {
     expect(cmd1.params.redaction).toEqual({
       targets: ["face", "plate"],
       style: "pixelate",
-      strength: 12,
+      strength: 8,
       padding: 0.1,
     });
     expect(cmd1.params.output.quality).toBe("high");

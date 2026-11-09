@@ -11,6 +11,7 @@ import { DeleteBatchDialog } from "../src/components/DeleteBatchDialog";
 import { FaceListViewer } from "../src/components/FaceListViewer";
 import { Dialog } from "../src/components/ui/Dialog";
 import { SavedFaceListsPanel } from "../src/components/SavedFaceListsPanel";
+import { clearPresignedUrlCache } from "../src/hooks/usePresignedUrl";
 
 describe("Face Lists Frontend DOM Tests (Task 39)", () => {
   const originalFetch = global.fetch;
@@ -26,7 +27,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
           return {
             ok: true,
             status: 200,
-            blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+            json: async () => ({
+              url: `http://localhost:9000/mock-${url}`,
+              expiresAt: new Date(Date.now() + 300_000).toISOString(),
+            }),
           } as Response;
         }
 
@@ -125,6 +129,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    clearPresignedUrlCache();
   });
 
   function makeFile(name: string, type = "image/jpeg", size = 1000): File {
@@ -577,8 +582,8 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
 
       expect(within(dialog).queryAllByRole("img")).toHaveLength(0);
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/api/face-lists/list-err/faces/face-1"),
-        expect.anything(),
+        expect.stringContaining("/api/face-lists/list-err/faces/face-1/url"),
+        undefined,
       );
     });
 
@@ -733,7 +738,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
             return {
               ok: true,
               status: 200,
-              blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+              json: async () => ({
+                url: `http://localhost:9000/mock-${url}`,
+                expiresAt: new Date(Date.now() + 300_000).toISOString(),
+              }),
             } as Response;
           }
 
@@ -991,7 +999,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
           return {
             ok: true,
             status: 200,
-            blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+            json: async () => ({
+              url: `http://localhost:9000/mock-${url}`,
+              expiresAt: new Date(Date.now() + 300_000).toISOString(),
+            }),
           } as Response;
         }
 
@@ -1079,7 +1090,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
           return {
             ok: true,
             status: 200,
-            blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+            json: async () => ({
+              url: `http://localhost:9000/mock-${url}`,
+              expiresAt: new Date(Date.now() + 300_000).toISOString(),
+            }),
           } as Response;
         }
 
@@ -1164,7 +1178,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
             return {
               ok: true,
               status: 200,
-              blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+              json: async () => ({
+                url: `http://localhost:9000/mock-${url}`,
+                expiresAt: new Date(Date.now() + 300_000).toISOString(),
+              }),
             } as Response;
           }
 
@@ -1239,7 +1256,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
             return {
               ok: true,
               status: 200,
-              blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+              json: async () => ({
+                url: `http://localhost:9000/mock-${url}`,
+                expiresAt: new Date(Date.now() + 300_000).toISOString(),
+              }),
             } as Response;
           }
 
@@ -1306,7 +1326,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
             return {
               ok: true,
               status: 200,
-              blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+              json: async () => ({
+                url: `http://localhost:9000/mock-${url}`,
+                expiresAt: new Date(Date.now() + 300_000).toISOString(),
+              }),
             } as Response;
           }
 

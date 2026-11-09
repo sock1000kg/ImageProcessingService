@@ -85,7 +85,6 @@ describe("Pages Layout DOM Integration (Task 73)", () => {
                     status: "COMPLETED",
                     progress: 100,
                     stage: "DONE",
-                    resultUrl: "/results/batch-123/job-1/result.jpg",
                     resultSummary: null,
                     error: null,
                     createdAt: new Date().toISOString(),

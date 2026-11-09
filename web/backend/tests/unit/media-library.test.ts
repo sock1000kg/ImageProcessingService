@@ -37,7 +37,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
               status: JobStatus.COMPLETED,
               inputBytes: 1500,
               resultBytes: 2500,
-              resultUrl: "/results/batch/job-1/result.jpg",
+              outputKey: "batch/job-1/result.jpg",
               createdAt: new Date("2026-11-04T09:31:00Z"),
             },
             {
@@ -45,7 +45,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
               status: JobStatus.FAILED,
               inputBytes: 1000,
               resultBytes: null,
-              resultUrl: null,
+              outputKey: "batch/job-2/result.jpg",
               createdAt: new Date("2026-11-04T09:32:00Z"),
             },
           ],
@@ -58,6 +58,10 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
         jobs: 2,
         bytes: 5000,
       });
+      vi.spyOn(storage, "presignGetUrl").mockResolvedValue({
+        url: "http://localhost:9000/signed-thumb.jpg",
+        expiresAt: new Date().toISOString(),
+      });
 
       const result = await listBatches(userId, { limit: 20 });
 
@@ -65,7 +69,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       const item = result.batches[0];
       expect(item.id).toBe(batchId);
       expect(item.name).toBe("Vacation Photos");
-      expect(item.thumbnailUrl).toBe("/results/batch/job-1/result.jpg");
+      expect(item.thumbnailUrl).toBe("http://localhost:9000/signed-thumb.jpg");
       expect(item.status).toBe("PARTIAL");
       expect(item.jobCounts).toEqual({ total: 2, completed: 1, failed: 1 });
       expect(item.bytes).toBe(5000); // 1500 + 2500 + 1000 + 0
@@ -87,7 +91,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
               status: JobStatus.PENDING,
               inputBytes: 2000,
               resultBytes: null,
-              resultUrl: null,
+              outputKey: "batch/job-1/result.jpg",
               createdAt: new Date("2026-11-04T09:31:00Z"),
             },
           ],

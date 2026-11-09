@@ -6,7 +6,7 @@
  * WhitelistUploader chosen rows, and WhitelistUploader picker dialog cards.
  */
 import { FaceListItem } from "../types";
-import { usePrivateImage } from "../hooks/usePrivateImage";
+import { usePresignedUrl } from "../hooks/usePresignedUrl";
 import { MAX_FACE_LIST_FILES } from "./file-selection";
 
 /**
@@ -27,7 +27,7 @@ export function SavedFaceThumbnail({
   revision?: number;
 }) {
   const targetId = faceId ?? (index !== undefined ? `face-${index}` : "");
-  const { url } = usePrivateImage(targetId ? `/api/face-lists/${listId}/faces/${targetId}` : null, revision);
+  const { url } = usePresignedUrl(targetId ? `/api/face-lists/${listId}/faces/${targetId}/url` : null, revision);
   return <img src={url ?? undefined} alt={index !== undefined ? `Face #${index}` : "Face thumbnail"} />;
 }
 

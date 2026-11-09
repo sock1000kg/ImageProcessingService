@@ -31,7 +31,6 @@ describe("Task 53: Frontend batch retry missing faces confirmation and warning n
         status: "FAILED",
         progress: 0,
         stage: "DETECTING",
-        resultUrl: null,
         resultSummary: null,
         error: { code: "MODEL_INFERENCE_ERROR", message: "Face missing" },
         createdAt: new Date().toISOString(),

@@ -5,7 +5,7 @@
  * and fast keyboard navigation through all enrolled faces in the profile.
  */
 import { useEffect, useState } from "react";
-import { usePrivateImage } from "../hooks/usePrivateImage";
+import { usePresignedUrl } from "../hooks/usePresignedUrl";
 import { FaceListItem, faceLabel } from "../types";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { Dialog } from "./ui/Dialog";
@@ -39,7 +39,7 @@ function FaceStripThumbnail({
   revision?: number;
   title?: string;
 }) {
-  const { url } = usePrivateImage(`/api/face-lists/${listId}/faces/${faceId}`, revision);
+  const { url } = usePresignedUrl(`/api/face-lists/${listId}/faces/${faceId}/url`, revision);
   if (!url) return null;
   return <img src={url} alt={`Thumbnail ${index}`} title={title} />;
 }
@@ -80,8 +80,8 @@ export function FaceListViewer({
   }, [activeIndex]);
 
   const activeFaceId = list.faceIds?.[activeIndex - 1] ?? `face-${activeIndex}`;
-  const { url, loading, error } = usePrivateImage(
-    activeFaceId ? `/api/face-lists/${list.id}/faces/${activeFaceId}` : null,
+  const { url, loading, error } = usePresignedUrl(
+    activeFaceId ? `/api/face-lists/${list.id}/faces/${activeFaceId}/url` : null,
     revision,
   );
 

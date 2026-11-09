@@ -64,7 +64,6 @@ describe("Batch sync and report fetching cadence", () => {
                     status: jobStatus,
                     progress: jobStatus === "COMPLETED" ? 100 : 50,
                     stage: jobStatus === "COMPLETED" ? "DONE" : "REDACTING",
-                    resultUrl: null,
                     resultSummary: null,
                     error: null,
                     createdAt: new Date().toISOString(),

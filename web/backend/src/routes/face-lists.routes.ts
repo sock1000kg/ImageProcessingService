@@ -11,7 +11,6 @@ import {
   createFaceListHandler,
   deleteFaceFromListHandler,
   deleteFaceListHandler,
-  getFaceStreamHandler,
   getFaceUrlHandler,
   listFaceListsHandler,
   renameFaceListHandler,
@@ -62,14 +61,6 @@ faceListsRouter.post(
   faceListsUpload.array("faces", 10),
   addFacesToListHandler,
 );
-
-/**
- * GET /api/face-lists/:id/faces/:faceId
- * Request: Params id (UUID) and faceId (unique face identifier within list)
- * Response: 200 image stream with Cache-Control: private, no-store
- * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
- */
-faceListsRouter.get("/:id/faces/:faceId", requireAuth, getFaceStreamHandler);
 
 /**
  * GET /api/face-lists/:id/faces/:faceId/url

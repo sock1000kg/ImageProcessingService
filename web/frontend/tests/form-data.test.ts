@@ -186,7 +186,6 @@ describe("Frontend Batch Upload and Validation", () => {
       status: id === "failed" ? "FAILED" : "COMPLETED",
       progress: 100,
       stage: "DONE",
-      resultUrl: null,
       resultSummary: null,
       error: null,
       createdAt: new Date(2026, 9, 30, 0, index).toISOString(),

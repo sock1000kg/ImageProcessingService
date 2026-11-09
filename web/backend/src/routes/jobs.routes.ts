@@ -5,7 +5,6 @@ import { Router } from "express";
 import {
   deleteJobHandler,
   getJobHandler,
-  getJobOriginalHandler,
   getJobOriginalUrlHandler,
   getJobResultUrlHandler,
   retryJobHandler,
@@ -31,14 +30,6 @@ function validateId(request: Request, _response: Response, next: NextFunction): 
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
 jobsRouter.get("/:id", requireAuth, validateId, getJobHandler);
-
-/**
- * GET /api/jobs/:id/original
- * Request: None
- * Response: 200 binary image stream with Content-Type and Content-Disposition headers
- * Errors: 400 INVALID_UUID, 404 NOT_FOUND
- */
-jobsRouter.get("/:id/original", requireAuth, validateId, getJobOriginalHandler);
 
 /**
  * GET /api/jobs/:id/result-url

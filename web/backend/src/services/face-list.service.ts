@@ -169,36 +169,6 @@ export async function listFaceLists(userId: string): Promise<FaceListsResponseDT
 }
 
 /**
- * Retrieves an image stream for a specific face ID within a user's face list.
- *
- * Why owner verification: Ensures only the authenticated owner can retrieve their own reference photos.
- * Other users receive a 404 response to avoid information disclosure.
- * Why key matching: Matches faceId against list.keys to prevent path traversal or reading arbitrary keys.
- */
-export async function getFaceStream(
-  id: string,
-  faceId: string,
-  userId: string,
-): Promise<{ stream: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
-  const list = await getFaceListOwnedByUser(id, userId);
-  if (!list) {
-    throw notFound("Face list not found");
-  }
-
-  const key = list.keys.find((k) => faceIdFromKey(k) === faceId);
-  if (!key) {
-    throw notFound("Face reference not found");
-  }
-
-  const streamInfo = await storage.getObjectStream(UPLOADS_BUCKET, key);
-  if (!streamInfo) {
-    throw notFound("Face reference image not found");
-  }
-
-  return streamInfo;
-}
-
-/**
  * Generates a presigned GET URL for a specific face in a user's allow list.
  *
  * Why owner verification: Ensures only the authenticated owner can access their saved reference photos.

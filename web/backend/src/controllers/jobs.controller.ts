@@ -6,13 +6,11 @@ import {
   deleteJobById,
   getJobById,
   getJobOriginalPresignedUrl,
-  getJobOriginalStream,
   getJobResultPresignedUrl,
   retryFailedJob,
 } from "../services/batch.service";
 import { notFound } from "../errors";
 import { validateIdParam } from "../dto";
-import { streamPrivateObject } from "./private-stream";
 
 export async function getJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
@@ -22,20 +20,6 @@ export async function getJobHandler(request: Request, response: Response, next: 
       throw notFound("Job not found");
     }
     response.json({ job });
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function getJobOriginalHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
-  try {
-    const id = validateIdParam(request.params);
-    const streamInfo = await getJobOriginalStream(id, request.authUser?.id);
-    if (!streamInfo) {
-      throw notFound("Job or original image not found");
-    }
-
-    streamPrivateObject(response, next, streamInfo);
   } catch (error) {
     next(error);
   }

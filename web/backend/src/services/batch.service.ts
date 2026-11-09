@@ -421,29 +421,38 @@ export async function listBatches(
   const pageBatches = hasMore ? batches.slice(0, options.limit) : batches;
   const nextCursor = hasMore ? pageBatches[pageBatches.length - 1].id : null;
 
-  const items: BatchSummaryItemDTO[] = pageBatches.map((batch) => {
-    const jobs = batch.jobs;
-    const total = jobs.length;
-    const completed = jobs.filter((j) => j.status === JobStatus.COMPLETED).length;
-    const failed = jobs.filter((j) => j.status === JobStatus.FAILED).length;
-    const status = deriveBatchStatus(
-      jobs.map((j) => j.status),
-      batch.startedAt,
-    );
-    const firstCompleted = jobs.find((j) => j.status === JobStatus.COMPLETED && j.resultUrl);
-    const thumbnailUrl = firstCompleted ? firstCompleted.resultUrl : null;
-    const bytes = jobs.reduce((sum, j) => sum + (j.inputBytes ?? 0) + (j.resultBytes ?? 0), 0);
+  const items: BatchSummaryItemDTO[] = await Promise.all(
+    pageBatches.map(async (batch) => {
+      const jobs = batch.jobs;
+      const total = jobs.length;
+      const completed = jobs.filter((j) => j.status === JobStatus.COMPLETED).length;
+      const failed = jobs.filter((j) => j.status === JobStatus.FAILED).length;
+      const status = deriveBatchStatus(
+        jobs.map((j) => j.status),
+        batch.startedAt,
+      );
+      // Why presigned thumbnail: Signs thumbnail inline for library browsing with result TTL
+      const firstCompleted = jobs.find((j) => j.status === JobStatus.COMPLETED && j.outputKey);
+      let thumbnailUrl: string | null = null;
+      if (firstCompleted?.outputKey) {
+        const signed = await storage.presignGetUrl(RESULTS_BUCKET, firstCompleted.outputKey, {
+          ttlSeconds: config.PRESIGN_RESULT_TTL_SECONDS,
+        });
+        thumbnailUrl = signed.url;
+      }
+      const bytes = jobs.reduce((sum, j) => sum + (j.inputBytes ?? 0) + (j.resultBytes ?? 0), 0);
 
-    return {
-      id: batch.id,
-      name: batch.name,
-      createdAt: batch.createdAt.toISOString(),
-      status,
-      jobCounts: { total, completed, failed },
-      thumbnailUrl,
-      bytes,
-    };
-  });
+      return {
+        id: batch.id,
+        name: batch.name,
+        createdAt: batch.createdAt.toISOString(),
+        status,
+        jobCounts: { total, completed, failed },
+        thumbnailUrl,
+        bytes,
+      };
+    }),
+  );
 
   const usage = await getAccountUsage(userId);
 
@@ -576,17 +585,6 @@ export async function retryFailedJob(
   return toJobResponse(createdRetry)!;
 }
 
-export async function getJobOriginalStream(id: string, userId?: string) {
-  const job = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
-  if (!job) return null;
-  const streamInfo = await storage.getObjectStream(UPLOADS_BUCKET, job.inputKey);
-  if (!streamInfo) return null;
-  return {
-    ...streamInfo,
-    filename: job.originalFilename,
-  };
-}
-
 /**
  * Computes the download filename for a job result using the original filename's stem
  * and the output format extension.
@@ -706,42 +704,6 @@ export async function getBatchWhitelistPresignedUrl(
     ttlSeconds: config.PRESIGN_PRIVATE_TTL_SECONDS,
     cacheControl: "private, no-store",
   });
-}
-
-/**
- * Streams the batch's nth reference whitelist photo (1-based index).
- *
- * Why owner-scoped: Whitelist reference images contain biometric profile data that must remain
- * strictly private to the user account that uploaded or referenced them.
- * Why 404 on missing object: Directly uploaded faces are purged on batch completion, or referenced
- * allow lists/faces may have been deleted, rendering the reference photo unavailable.
- */
-export async function getBatchWhitelistStream(
-  batchId: string,
-  index: number,
-  userId: string,
-): Promise<{ stream: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
-  if (!UUID_REGEX.test(batchId)) {
-    throw notFound("Batch not found");
-  }
-
-  const batch = await getBatchOwnedByUser(batchId, userId);
-  if (!batch) {
-    throw notFound("Batch not found");
-  }
-
-  const keys = Array.isArray(batch.whitelistKeys) ? batch.whitelistKeys : [];
-  if (index < 1 || index > keys.length) {
-    throw notFound("Whitelist photo not found");
-  }
-
-  const key = keys[index - 1]!;
-  const streamInfo = await storage.getObjectStream(UPLOADS_BUCKET, key);
-  if (!streamInfo) {
-    throw notFound("Whitelist photo not found");
-  }
-
-  return streamInfo;
 }
 
 /**

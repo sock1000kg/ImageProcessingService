@@ -8,13 +8,11 @@ import {
   deleteFaceFromList,
   deleteFaceList,
   getFacePresignedUrl,
-  getFaceStream,
   listFaceLists,
   renameFaceList,
 } from "../services/face-list.service";
 import { notFound } from "../errors";
 import { UUID_REGEX } from "../dto";
-import { streamPrivateObject } from "./private-stream";
 
 function parseListId(idParam: unknown): string {
   if (typeof idParam !== "string" || !UUID_REGEX.test(idParam)) {
@@ -80,27 +78,6 @@ export async function addFacesToListHandler(request: Request, response: Response
     const files = (request.files as Express.Multer.File[]) ?? [];
     const list = await addFacesToList(id, userId, files);
     response.status(200).json({ list });
-  } catch (error) {
-    next(error);
-  }
-}
-
-/**
- * GET /api/face-lists/:id/faces/:faceId
- * Streams an individual face thumbnail with no-store cache directives to protect biometric data.
- *
- * Why private, no-store: Biometric reference imagery is sensitive personal data that should
- * never be cached by browsers or shared intermediate proxy caches.
- */
-export async function getFaceStreamHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
-  try {
-    const id = parseListId(request.params.id);
-    const faceId = parseFaceId(request.params.faceId);
-
-    const userId = request.authUser!.id;
-    const streamInfo = await getFaceStream(id, faceId, userId);
-
-    streamPrivateObject(response, next, streamInfo);
   } catch (error) {
     next(error);
   }

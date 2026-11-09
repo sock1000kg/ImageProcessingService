@@ -4,7 +4,8 @@
 import { useEffect, useState } from "react";
 import { ArrowSquareOut, DownloadSimple } from "@phosphor-icons/react";
 import { Detection, Job, ReviewReason } from "../types";
-import { usePrivateImage } from "../hooks/usePrivateImage";
+import { usePresignedUrl } from "../hooks/usePresignedUrl";
+import { request } from "../api";
 import { formatJobErrorMessage } from "../utils/format";
 import { DetectionList } from "./DetectionList";
 import { boxToPercent, ImageStage } from "./ui/ImageStage";
@@ -68,11 +69,37 @@ export function ImageResultViewer({
   const [showBoxes, setShowBoxes] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
-  const { url: originalUrl } = usePrivateImage(job ? `/api/jobs/${job.id}/original` : null);
+  const isCompleted = job?.status === "COMPLETED";
+  const { url: originalUrl } = usePresignedUrl(job && isCompleted ? `/api/jobs/${job.id}/original-url` : null);
+  const { url: resultImageUrl } = usePresignedUrl(job && isCompleted ? `/api/jobs/${job.id}/result-url` : null);
 
   useEffect(() => {
     setNaturalSize(null);
   }, [job.id]);
+
+  const handleOpenOriginal = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    try {
+      const data = await request<{ url: string; expiresAt: string }>(`/api/jobs/${job.id}/original-url`);
+      window.open(data.url, "_blank", "noreferrer");
+    } catch (err) {
+      console.error("Failed to fetch original presigned URL", err);
+    }
+  };
+
+  const handleDownloadResult = async () => {
+    try {
+      const data = await request<{ url: string; expiresAt: string }>(`/api/jobs/${job.id}/result-url?download=1`);
+      const a = document.createElement("a");
+      a.href = data.url;
+      a.download = "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      console.error("Failed to fetch result download URL", err);
+    }
+  };
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { naturalWidth, naturalHeight } = e.currentTarget;
@@ -106,13 +133,13 @@ export function ImageResultViewer({
         )}
       </div>
 
-      {job.status === "COMPLETED" && job.resultUrl ? (
+      {job.status === "COMPLETED" && resultImageUrl ? (
         <>
           <div className="comparison">
             <ImageStage naturalWidth={effectiveSize?.width} naturalHeight={effectiveSize?.height}>
               <img
                 className="comparison-after"
-                src={job.resultUrl}
+                src={resultImageUrl}
                 alt={`Processed ${job.originalFilename}`}
                 onLoad={handleImageLoad}
               />
@@ -227,17 +254,17 @@ export function ImageResultViewer({
         <span>
           {job.stage ?? "Waiting"} · {job.progress}%
         </span>
-        {originalUrl && (
-          <a href={originalUrl} target="_blank" rel="noreferrer" className="ghost-button">
-            <ArrowSquareOut aria-hidden="true" />
-            Open original
-          </a>
-        )}
-        {job.resultUrl && (
-          <a href={job.resultUrl} download target="_blank" rel="noreferrer" className="ghost-button">
-            <DownloadSimple aria-hidden="true" />
-            Download result
-          </a>
+        {job.status === "COMPLETED" && (
+          <>
+            <a href="#" onClick={handleOpenOriginal} className="ghost-button">
+              <ArrowSquareOut aria-hidden="true" />
+              Open original
+            </a>
+            <button type="button" onClick={handleDownloadResult} className="ghost-button">
+              <DownloadSimple aria-hidden="true" />
+              Download result
+            </button>
+          </>
         )}
       </div>
 

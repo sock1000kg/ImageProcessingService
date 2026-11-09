@@ -16,7 +16,6 @@ import {
   downloadBatchZipHandler,
   getBatchHandler,
   getBatchReportHandler,
-  getBatchWhitelistPhotoHandler,
   getBatchWhitelistPhotoUrlHandler,
   listBatchesHandler,
   rerunBatchHandler,
@@ -153,14 +152,6 @@ batchesRouter.patch("/:id", requireAuth, validateId, updateBatchHandler);
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
 batchesRouter.get("/:id/report", requireAuth, validateId, getBatchReportHandler);
-
-/**
- * GET /api/batches/:id/whitelist/:n
- * Request: None
- * Response: 200 (image stream with Cache-Control: private, no-store)
- * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
- */
-batchesRouter.get("/:id/whitelist/:n", requireAuth, getBatchWhitelistPhotoHandler);
 
 /**
  * GET /api/batches/:id/whitelist/:n/url

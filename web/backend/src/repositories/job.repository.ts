@@ -260,7 +260,7 @@ export async function listBatchesByUserId(userId: string, options: { limit: numb
           status: true,
           inputBytes: true,
           resultBytes: true,
-          resultUrl: true,
+          outputKey: true,
           createdAt: true,
         },
         orderBy: { createdAt: "asc" as const },

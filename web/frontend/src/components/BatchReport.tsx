@@ -6,7 +6,7 @@ import { CaretDown } from "@phosphor-icons/react";
 import { BatchReport as Report, ReportWhitelistPerson } from "../types";
 import { Banner } from "./ui/Banner";
 import { StatTile } from "./ui/StatTile";
-import { usePrivateImage } from "../hooks/usePrivateImage";
+import { usePresignedUrl } from "../hooks/usePresignedUrl";
 
 export interface BatchReportProps {
   report: Report | null;
@@ -62,7 +62,7 @@ interface WhitelistPersonThumbnailProps {
  * reference photo may have been purged, in which case a neutral placeholder is shown instead of a broken img.
  */
 function WhitelistPersonThumbnail({ batchId, n, label }: WhitelistPersonThumbnailProps) {
-  const { url, loading, error } = usePrivateImage(`/api/batches/${batchId}/whitelist/${n}`);
+  const { url, loading, error } = usePresignedUrl(`/api/batches/${batchId}/whitelist/${n}/url`);
   const [imgError, setImgError] = useState(false);
 
   useEffect(() => {

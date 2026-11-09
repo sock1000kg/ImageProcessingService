@@ -11,7 +11,6 @@ import {
   getBatchById,
   getBatchReportById,
   getBatchWhitelistPresignedUrl,
-  getBatchWhitelistStream,
   listBatches,
   renameBatch,
   rerunBatch,
@@ -23,7 +22,6 @@ import { createBatchDownloadToken, verifyBatchDownloadToken } from "../auth";
 import { RESULTS_BUCKET, storage } from "../storage";
 import { getBatch, getBatchOwnedByUser, getJobsByBatchId } from "../repositories/job.repository";
 import { JobStatus } from "../generated/prisma/client";
-import { streamPrivateObject } from "./private-stream";
 import { buildAttachmentContentDisposition, sanitizeAttachmentFilename } from "../attachment";
 
 export async function listBatchesHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
@@ -421,35 +419,6 @@ function parseWhitelistIndex(nParam: unknown): number {
     throw notFound("Whitelist photo not found");
   }
   return n;
-}
-
-/**
- * GET /api/batches/:id/whitelist/:n
- * Streams the batch's nth reference photo (1-based index) with private no-store headers.
- *
- * Why 404 on malformed index: Mirroring face list endpoint behaviour, non-numeric or non-positive indices
- * are treated as resource not found rather than bad request.
- */
-export async function getBatchWhitelistPhotoHandler(
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> {
-  try {
-    const rawId = request.params.id;
-    const id = Array.isArray(rawId) ? rawId[0] : rawId;
-    if (typeof id !== "string" || !id) {
-      throw notFound("Batch not found");
-    }
-
-    const n = parseWhitelistIndex(request.params.n);
-    const userId = request.authUser!.id;
-    const streamInfo = await getBatchWhitelistStream(id, n, userId);
-
-    streamPrivateObject(response, next, streamInfo);
-  } catch (error) {
-    next(error);
-  }
 }
 
 /**

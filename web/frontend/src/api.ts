@@ -68,7 +68,10 @@ async function parseApiError(response: Response): Promise<ApiError> {
   return new ApiError(message, { code, details, status: response.status, retryAfterSeconds });
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+/**
+ * Performs an authenticated JSON API request, parsing standard API error responses.
+ */
+export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await authedFetch(url, init);
   if (response.status === 204) {
     return {} as T;
@@ -77,20 +80,6 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw await parseApiError(response);
   }
   return response.json();
-}
-
-/**
- * Fetches a private image blob from an authenticated API endpoint.
- *
- * Why authedFetch: Protected image endpoints require the Bearer access token; standard <img> tags
- * cannot send custom headers and would receive 401. Callers convert the returned Blob into an object URL.
- */
-export async function fetchPrivateImage(path: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await authedFetch(path, { signal });
-  if (!response.ok) {
-    throw await parseApiError(response);
-  }
-  return response.blob();
 }
 
 /**

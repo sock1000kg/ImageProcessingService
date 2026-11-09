@@ -22,13 +22,18 @@ function parseListId(idParam: unknown): string {
   return idParam;
 }
 
-function parseFaceIndex(nParam: unknown): number {
-  const rawN = Array.isArray(nParam) ? nParam[0] : nParam;
-  const n = typeof rawN === "string" ? parseInt(rawN, 10) : NaN;
-  if (Number.isNaN(n) || n < 1) {
+/**
+ * Validates that faceId is a non-empty string.
+ *
+ * Why: Ensures only valid string identifiers are looked up against list keys,
+ * throwing 404 notFound if empty or invalid.
+ */
+function parseFaceId(faceIdParam: unknown): string {
+  const rawId = Array.isArray(faceIdParam) ? faceIdParam[0] : faceIdParam;
+  if (typeof rawId !== "string" || rawId.trim().length === 0) {
     throw notFound("Face reference not found");
   }
-  return n;
+  return rawId.trim();
 }
 
 /**
@@ -80,7 +85,7 @@ export async function addFacesToListHandler(request: Request, response: Response
 }
 
 /**
- * GET /api/face-lists/:id/faces/:n
+ * GET /api/face-lists/:id/faces/:faceId
  * Streams an individual face thumbnail with no-store cache directives to protect biometric data.
  *
  * Why private, no-store: Biometric reference imagery is sensitive personal data that should
@@ -89,10 +94,10 @@ export async function addFacesToListHandler(request: Request, response: Response
 export async function getFaceStreamHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = parseListId(request.params.id);
-    const n = parseFaceIndex(request.params.n);
+    const faceId = parseFaceId(request.params.faceId);
 
     const userId = request.authUser!.id;
-    const streamInfo = await getFaceStream(id, n, userId);
+    const streamInfo = await getFaceStream(id, faceId, userId);
 
     streamPrivateObject(response, next, streamInfo);
   } catch (error) {
@@ -101,7 +106,7 @@ export async function getFaceStreamHandler(request: Request, response: Response,
 }
 
 /**
- * DELETE /api/face-lists/:id/faces/:n
+ * DELETE /api/face-lists/:id/faces/:faceId
  * Deletes a single biometric face from a saved face list.
  *
  * Why return { list }: Allows the frontend to update its local state and faceCount atomically.
@@ -114,9 +119,9 @@ export async function deleteFaceFromListHandler(
 ): Promise<void> {
   try {
     const id = parseListId(request.params.id);
-    const n = parseFaceIndex(request.params.n);
+    const faceId = parseFaceId(request.params.faceId);
     const userId = request.authUser!.id;
-    const result = await deleteFaceFromList(id, n, userId);
+    const result = await deleteFaceFromList(id, faceId, userId);
     response.status(200).json(result);
   } catch (error) {
     next(error);

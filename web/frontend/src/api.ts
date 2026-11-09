@@ -467,13 +467,13 @@ export async function addFacesToList(id: string, files: File[]): Promise<{ list:
 }
 
 /**
- * Deletes a single biometric face from a saved allow list.
+ * Deletes a single biometric face from a saved allow list by face ID.
  *
  * Why returns { list | null }: If the list's only face was deleted, the list is removed and
  * list is returned as null. Otherwise returns the updated list item with decremented faceCount.
  */
-export function deleteFaceFromList(id: string, n: number): Promise<{ list: FaceListItem | null }> {
-  return request(`/api/face-lists/${id}/faces/${n}`, { method: "DELETE" });
+export function deleteFaceFromList(id: string, faceId: string): Promise<{ list: FaceListItem | null }> {
+  return request(`/api/face-lists/${id}/faces/${faceId}`, { method: "DELETE" });
 }
 
 /**

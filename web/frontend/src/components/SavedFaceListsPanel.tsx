@@ -139,12 +139,12 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
     }
   };
 
-  const handleDeleteFace = async (n: number) => {
+  const handleDeleteFace = async (faceId: string) => {
     if (!viewingList) return;
     const targetListId = viewingList.list.id;
     setAddError(null);
     try {
-      const res = await deleteFaceFromList(targetListId, n);
+      const res = await deleteFaceFromList(targetListId, faceId);
       setRevision((prev) => prev + 1);
       if (!res.list) {
         setFaceLists((prev) => prev.filter((item) => item.id !== targetListId));

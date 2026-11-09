@@ -10,22 +10,25 @@ import { usePrivateImage } from "../hooks/usePrivateImage";
 import { MAX_FACE_LIST_FILES } from "./file-selection";
 
 /**
- * Renders an individual biometric face thumbnail by list id and index.
+ * Renders an individual biometric face thumbnail by list id and face ID.
  *
  * Why memoized URL in hook: Fetches auth-protected MinIO thumbnail stream and generates
  * a revocable object URL. Revision bumps invalidate the cache on face addition/deletion.
  */
 export function SavedFaceThumbnail({
   listId,
+  faceId,
   index,
   revision = 0,
 }: {
   listId: string;
-  index: number;
+  faceId?: string;
+  index?: number;
   revision?: number;
 }) {
-  const { url } = usePrivateImage(`/api/face-lists/${listId}/faces/${index}`, revision);
-  return <img src={url ?? undefined} alt={`Face #${index}`} />;
+  const targetId = faceId ?? (index !== undefined ? `face-${index}` : "");
+  const { url } = usePrivateImage(targetId ? `/api/face-lists/${listId}/faces/${targetId}` : null, revision);
+  return <img src={url ?? undefined} alt={index !== undefined ? `Face #${index}` : "Face thumbnail"} />;
 }
 
 export interface FaceListThumbnailsProps {
@@ -41,18 +44,22 @@ export function FaceListThumbnails({ list, revision, onSelect }: FaceListThumbna
   const count = Math.min(MAX_FACE_LIST_FILES, list.faceCount);
   return (
     <div className="face-list-thumbnails" aria-label={`Faces in ${list.name}`}>
-      {Array.from({ length: count }, (_, i) => i + 1).map((n) => (
-        <button
-          key={n}
-          type="button"
-          className="thumbnail-container thumbnail-container-sm"
-          onClick={() => onSelect?.(n)}
-          aria-label={`View face #${n} from ${list.name}`}
-        >
-          <SavedFaceThumbnail listId={list.id} index={n} revision={revision} />
-          <span className="thumbnail-badge">{`#${n}`}</span>
-        </button>
-      ))}
+      {Array.from({ length: count }, (_, i) => {
+        const n = i + 1;
+        const faceId = list.faceIds?.[i] ?? `face-${n}`;
+        return (
+          <button
+            key={faceId}
+            type="button"
+            className="thumbnail-container thumbnail-container-sm"
+            onClick={() => onSelect?.(n)}
+            aria-label={`View face #${n} from ${list.name}`}
+          >
+            <SavedFaceThumbnail listId={list.id} faceId={faceId} index={n} revision={revision} />
+            <span className="thumbnail-badge">{`#${n}`}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -17,7 +17,7 @@ export interface FaceListViewerProps {
   initialIndex?: number;
   open?: boolean;
   onClose: () => void;
-  onDeleteFace?: (n: number) => Promise<void>;
+  onDeleteFace?: (faceId: string) => Promise<void>;
   /**
    * Optional callback to rename the allow list directly from the viewer title.
    * When omitted, the viewer title renders as read-only plain text.
@@ -28,16 +28,18 @@ export interface FaceListViewerProps {
 
 function FaceStripThumbnail({
   listId,
+  faceId,
   index,
   revision = 0,
   title,
 }: {
   listId: string;
+  faceId: string;
   index: number;
   revision?: number;
   title?: string;
 }) {
-  const { url } = usePrivateImage(`/api/face-lists/${listId}/faces/${index}`, revision);
+  const { url } = usePrivateImage(`/api/face-lists/${listId}/faces/${faceId}`, revision);
   if (!url) return null;
   return <img src={url} alt={`Thumbnail ${index}`} title={title} />;
 }
@@ -77,7 +79,11 @@ export function FaceListViewer({
     setImgError(false);
   }, [activeIndex]);
 
-  const { url, loading, error } = usePrivateImage(`/api/face-lists/${list.id}/faces/${activeIndex}`, revision);
+  const activeFaceId = list.faceIds?.[activeIndex - 1] ?? `face-${activeIndex}`;
+  const { url, loading, error } = usePrivateImage(
+    activeFaceId ? `/api/face-lists/${list.id}/faces/${activeFaceId}` : null,
+    revision,
+  );
 
   // Keyboard navigation for previous/next faces
   useEffect(() => {
@@ -128,10 +134,10 @@ export function FaceListViewer({
   const hasFailed = error || imgError;
 
   const handleDeleteConfirm = async () => {
-    if (!onDeleteFace || deleting) return;
+    if (!onDeleteFace || deleting || !activeFaceId) return;
     setDeleting(true);
     try {
-      await onDeleteFace(activeIndex);
+      await onDeleteFace(activeFaceId);
     } finally {
       setDeleting(false);
       setConfirmingDelete(false);
@@ -173,9 +179,10 @@ export function FaceListViewer({
             {Array.from({ length: list.faceCount }, (_, i) => i + 1).map((n) => {
               const isActive = n === activeIndex;
               const label = faceLabel(list, n);
+              const faceId = list.faceIds?.[n - 1] ?? `face-${n}`;
               return (
                 <button
-                  key={n}
+                  key={faceId}
                   type="button"
                   className={`face-strip-thumb ${isActive ? "active" : ""}`}
                   onClick={() => setActiveIndex(n)}
@@ -184,7 +191,7 @@ export function FaceListViewer({
                   title={label}
                 >
                   <div className="thumbnail-container">
-                    <FaceStripThumbnail listId={list.id} index={n} revision={revision} title={label} />
+                    <FaceStripThumbnail listId={list.id} faceId={faceId} index={n} revision={revision} title={label} />
                     <span className="thumbnail-badge">{`#${n}`}</span>
                   </div>
                 </button>

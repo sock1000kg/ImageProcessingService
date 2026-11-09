@@ -188,6 +188,7 @@ export type FaceListItem = {
   name: string;
   faceCount: number;
   faceNames?: (string | null)[];
+  faceIds?: string[];
   createdAt: string;
 };
 

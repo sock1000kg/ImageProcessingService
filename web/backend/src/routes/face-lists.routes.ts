@@ -63,20 +63,20 @@ faceListsRouter.post(
 );
 
 /**
- * GET /api/face-lists/:id/faces/:n
- * Request: Params id (UUID) and n (1-based face index)
+ * GET /api/face-lists/:id/faces/:faceId
+ * Request: Params id (UUID) and faceId (unique face identifier within list)
  * Response: 200 image stream with Cache-Control: private, no-store
  * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
  */
-faceListsRouter.get("/:id/faces/:n", requireAuth, getFaceStreamHandler);
+faceListsRouter.get("/:id/faces/:faceId", requireAuth, getFaceStreamHandler);
 
 /**
- * DELETE /api/face-lists/:id/faces/:n
- * Request: Params id (UUID) and n (1-based face index)
+ * DELETE /api/face-lists/:id/faces/:faceId
+ * Request: Params id (UUID) and faceId (unique face identifier within list)
  * Response: 200 { list: FaceListItemDTO | null }
  * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
  */
-faceListsRouter.delete("/:id/faces/:n", requireAuth, deleteFaceFromListHandler);
+faceListsRouter.delete("/:id/faces/:faceId", requireAuth, deleteFaceFromListHandler);
 
 /**
  * PATCH /api/face-lists/:id

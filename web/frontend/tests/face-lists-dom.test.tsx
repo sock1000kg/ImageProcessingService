@@ -564,6 +564,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
         id: "list-err",
         name: "Broken List",
         faceCount: 1,
+        faceIds: ["face-1"],
         createdAt: "2026-11-05T00:00:00Z",
       };
 
@@ -576,7 +577,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
 
       expect(within(dialog).queryAllByRole("img")).toHaveLength(0);
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/api/face-lists/list-err/faces/1"),
+        expect.stringContaining("/api/face-lists/list-err/faces/face-1"),
         expect.anything(),
       );
     });
@@ -1058,7 +1059,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
         const method = init?.method ?? "GET";
         requestedUrls.push(`${method} ${url}`);
 
-        if (url.includes("/api/face-lists/list-1/faces/2") && method === "DELETE") {
+        if (url.includes("/api/face-lists/list-1/faces/face-2") && method === "DELETE") {
           return {
             ok: true,
             status: 200,
@@ -1067,6 +1068,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
                 id: "list-1",
                 name: "Family List",
                 faceCount: 2,
+                faceIds: ["face-1", "face-3"],
                 createdAt: "2026-11-05T08:00:00Z",
               },
             }),
@@ -1091,6 +1093,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
                   id: "list-1",
                   name: "Family List",
                   faceCount: 3,
+                  faceIds: ["face-1", "face-2", "face-3"],
                   createdAt: "2026-11-05T08:00:00Z",
                 },
               ],
@@ -1134,16 +1137,16 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
 
       // Verify DELETE API call was made
       await waitFor(() => {
-        expect(requestedUrls.some((u) => u.startsWith("DELETE") && u.includes("/api/face-lists/list-1/faces/2"))).toBe(
-          true,
-        );
+        expect(
+          requestedUrls.some((u) => u.startsWith("DELETE") && u.includes("/api/face-lists/list-1/faces/face-2")),
+        ).toBe(true);
       });
 
       // Viewer requests the next photo at index 2 with fresh fetch
       await waitFor(() => {
-        expect(requestedUrls.some((u) => u.startsWith("GET") && u.includes("/api/face-lists/list-1/faces/2"))).toBe(
-          true,
-        );
+        expect(
+          requestedUrls.some((u) => u.startsWith("GET") && u.includes("/api/face-lists/list-1/faces/face-3")),
+        ).toBe(true);
       });
 
       // Active count is now updated in viewer title (2 faces/files)
@@ -1223,7 +1226,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
           const url = typeof input === "string" ? input : input.toString();
           const method = init?.method ?? "GET";
 
-          if (url.includes("/api/face-lists/list-single/faces/1") && method === "DELETE") {
+          if (url.includes("/api/face-lists/list-single/faces/face-1") && method === "DELETE") {
             deleteCalled = true;
             return {
               ok: true,
@@ -1250,6 +1253,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
                     id: "list-single",
                     name: "Solo List",
                     faceCount: 1,
+                    faceIds: ["face-1"],
                     createdAt: "2026-11-05T08:00:00Z",
                   },
                 ],

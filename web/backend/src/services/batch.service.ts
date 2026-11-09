@@ -755,7 +755,6 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
     status: current.status,
     progress: current.progress,
     stage: current.stage,
-    resultUrl: current.resultUrl,
     resultSummary: current.resultSummary as Record<string, unknown> | null,
     error: current.error as { code: string; message: string } | null,
   };
@@ -809,7 +808,7 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
     };
   }
 
-  const nextState = calculateNextJobState(currentState, eventPayload, config.PUBLIC_RESULTS_BASE_URL);
+  const nextState = calculateNextJobState(currentState, eventPayload);
 
   let resultBytes: number | null | undefined = undefined;
   if (nextState.status === JobStatus.COMPLETED) {
@@ -820,7 +819,6 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
     status: nextState.status,
     progress: nextState.progress,
     stage: nextState.stage,
-    resultUrl: nextState.resultUrl,
     resultSummary: nextState.resultSummary,
     error: nextState.error,
     resultBytes,

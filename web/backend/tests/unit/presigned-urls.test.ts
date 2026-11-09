@@ -633,7 +633,6 @@ describe("Presigned URLs Backend Unit Tests (Task 87)", () => {
         status: JobStatus.COMPLETED,
         progress: 100,
         stage: "COMPLETED",
-        resultUrl: "/results/legacy-path.jpg",
         resultSummary: { faces: 1 },
         error: null,
         createdAt: new Date(),

@@ -302,7 +302,6 @@ export async function updateJobState(
     status: JobStatus;
     progress: number;
     stage: string | null;
-    resultUrl: string | null;
     resultSummary: Record<string, unknown> | null;
     error: { code: string; message: string } | null;
     resultBytes?: number | null;
@@ -317,7 +316,6 @@ export async function updateJobState(
       status: state.status,
       progress: state.progress,
       stage: state.stage,
-      resultUrl: state.resultUrl,
       // Prisma InputJsonValue requires casting for structured JSON fields
       resultSummary: state.resultSummary ? (state.resultSummary as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       error: state.error ? (state.error as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,

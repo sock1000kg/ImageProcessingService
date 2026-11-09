@@ -17,7 +17,6 @@ export const configSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
-  PUBLIC_RESULTS_BASE_URL: z.string().min(1).default("/results"),
   // Browser-facing S3/MinIO endpoint used for generating presigned URLs (host + port/path).
   S3_PUBLIC_ENDPOINT: z.string().min(1).default("http://localhost:9000"),
   // Lifetime in seconds for presigned URLs granting access to completed result images (default: 1 hour).

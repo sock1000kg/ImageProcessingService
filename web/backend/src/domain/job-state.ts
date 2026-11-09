@@ -8,7 +8,6 @@ export interface JobState {
   status: JobStatus;
   progress: number;
   stage: string | null;
-  resultUrl: string | null;
   resultSummary: Record<string, unknown> | null;
   error: { code: string; message: string } | null;
 }
@@ -18,14 +17,9 @@ export interface JobState {
  *
  * @param current Current recorded job state in the database
  * @param event Incoming validated worker event payload from NATS JetStream
- * @param publicResultsBaseUrl Base URL prefix for published output assets
  * @returns Updated job state to persist
  */
-export function calculateNextJobState(
-  current: JobState,
-  event: ValidatedJobEvent,
-  publicResultsBaseUrl = "/results",
-): JobState {
+export function calculateNextJobState(current: JobState, event: ValidatedJobEvent): JobState {
   // Why terminal states win: Worker events may be delivered out-of-order over NATS JetStream.
   // Once a job enters COMPLETED or FAILED, it is permanently closed. Subsequent lagging heartbeats
   // or late intermediate events must never overwrite terminal status, clear errors, or revert results.
@@ -50,13 +44,11 @@ export function calculateNextJobState(
   }
 
   if (event.status === "COMPLETED") {
-    const resultUrl = event.result ? `${publicResultsBaseUrl}/${event.result.key}` : current.resultUrl;
     return {
       ...current,
       status: "COMPLETED",
       progress: 100,
       stage: event.stage ?? "DONE",
-      resultUrl,
       resultSummary: event.resultSummary ?? current.resultSummary,
     };
   }

@@ -107,7 +107,6 @@ describe("DTO Validation and Schemas (Task 26)", () => {
         status: "COMPLETED",
         progress: 100,
         stage: "DONE",
-        resultUrl: "/results/sample.jpg",
         resultSummary: invalidSummary,
         error: null,
         createdAt: new Date("2026-10-30T00:00:00Z"),

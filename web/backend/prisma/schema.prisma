@@ -90,7 +90,6 @@ model Job {
   status           JobStatus @default(PENDING)
   progress         Int       @default(0)
   stage            String?
-  resultUrl        String?   @map("result_url")
   resultSummary    Json?     @map("result_summary")
   error            Json?
   whitelistRefs    Int[]     @default([]) @map("whitelist_refs")

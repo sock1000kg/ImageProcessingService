@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "jobs" DROP COLUMN "result_url";

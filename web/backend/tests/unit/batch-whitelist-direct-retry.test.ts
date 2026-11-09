@@ -332,7 +332,6 @@ describe("Task 53: Batches use allow-list photos directly; retry warns when face
       progress: 50,
       stage: "PROCESSING",
       outputKey: `${batchId}/${jobId}/result.jpg`,
-      resultUrl: null,
       resultSummary: null,
       error: null,
       whitelistRefs: [1, 2], // worker face 0 -> batch index 1, worker face 1 -> batch index 2
@@ -389,7 +388,6 @@ describe("Task 53: Batches use allow-list photos directly; retry warns when face
       status: JobStatus.COMPLETED,
       progress: 100,
       stage: "DONE",
-      resultUrl: `/results/${batchId}/${jobId}/result.jpg`,
       resultSummary: firstCallArgs.resultSummary,
       resultBytes: 5678,
     } as any);

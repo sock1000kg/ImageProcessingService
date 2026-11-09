@@ -9,7 +9,7 @@ import { InlineRename } from "../components/InlineRename";
 import { Banner } from "../components/ui/Banner";
 import { StatTile } from "../components/ui/StatTile";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { Image, Images, Trash } from "@phosphor-icons/react";
+import { ImageIcon, ImagesIcon, TrashIcon } from "@phosphor-icons/react";
 import { AccountUsage, BatchSummaryItem, MessageHandler } from "../types";
 import { formatBytes } from "../utils/format";
 
@@ -136,7 +136,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
       {!loading && batches.length === 0 && (
         <div className="empty-dashboard">
           <span>
-            <Images aria-hidden />
+            <ImagesIcon aria-hidden />
           </span>
           <h3>No batches in library</h3>
         </div>
@@ -152,7 +152,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                     <img src={batch.thumbnailUrl} alt={batch.name} className="library-thumbnail" loading="lazy" />
                   ) : (
                     <div className="library-thumbnail placeholder" aria-label="No thumbnail">
-                      <Image aria-hidden />
+                      <ImageIcon aria-hidden />
                     </div>
                   )}
                   <div className="library-card-body">
@@ -172,7 +172,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                     aria-label={`Delete ${batch.name}`}
                     onClick={() => setDeletingBatch(batch)}
                   >
-                    <Trash aria-hidden />
+                    <TrashIcon aria-hidden />
                   </button>
                 </div>
                 <div className="library-card-meta">

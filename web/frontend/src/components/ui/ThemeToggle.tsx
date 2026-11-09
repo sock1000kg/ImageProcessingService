@@ -3,7 +3,7 @@
  * Extends .icon-button, showing the target theme's icon (Moon in light mode,
  * Sun in dark mode) with matching accessible aria-label.
  */
-import { Moon, Sun } from "@phosphor-icons/react";
+import { MoonIcon, SunIcon } from "@phosphor-icons/react";
 import { useTheme } from "../../hooks/useTheme";
 
 export interface ThemeToggleProps {
@@ -26,7 +26,7 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
       onClick={toggleTheme}
       title={label}
     >
-      {isDark ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
+      {isDark ? <SunIcon aria-hidden="true" size={18} /> : <MoonIcon aria-hidden="true" size={18} />}
     </button>
   );
 }

@@ -17,7 +17,7 @@ import { FaceListItem, MessageHandler } from "../types";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { FaceListViewer } from "./FaceListViewer";
 import { WhitelistUploader } from "./WhitelistUploader";
-import { Trash, UserList } from "@phosphor-icons/react";
+import { TrashIcon, UserListIcon } from "@phosphor-icons/react";
 import { Banner } from "./ui/Banner";
 import { RejectedFilesNotice } from "./RejectedFilesNotice";
 import { addWhitelistFiles, FileSelectionIssue, MAX_FACE_LIST_FILES } from "./file-selection";
@@ -208,7 +208,7 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
       ) : faceLists.length === 0 ? (
         <div className="empty-dashboard saved-face-lists-empty">
           <span>
-            <UserList aria-hidden />
+            <UserListIcon aria-hidden />
           </span>
           <h3>No allow lists</h3>
           <p>Create an allow list below to reuse reference faces across batches.</p>
@@ -245,7 +245,7 @@ export function SavedFaceListsPanel({ onMessage }: SavedFaceListsPanelProps = {}
                   aria-label={`Delete ${list.name}`}
                   onClick={() => setDeletingList(list)}
                 >
-                  <Trash aria-hidden />
+                  <TrashIcon aria-hidden />
                 </button>
               </div>
               <div className="library-card-actions">

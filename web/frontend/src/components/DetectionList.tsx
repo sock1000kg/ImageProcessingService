@@ -1,7 +1,7 @@
 /**
  * Detailed detection inspector listing individual bounding boxes, confidence scores, and review flags.
  */
-import { Trash, Warning } from "@phosphor-icons/react";
+import { TrashIcon, WarningIcon } from "@phosphor-icons/react";
 import { Detection } from "../types";
 
 export interface DetectionListProps {
@@ -116,7 +116,7 @@ export function DetectionList({
             {isFlagged && (
               <span id={`detection-review-${index}`} role="status">
                 <span className="row-review">
-                  <Warning aria-hidden /> Needs review
+                  <WarningIcon aria-hidden /> Needs review
                 </span>
               </span>
             )}
@@ -136,7 +136,7 @@ export function DetectionList({
                 onClick={() => onRemoveAddedBox?.(addedIndex)}
                 aria-label={`Remove drawn box ${addedIndex + 1}`}
               >
-                <Trash aria-hidden />
+                <TrashIcon aria-hidden />
               </button>
             </div>
           </li>

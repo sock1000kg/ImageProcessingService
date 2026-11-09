@@ -5,7 +5,7 @@
  * an interactive editor to toggle detections, draw custom redactions, and re-render without re-running AI.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowSquareOut, DownloadSimple, Trash } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, DownloadSimpleIcon, TrashIcon } from "@phosphor-icons/react";
 import { Detection, Job, ReviewReason } from "../types";
 import { usePresignedUrl } from "../hooks/usePresignedUrl";
 import { editJob, EditJobBody, request } from "../api";
@@ -597,7 +597,7 @@ export function ImageResultViewer({
                             }}
                             aria-label={`Remove drawn box ${addedIndex + 1}`}
                           >
-                            <Trash aria-hidden />
+                            <TrashIcon aria-hidden />
                           </button>
                         </div>
                       );
@@ -658,11 +658,11 @@ export function ImageResultViewer({
         {job.status === "COMPLETED" && (
           <>
             <a href="#" onClick={handleOpenOriginal} className="ghost-button">
-              <ArrowSquareOut aria-hidden="true" />
+              <ArrowSquareOutIcon aria-hidden="true" />
               Open original
             </a>
             <button type="button" onClick={handleDownloadResult} className="ghost-button">
-              <DownloadSimple aria-hidden="true" />
+              <DownloadSimpleIcon aria-hidden="true" />
               Download result
             </button>
           </>

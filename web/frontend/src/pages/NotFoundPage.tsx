@@ -2,7 +2,7 @@
  * Not-found route fallback page component.
  */
 import { useNavigate } from "react-router-dom";
-import { Stack } from "@phosphor-icons/react";
+import { StackIcon } from "@phosphor-icons/react";
 
 /**
  * 404 error page displayed when a requested frontend route is not matched.
@@ -13,7 +13,7 @@ export function NotFoundPage() {
   return (
     <section className="empty-dashboard">
       <span>
-        <Stack aria-hidden />
+        <StackIcon aria-hidden />
       </span>
       <h3>Page not found</h3>
       <button type="button" className="primary-button" onClick={() => navigate("/")}>

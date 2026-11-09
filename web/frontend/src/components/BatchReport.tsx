@@ -2,7 +2,7 @@
  * Batch report presentation component displaying detection aggregate totals and flagged review images.
  */
 import React, { useEffect, useState } from "react";
-import { CaretDown } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@phosphor-icons/react";
 import { BatchReport as Report, ReportWhitelistPerson } from "../types";
 import { Banner } from "./ui/Banner";
 import { StatTile } from "./ui/StatTile";
@@ -112,7 +112,7 @@ function WhitelistPersonSection({ batchId, person, onSelectImage }: WhitelistPer
       </div>
       {hasImages && (
         <span className={`chevron ${open ? "open" : ""}`} aria-hidden="true">
-          <CaretDown aria-hidden />
+          <CaretDownIcon aria-hidden />
         </span>
       )}
     </>

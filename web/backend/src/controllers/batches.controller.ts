@@ -50,7 +50,7 @@ export async function createBatchHandler(request: Request, response: Response, n
       rawConfig: request.body.config,
       filesPresent,
       name: request.body.name,
-      userId: request.authUser?.id,
+      userId: request.authUser!.id,
     });
 
     response.status(201).json({ batch });
@@ -62,7 +62,7 @@ export async function createBatchHandler(request: Request, response: Response, n
 export async function addBatchFileHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const job = await addBatchFile(id, request.file, request.authUser?.id);
+    const job = await addBatchFile(id, request.file, request.authUser!.id);
     response.status(201).json({ job });
   } catch (error) {
     next(error);
@@ -72,7 +72,7 @@ export async function addBatchFileHandler(request: Request, response: Response, 
 export async function startBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const batch = await startBatch(id, request.authUser?.id);
+    const batch = await startBatch(id, request.authUser!.id);
     response.status(202).json({ batch });
   } catch (error) {
     next(error);
@@ -110,7 +110,7 @@ export async function rerunBatchHandler(request: Request, response: Response, ne
 export async function getBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const batch = await getBatchById(id, request.authUser?.id);
+    const batch = await getBatchById(id, request.authUser!.id);
     if (!batch) {
       throw notFound("Batch not found");
     }
@@ -124,7 +124,7 @@ export async function updateBatchHandler(request: Request, response: Response, n
   try {
     const id = validateIdParam(request.params);
     const body = patchBatchBodySchema.parse(request.body);
-    const batch = await renameBatch(id, body.name, request.authUser?.id);
+    const batch = await renameBatch(id, body.name, request.authUser!.id);
     response.status(200).json({ batch });
   } catch (error) {
     next(error);
@@ -134,7 +134,7 @@ export async function updateBatchHandler(request: Request, response: Response, n
 export async function getBatchReportHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const report = await getBatchReportById(id, request.authUser?.id);
+    const report = await getBatchReportById(id, request.authUser!.id);
     if (!report) {
       throw notFound("Batch not found");
     }
@@ -147,7 +147,7 @@ export async function getBatchReportHandler(request: Request, response: Response
 export async function deleteBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const deleted = await deleteBatchById(id, request.authUser?.id);
+    const deleted = await deleteBatchById(id, request.authUser!.id);
     if (!deleted) {
       throw notFound("Batch not found");
     }
@@ -271,10 +271,7 @@ export async function createBatchDownloadTokenHandler(
 ): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const userId = request.authUser?.id;
-    if (!userId) {
-      throw unauthorized("Authentication required", "UNAUTHORIZED");
-    }
+    const userId = request.authUser!.id;
     const batch = await getBatchOwnedByUser(id, userId);
     if (!batch) {
       throw notFound("Batch not found");

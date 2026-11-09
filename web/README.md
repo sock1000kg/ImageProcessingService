@@ -47,7 +47,7 @@ Phase 2 authentication uses email as the unique login identifier. Access tokens 
 - Presigned URLs are used for all media in MinIO (results, originals, allow list faces, and whitelist reference photos). The frontend consumes them via `usePresignedUrl`, which requests `{ url, expiresAt }` and reuses the signed URL until 30 seconds before expiration. Signed URLs expire (results in 1 hour; originals and reference photos in 5 minutes with `Cache-Control: private, no-store`). Logging out does not revoke already issued presigned URLs until their expiration or until the underlying object is deleted.
 - Streaming image endpoints (`/original`, `/whitelist/:n`, `/faces/:faceId`) and `resultUrl` on jobs have been removed. Streaming zip archive download (`GET /api/batches/:id/download.zip`) remains streamed through the backend via `archiver` and `storage.getObjectStream`.
 - There is no CORS middleware: the SPA and the API share one origin (Vite proxies `/api` in development).
-- Batches created before the auth migration have no owner (`user_id` is null) and are not visible to any account; the periodic cleanup still removes them.
+- Every batch has an owner (`user_id` is required); ownerless batches from Phase 1 were deleted by migration.
 
 ## Prerequisites
 

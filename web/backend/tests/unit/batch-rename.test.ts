@@ -11,10 +11,12 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
   });
 
   const validBatchId = "123e4567-e89b-42d3-a456-426614174000";
+  const userId = "test-user-id";
 
   it("renames batch successfully in any status and returns updated batch response", async () => {
     const existingBatch = {
       id: validBatchId,
+      userId,
       name: "Old Batch Name",
       config: { targets: ["face"], style: "blur" },
       whitelistKeys: [],
@@ -28,20 +30,20 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
       name: "New Batch Name",
     };
 
-    vi.spyOn(jobRepository, "getBatch").mockResolvedValue(existingBatch as any);
+    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue(existingBatch as any);
     vi.spyOn(jobRepository, "updateBatchName").mockResolvedValue(updatedBatch as any);
     vi.spyOn(jobRepository, "getJobsByBatchId").mockResolvedValue([]);
 
-    const result = await renameBatch(validBatchId, "  New Batch Name  ");
+    const result = await renameBatch(validBatchId, "  New Batch Name  ", userId);
     expect(result.id).toBe(validBatchId);
     expect(result.name).toBe("New Batch Name");
     expect(jobRepository.updateBatchName).toHaveBeenCalledWith(validBatchId, "New Batch Name");
   });
 
   it("throws 404 NOT_FOUND when renaming unknown batch id", async () => {
-    vi.spyOn(jobRepository, "getBatch").mockResolvedValue(null);
+    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue(null);
 
-    await expect(renameBatch("00000000-0000-0000-0000-000000000000", "New Name")).rejects.toMatchObject({
+    await expect(renameBatch("00000000-0000-0000-0000-000000000000", "New Name", userId)).rejects.toMatchObject({
       status: 404,
       code: "NOT_FOUND",
       message: "Batch not found",
@@ -51,6 +53,7 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
   it("throws validation error when new name exceeds 100 characters", async () => {
     const existingBatch = {
       id: validBatchId,
+      userId,
       name: "Old Name",
       config: {},
       whitelistKeys: [],
@@ -58,14 +61,15 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
       startedAt: null,
       createdAt: new Date(),
     };
-    vi.spyOn(jobRepository, "getBatch").mockResolvedValue(existingBatch as any);
+    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue(existingBatch as any);
 
-    await expect(renameBatch(validBatchId, "a".repeat(101))).rejects.toThrow();
+    await expect(renameBatch(validBatchId, "a".repeat(101), userId)).rejects.toThrow();
   });
 
   it("throws validation error when new name contains control characters", async () => {
     const existingBatch = {
       id: validBatchId,
+      userId,
       name: "Old Name",
       config: {},
       whitelistKeys: [],
@@ -73,15 +77,16 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
       startedAt: null,
       createdAt: new Date(),
     };
-    vi.spyOn(jobRepository, "getBatch").mockResolvedValue(existingBatch as any);
+    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue(existingBatch as any);
 
-    await expect(renameBatch(validBatchId, "bad\x00name")).rejects.toThrow();
-    await expect(renameBatch(validBatchId, "line\nbreak")).rejects.toThrow();
+    await expect(renameBatch(validBatchId, "bad\x00name", userId)).rejects.toThrow();
+    await expect(renameBatch(validBatchId, "line\nbreak", userId)).rejects.toThrow();
   });
 
   it("renames with default name when empty string is provided", async () => {
     const existingBatch = {
       id: validBatchId,
+      userId,
       name: "Old Name",
       config: {},
       whitelistKeys: [],
@@ -89,7 +94,7 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
       startedAt: null,
       createdAt: new Date(),
     };
-    vi.spyOn(jobRepository, "getBatch").mockResolvedValue(existingBatch as any);
+    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue(existingBatch as any);
     vi.spyOn(jobRepository, "updateBatchName").mockImplementation(
       async (_id, name) =>
         ({
@@ -99,7 +104,7 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
     );
     vi.spyOn(jobRepository, "getJobsByBatchId").mockResolvedValue([]);
 
-    const result = await renameBatch(validBatchId, "   ");
+    const result = await renameBatch(validBatchId, "   ", userId);
     expect(result.name).toMatch(/^Batch \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 
@@ -107,6 +112,7 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
     it("handles valid PATCH request returning 200 { batch }", async () => {
       const existingBatch = {
         id: validBatchId,
+        userId,
         name: "Old",
         config: {},
         whitelistKeys: [],
@@ -114,7 +120,7 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
         startedAt: null,
         createdAt: new Date(),
       };
-      vi.spyOn(jobRepository, "getBatch").mockResolvedValue(existingBatch as any);
+      vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue(existingBatch as any);
       vi.spyOn(jobRepository, "updateBatchName").mockResolvedValue({
         ...existingBatch,
         name: "Renamed",
@@ -124,6 +130,7 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
       const req: any = {
         params: { id: validBatchId },
         body: { name: "Renamed" },
+        authUser: { id: userId },
       };
       const res: any = {
         status: vi.fn().mockReturnThis(),
@@ -146,6 +153,7 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
       const req: any = {
         params: { id: validBatchId },
         body: { name: "Renamed", unexpected: "key" },
+        authUser: { id: userId },
       };
       const res: any = {
         status: vi.fn().mockReturnThis(),
@@ -164,6 +172,7 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
       const req: any = {
         params: { id: validBatchId },
         body: {},
+        authUser: { id: userId },
       };
       const res: any = {
         status: vi.fn().mockReturnThis(),
@@ -179,11 +188,12 @@ describe("Batch Rename Unit Tests (Task 28)", () => {
     });
 
     it("passes notFound error to next when batch does not exist", async () => {
-      vi.spyOn(jobRepository, "getBatch").mockResolvedValue(null);
+      vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue(null);
 
       const req: any = {
         params: { id: validBatchId },
         body: { name: "Renamed" },
+        authUser: { id: userId },
       };
       const res: any = {
         status: vi.fn().mockReturnThis(),

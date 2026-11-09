@@ -13,7 +13,7 @@ import { formatDefaultBatchName } from "../dto";
  */
 export async function createDraftBatch(batch: {
   id: string;
-  userId?: string;
+  userId: string;
   name: string;
   config: BatchConfig;
   whitelistKeys: string[];
@@ -22,7 +22,7 @@ export async function createDraftBatch(batch: {
   return prisma.batch.create({
     data: {
       id: batch.id,
-      ...(batch.userId ? { userId: batch.userId } : {}),
+      userId: batch.userId,
       name: batch.name,
       config: batch.config as unknown as Prisma.InputJsonValue,
       whitelistKeys: batch.whitelistKeys,
@@ -108,6 +108,7 @@ export async function getPendingJobsByBatchId(batchId: string) {
 export async function insertBatchAndJobs(
   batch: {
     id: string;
+    userId: string;
     name?: string;
     config: BatchConfig;
     whitelistKeys: string[];
@@ -123,6 +124,7 @@ export async function insertBatchAndJobs(
     await tx.batch.create({
       data: {
         id: batch.id,
+        userId: batch.userId,
         name: batch.name ?? formatDefaultBatchName(),
         // Prisma InputJsonValue requires casting for structured JSON fields
         config: batch.config as unknown as Prisma.InputJsonValue,
@@ -390,10 +392,10 @@ export async function getExpiredBatches(retentionDays?: number) {
   });
 }
 
-export async function getStats(userId?: string): Promise<Record<string, number>> {
+export async function getStats(userId: string): Promise<Record<string, number>> {
   const groups = await prisma.job.groupBy({
     by: ["status"],
-    where: userId ? { batch: { userId } } : undefined,
+    where: { batch: { userId } },
     _count: { _all: true },
   });
   return Object.fromEntries(groups.map((group) => [group.status, group._count._all]));

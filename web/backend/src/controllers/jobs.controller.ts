@@ -15,7 +15,7 @@ import { validateIdParam } from "../dto";
 export async function getJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const job = await getJobById(id, request.authUser?.id);
+    const job = await getJobById(id, request.authUser!.id);
     if (!job) {
       throw notFound("Job not found");
     }
@@ -67,7 +67,7 @@ export async function retryJobHandler(request: Request, response: Response, next
   try {
     const id = validateIdParam(request.params);
     const acceptMissingFaces = Boolean(request.body?.acceptMissingFaces);
-    const job = await retryFailedJob(id, request.authUser?.id, { acceptMissingFaces });
+    const job = await retryFailedJob(id, request.authUser!.id, { acceptMissingFaces });
     response.status(202).json({ job });
   } catch (error) {
     next(error);

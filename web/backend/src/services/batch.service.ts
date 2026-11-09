@@ -82,7 +82,7 @@ export async function createDraftBatch(options: {
   rawConfig?: unknown;
   filesPresent?: boolean;
   name?: unknown;
-  userId?: string;
+  userId: string;
 }): Promise<BatchResponseDTO> {
   const { whitelist = [], rawConfig, filesPresent = false, name } = options;
   const faceListIds = parseFaceListIds(options);
@@ -96,7 +96,7 @@ export async function createDraftBatch(options: {
   const faceLists: Array<{ id: string; name: string; keys: string[]; faceNames?: unknown }> = [];
   if (faceListIds && faceListIds.length > 0) {
     for (const id of faceListIds) {
-      if (!UUID_REGEX.test(id) || !options.userId) {
+      if (!UUID_REGEX.test(id)) {
         throw notFound("Face list not found");
       }
       const faceList = await getFaceListOwnedByUser(id, options.userId);
@@ -171,12 +171,12 @@ export const createBatch = createDraftBatch;
 
 export async function addBatchFile(
   batchId: string,
-  file?: Express.Multer.File,
-  userId?: string,
+  file: Express.Multer.File | undefined,
+  userId: string,
 ): Promise<JobResponseDTO> {
   const validFile = validateSingleUploadFile(file);
 
-  const batch = userId ? await getBatchOwnedByUser(batchId, userId) : await getBatch(batchId);
+  const batch = await getBatchOwnedByUser(batchId, userId);
   if (!batch) {
     throw notFound("Batch not found");
   }
@@ -219,8 +219,8 @@ export async function addBatchFile(
  * "Start without them" or retries a failed start call, only jobs remaining in PENDING status are
  * enqueued. startedAt is marked once, avoiding duplicate command dispatches to workers.
  */
-export async function startBatch(batchId: string, userId?: string): Promise<BatchResponseDTO> {
-  const batch = userId ? await getBatchOwnedByUser(batchId, userId) : await getBatch(batchId);
+export async function startBatch(batchId: string, userId: string): Promise<BatchResponseDTO> {
+  const batch = await getBatchOwnedByUser(batchId, userId);
   if (!batch) {
     throw notFound("Batch not found");
   }
@@ -263,15 +263,15 @@ export async function startBatch(batchId: string, userId?: string): Promise<Batc
   return toBatchResponse(updatedBatch!, updatedJobs);
 }
 
-export async function getBatchById(id: string, userId?: string): Promise<BatchResponseDTO | null> {
-  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
+export async function getBatchById(id: string, userId: string): Promise<BatchResponseDTO | null> {
+  const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) return null;
   const jobs = await getJobsByBatchId(id);
   return toBatchResponse(batch, jobs);
 }
 
-export async function renameBatch(id: string, rawName: string, userId?: string): Promise<BatchResponseDTO> {
-  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
+export async function renameBatch(id: string, rawName: string, userId: string): Promise<BatchResponseDTO> {
+  const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) {
     throw notFound("Batch not found");
   }
@@ -281,20 +281,20 @@ export async function renameBatch(id: string, rawName: string, userId?: string):
   return toBatchResponse(updated, jobs);
 }
 
-export async function getBatchReportById(id: string, userId?: string): Promise<ReportResponseDTO | null> {
-  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
+export async function getBatchReportById(id: string, userId: string): Promise<ReportResponseDTO | null> {
+  const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) return null;
   const jobs = await getJobsByBatchId(id);
   return toReportResponse(batch, jobs);
 }
 
-export async function deleteBatchById(id: string, userId?: string): Promise<boolean> {
-  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
+export async function deleteBatchById(id: string, userId: string): Promise<boolean> {
+  const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) return false;
 
   await storage.deletePrefix(UPLOADS_BUCKET, `${id}/`);
   await storage.deletePrefix(RESULTS_BUCKET, `${id}/`);
-  return userId ? deleteBatchRowOwnedByUser(id, userId) : deleteBatchRow(id);
+  return deleteBatchRowOwnedByUser(id, userId);
 }
 
 /**
@@ -312,10 +312,10 @@ export async function rerunBatch(
     faceListId?: string;
     rawConfig?: unknown;
     name?: unknown;
-    userId?: string;
+    userId: string;
   },
 ): Promise<{ batch: BatchResponseDTO; skipped: number }> {
-  const sourceBatch = options.userId ? await getBatchOwnedByUser(sourceId, options.userId) : await getBatch(sourceId);
+  const sourceBatch = await getBatchOwnedByUser(sourceId, options.userId);
 
   if (!sourceBatch) {
     throw notFound("Batch not found");
@@ -494,17 +494,17 @@ export async function deleteJobById(id: string, userId: string): Promise<void> {
   }
 }
 
-export async function getJobById(id: string, userId?: string): Promise<JobResponseDTO | null> {
-  const job = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
+export async function getJobById(id: string, userId: string): Promise<JobResponseDTO | null> {
+  const job = await getJobOwnedByUser(id, userId);
   return toJobResponse(job);
 }
 
 export async function retryFailedJob(
   id: string,
-  userId?: string,
+  userId: string,
   options?: { acceptMissingFaces?: boolean },
 ): Promise<JobResponseDTO> {
-  const failedJob = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
+  const failedJob = await getJobOwnedByUser(id, userId);
   if (!failedJob) {
     throw gone("Job not found or its batch has expired", "JOB_EXPIRED");
   }

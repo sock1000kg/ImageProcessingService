@@ -51,6 +51,7 @@ export interface JobResponseDTO {
   stage: string | null;
   resultSummary: Record<string, unknown> | null;
   error: JobError | null;
+  replacesJobId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -225,6 +226,7 @@ export function toJobResponse(job: PrismaJob | null): JobResponseDTO | null {
     stage: job.stage,
     resultSummary: summary,
     error: err,
+    replacesJobId: job.replacesJobId ?? null,
     createdAt: job.createdAt instanceof Date ? job.createdAt.toISOString() : String(job.createdAt),
     updatedAt: job.updatedAt instanceof Date ? job.updatedAt.toISOString() : String(job.updatedAt),
   };

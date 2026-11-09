@@ -268,6 +268,7 @@ The Engine must have its Python environment, model weights, and configuration re
 | `GET`    | `/api/jobs/:id/original-url`            | Issue presigned GET URL (`{ url, expiresAt }`, 5 min, `private, no-store`) for unredacted original image                                  |
 | `DELETE` | `/api/jobs/:id`                         | Delete single image job and its storage objects (deletes batch if last job; 409 if active)                                                |
 | `POST`   | `/api/jobs/:id/retry`                   | Retry a `FAILED` job with a new job ID and output key (409 `WHITELIST_FACES_MISSING` if faces missing without `acceptMissingFaces: true`) |
+| `POST`   | `/api/jobs/:id/edit`                    | Re-render a `COMPLETED` image with updated boxes/style without re-running AI. Returns 201 `{ job: JobResponseDTO }`                       |
 | `GET`    | `/api/system/stats`                     | Job counts grouped by status                                                                                                              |
 | `POST`   | `/api/auth/register`                    | Create an account with email, password, and `REGISTER_KEY`                                                                                |
 | `POST`   | `/api/auth/login`                       | Sign in and receive a short-lived access token                                                                                            |
@@ -336,6 +337,24 @@ Batch creation and image processing use a three-step flow:
      - `404 NOT_FOUND`: source batch does not exist, belongs to another user, or references an invalid/foreign allow list.
      - `409 BATCH_NOT_STARTED`: source batch is still a draft (`startedAt` is null).
      - `410 NO_ORIGINALS`: no original images remain in storage for the source batch.
+     - `503 SERVICE_UNAVAILABLE`: queue unavailable.
+
+6. **`POST /api/jobs/:id/edit`** (Re-render completed image with updated boxes/settings)
+   - **Request**: JSON body with:
+     - `redactIndices`: array of integer indices into the job's `resultSummary.detections` that must be redacted in the new render.
+     - `addedBoxes`: array of 0–50 objects `{ box: [x1, y1, x2, y2] }` representing user-drawn boxes in original-image pixels (`x1 < x2`, `y1 < y2`, finite numbers). Defaults to `[]`.
+     - `style`: optional redaction style (`"blur"` | `"pixelate"` | `"blackout"`), defaulting to the batch config.
+     - `strength`: optional redaction strength (blur: 1–50; pixelate: 3–32; ignored for blackout), defaulting to the batch config.
+     - `padding`: optional box expansion ratio (0–0.5), defaulting to the batch config.
+     - Strict schema: unknown properties in the JSON body return `400 VALIDATION_ERROR`.
+   - **Behavior**: Verifies the job belongs to the authenticated user and is `COMPLETED`. If an active edit is already running for this job (`replacesJobId = id` with a non-terminal status), returns that active job DTO without creating a duplicate. Otherwise, copies the original image into a new job directory (`uploads/<batchId>/<newJobId>/input.<ext>`), creates a new `Job` row linking to the original via `replacesJobId` with initial detections stored upfront, and publishes an `image-render` command to NATS JetStream on `jobs.image`. On successful completion, the old job row and its storage objects are cleaned up in-place.
+   - **Response**: `201 Created` with `{ job: JobResponseDTO }`.
+   - **Errors**:
+     - `400 VALIDATION_ERROR` / `INVALID_UUID`: invalid job id, bad box coordinates, invalid strength range, or unknown fields.
+     - `400 INDEX_OUT_OF_RANGE`: detection index out of range.
+     - `404 NOT_FOUND`: job does not exist or belongs to another user.
+     - `409 JOB_NOT_EDITABLE`: job is not in `COMPLETED` state.
+     - `410 INPUT_EXPIRED`: original input image is missing from storage.
      - `503 SERVICE_UNAVAILABLE`: queue unavailable.
 
 Every batch response (`BatchResponseDTO`) includes `name: string`. The batch report (`ReportResponseDTO` from `GET /api/batches/:id/report`) includes `batchName: string`.

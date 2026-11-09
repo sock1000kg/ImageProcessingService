@@ -4,13 +4,14 @@
 import { NextFunction, Request, Response } from "express";
 import {
   deleteJobById,
+  editJob,
   getJobById,
   getJobOriginalPresignedUrl,
   getJobResultPresignedUrl,
   retryFailedJob,
 } from "../services/batch.service";
 import { notFound } from "../errors";
-import { validateIdParam } from "../dto";
+import { editJobBodySchema, validateIdParam } from "../dto";
 
 export async function getJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
@@ -69,6 +70,21 @@ export async function retryJobHandler(request: Request, response: Response, next
     const acceptMissingFaces = Boolean(request.body?.acceptMissingFaces);
     const job = await retryFailedJob(id, request.authUser!.id, { acceptMissingFaces });
     response.status(202).json({ job });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /api/jobs/:id/edit
+ * Re-renders a completed image job with updated bounding boxes and redaction options.
+ */
+export async function editJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const id = validateIdParam(request.params);
+    const body = editJobBodySchema.parse(request.body);
+    const job = await editJob(id, request.authUser!.id, body);
+    response.status(201).json({ job });
   } catch (error) {
     next(error);
   }

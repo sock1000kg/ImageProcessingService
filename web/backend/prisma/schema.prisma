@@ -93,6 +93,7 @@ model Job {
   resultSummary    Json?     @map("result_summary")
   error            Json?
   whitelistRefs    Int[]     @default([]) @map("whitelist_refs")
+  replacesJobId    String?   @map("replaces_job_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -101,5 +102,6 @@ model Job {
   @@index([batchId], map: "idx_jobs_batch_id")
   @@index([status], map: "idx_jobs_status")
   @@index([createdAt(sort: Desc)], map: "idx_jobs_created_at")
+  @@index([replacesJobId], map: "idx_jobs_replaces_job_id")
   @@map("jobs")
 }

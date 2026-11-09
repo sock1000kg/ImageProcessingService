@@ -204,6 +204,65 @@ export async function insertRetryJob(job: {
   });
 }
 
+/**
+ * Finds an active (non-terminal) edit job that is currently re-rendering the specified completed job.
+ *
+ * Why active check: Prevents duplicate render jobs from being enqueued concurrently while an edit
+ * is still PENDING, QUEUED, or PROCESSING.
+ */
+export async function getActiveEditJob(replacesJobId: string) {
+  return prisma.job.findFirst({
+    where: {
+      replacesJobId,
+      status: { notIn: [JobStatus.COMPLETED, JobStatus.FAILED] },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/**
+ * Persists a new edit job row linking to an existing completed job via replacesJobId.
+ *
+ * Why initial resultSummary: Stores resulting detections upfront because image-render events
+ * report filter statistics without detection arrays per Contract §3B3.
+ */
+export async function insertEditJob(job: {
+  id: string;
+  batchId: string;
+  originalFilename: string;
+  inputKey: string;
+  outputKey: string;
+  inputBytes?: number | null;
+  replacesJobId: string;
+  resultSummary: Record<string, unknown>;
+}) {
+  return prisma.job.create({
+    data: {
+      id: job.id,
+      batchId: job.batchId,
+      originalFilename: job.originalFilename,
+      inputKey: job.inputKey,
+      outputKey: job.outputKey,
+      inputBytes: job.inputBytes ?? null,
+      status: JobStatus.PENDING,
+      replacesJobId: job.replacesJobId,
+      resultSummary: job.resultSummary as unknown as Prisma.InputJsonValue,
+    },
+  });
+}
+
+/**
+ * Clears the replacesJobId link after an edit job completes and the replaced row has been purged.
+ */
+export async function clearJobReplacesJobId(id: string): Promise<void> {
+  await prisma.job.updateMany({
+    where: { id },
+    data: {
+      replacesJobId: null,
+    },
+  });
+}
+
 export async function deleteJob(id: string): Promise<void> {
   await prisma.job.deleteMany({ where: { id } });
 }

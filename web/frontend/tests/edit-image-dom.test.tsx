@@ -237,12 +237,12 @@ describe("Task 93: 'Sửa ảnh' Redaction Editor (Frontend)", () => {
       addBoxRef.current!(drawnBox);
 
       // Verify added box row appears in detection list with a remove button
-      const removeButton = await screen.findByRole("button", { name: /remove added box #1/i });
-      expect(removeButton).toBeDefined();
+      const removeButtons = await screen.findAllByRole("button", { name: /remove drawn box 1/i });
+      expect(removeButtons.length).toBeGreaterThan(0);
 
       // Remove the box before applying
-      fireEvent.click(removeButton);
-      expect(screen.queryByRole("button", { name: /remove added box #1/i })).toBeNull();
+      fireEvent.click(removeButtons[0]);
+      expect(screen.queryByRole("button", { name: /remove drawn box 1/i })).toBeNull();
 
       // Apply button should be disabled since there are no changes left
       const applyBtn = screen.getByRole("button", { name: /apply/i }) as HTMLButtonElement;
@@ -299,7 +299,7 @@ describe("Task 93: 'Sửa ảnh' Redaction Editor (Frontend)", () => {
       fireEvent.pointerMove(drawArea, { clientX: 300, clientY: 400 });
       fireEvent.pointerUp(drawArea, { clientX: 300, clientY: 400 });
 
-      expect(await screen.findByRole("button", { name: /remove added box #1/i })).toBeDefined();
+      expect((await screen.findAllByRole("button", { name: /remove drawn box 1/i })).length).toBeGreaterThan(0);
     });
   });
 
@@ -446,6 +446,47 @@ describe("Task 93: 'Sửa ảnh' Redaction Editor (Frontend)", () => {
       // Edit controls are gone, Edit redaction button reappears
       expect(screen.getByRole("button", { name: /edit redaction/i })).toBeDefined();
       expect(screen.queryByRole("button", { name: /apply/i })).toBeNull();
+    });
+  });
+
+  describe("8. Live preview in edit mode (Task 94)", () => {
+    it("changing the strength or unchecking a box does not break the viewer and the preview is present", async () => {
+      render(
+        <ImageResultViewer
+          job={mockCompletedJob}
+          detections={mockDetections}
+          reviewReasons={[]}
+          batchConfig={{ style: "blur", strength: 15 }}
+          onRetry={vi.fn()}
+        />,
+      );
+
+      // Edit redaction button is a primary button
+      const editButton = screen.getByRole("button", { name: /edit redaction/i });
+      expect(editButton.classList.contains("primary-button")).toBe(true);
+
+      // Enter edit mode
+      fireEvent.click(editButton);
+
+      // Live preview canvas is present once presigned URLs resolve
+      const previewCanvas = await screen.findByLabelText(/live redaction preview/i);
+      expect(previewCanvas).toBeDefined();
+
+      // Change strength
+      const strengthSlider = screen.getByLabelText(/strength/i, { selector: "input" });
+      fireEvent.change(strengthSlider, { target: { value: "30" } });
+
+      // Uncheck detection #1
+      const detection1Checkbox = screen.getByRole("checkbox", { name: /redact detection #1/i });
+      fireEvent.click(detection1Checkbox);
+
+      // Viewer is intact and live preview canvas remains present
+      expect(screen.getByLabelText(/live redaction preview/i)).toBe(previewCanvas);
+      expect(screen.getByText(/approximate preview/i)).toBeDefined();
+
+      // Apply button is enabled
+      const applyBtn = screen.getByRole("button", { name: /apply/i }) as HTMLButtonElement;
+      expect(applyBtn.disabled).toBe(false);
     });
   });
 });

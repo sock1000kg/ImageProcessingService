@@ -4,12 +4,13 @@
  * Why: Allows users to review detected faces/plates, compare before/after results, and enter
  * an interactive editor to toggle detections, draw custom redactions, and re-render without re-running AI.
  */
-import { useEffect, useMemo, useState } from "react";
-import { ArrowSquareOut, DownloadSimple } from "@phosphor-icons/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowSquareOut, DownloadSimple, Trash } from "@phosphor-icons/react";
 import { Detection, Job, ReviewReason } from "../types";
 import { usePresignedUrl } from "../hooks/usePresignedUrl";
 import { editJob, EditJobBody, request } from "../api";
 import { formatJobErrorMessage } from "../utils/format";
+import { drawRedaction } from "../redaction-draw";
 import { DetectionList } from "./DetectionList";
 import { boxToPercent, ImageStage, stageCoordsToPixelBox } from "./ui/ImageStage";
 import { StatusBadge } from "./ui/StatusBadge";
@@ -87,6 +88,8 @@ export function ImageResultViewer({
   const [showBoxes, setShowBoxes] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const originalImgRef = useRef<HTMLImageElement>(null);
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false);
@@ -97,6 +100,7 @@ export function ImageResultViewer({
   const [editStrength, setEditStrength] = useState<number>(REDACTION_STRENGTH_RANGES.blur.default);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [dragCurrent, setDragCurrent] = useState<{ x: number; y: number } | null>(null);
+  const [isDraggingSlider, setIsDraggingSlider] = useState(false);
 
   const isCompleted = job?.status === "COMPLETED";
   const { url: originalUrl } = usePresignedUrl(job && isCompleted ? `/api/jobs/${job.id}/original-url` : null);
@@ -108,6 +112,7 @@ export function ImageResultViewer({
     setAddedBoxes([]);
     setDragStart(null);
     setDragCurrent(null);
+    setIsDraggingSlider(false);
   }, [job.id]);
 
   // Compute baseline configuration and initial detection checkboxes
@@ -142,6 +147,7 @@ export function ImageResultViewer({
     setAddedBoxes([]);
     setDragStart(null);
     setDragCurrent(null);
+    setIsDraggingSlider(false);
     setRedactIndices(new Set(initialValues.initialIndices));
     setEditStyle(initialValues.style);
     setEditStrength(initialValues.strength);
@@ -234,14 +240,87 @@ export function ImageResultViewer({
     }
   };
 
+  const effectiveSize = getEffectiveDimensions(naturalSize, job, detections);
+
+  const renderLivePreview = useCallback(() => {
+    if (!isEditing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    const sourceImg = originalImgRef.current;
+    const origW = sourceImg?.naturalWidth || effectiveSize?.width || 1000;
+    const origH = sourceImg?.naturalHeight || effectiveSize?.height || 1000;
+    const longEdge = Math.max(origW, origH);
+    // Cap canvas at about 1600 px on the long edge and scale box coordinates by the same factor
+    const scale = longEdge > 1600 ? 1600 / longEdge : 1;
+
+    canvas.width = Math.max(1, Math.round(origW * scale));
+    canvas.height = Math.max(1, Math.round(origH * scale));
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    if (sourceImg && sourceImg.complete && sourceImg.naturalWidth > 0) {
+      try {
+        context.drawImage(sourceImg, 0, 0, canvas.width, canvas.height);
+      } catch {
+        // Display-only preview: never read pixels back (cross-origin / tainted canvas safe)
+      }
+    }
+
+    const effectivePadding =
+      typeof batchConfig?.padding === "number" && batchConfig.padding >= 0 && batchConfig.padding <= 0.5
+        ? batchConfig.padding
+        : 0.1;
+
+    // Apply checked detections
+    detections.forEach((d, idx) => {
+      if (redactIndices.has(idx) && d.box && d.box.length >= 4) {
+        const [x1, y1, x2, y2] = d.box;
+        const box = {
+          x: x1 * scale,
+          y: y1 * scale,
+          width: (x2 - x1) * scale,
+          height: (y2 - y1) * scale,
+        };
+        drawRedaction(context, box, editStyle, editStrength, effectivePadding);
+      }
+    });
+
+    // Apply user-drawn added boxes
+    for (const item of addedBoxes) {
+      const [x1, y1, x2, y2] = item.box;
+      const box = {
+        x: x1 * scale,
+        y: y1 * scale,
+        width: (x2 - x1) * scale,
+        height: (y2 - y1) * scale,
+      };
+      drawRedaction(context, box, editStyle, editStrength, effectivePadding);
+    }
+  }, [isEditing, effectiveSize, batchConfig?.padding, detections, redactIndices, addedBoxes, editStyle, editStrength]);
+
+  useEffect(() => {
+    if (!originalUrl) return;
+    const img = new Image();
+    img.onload = () => {
+      renderLivePreview();
+    };
+    img.src = originalUrl;
+  }, [originalUrl, renderLivePreview]);
+
+  useEffect(() => {
+    renderLivePreview();
+  }, [renderLivePreview, split]);
+
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { naturalWidth, naturalHeight } = e.currentTarget;
     if (naturalWidth && naturalHeight) {
       setNaturalSize({ width: naturalWidth, height: naturalHeight });
     }
+    renderLivePreview();
   };
 
-  const effectiveSize = getEffectiveDimensions(naturalSize, job, detections);
   const isOverlayVisible = isEditing || showBoxes || hoveredIndex !== null;
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -250,21 +329,40 @@ export function ImageResultViewer({
     const rect = target.getBoundingClientRect();
     const x = rect.width > 0 ? e.clientX - rect.left : e.clientX;
     const y = rect.height > 0 ? e.clientY - rect.top : e.clientY;
+    const dividerX = (rect.width * split) / 100;
+    // Drag before/after slider when pointer is near divider line or handle
+    if (rect.width > 0 && Math.abs(x - dividerX) <= 16) {
+      setIsDraggingSlider(true);
+      target.setPointerCapture?.(e.pointerId);
+      return;
+    }
+    setIsDraggingSlider(false);
     setDragStart({ x, y });
     setDragCurrent({ x, y });
     target.setPointerCapture?.(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragStart) return;
     const target = e.currentTarget;
     const rect = target.getBoundingClientRect();
     const x = rect.width > 0 ? e.clientX - rect.left : e.clientX;
     const y = rect.height > 0 ? e.clientY - rect.top : e.clientY;
+    if (isDraggingSlider) {
+      if (rect.width > 0) {
+        const nextSplit = Math.max(0, Math.min(100, Math.round((x / rect.width) * 100)));
+        setSplit(nextSplit);
+      }
+      return;
+    }
+    if (!dragStart) return;
     setDragCurrent({ x, y });
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDraggingSlider) {
+      setIsDraggingSlider(false);
+      return;
+    }
     if (!dragStart || !effectiveSize) {
       setDragStart(null);
       setDragCurrent(null);
@@ -310,7 +408,7 @@ export function ImageResultViewer({
             </button>
           )}
           {job.status === "COMPLETED" && !isEditing && (
-            <button type="button" className="secondary-button" onClick={handleStartEdit}>
+            <button type="button" className="primary-button" onClick={handleStartEdit}>
               Edit redaction
             </button>
           )}
@@ -350,34 +448,44 @@ export function ImageResultViewer({
         <>
           <div className="comparison">
             <ImageStage naturalWidth={effectiveSize?.width} naturalHeight={effectiveSize?.height}>
-              <img
-                className="comparison-after"
-                src={(isEditing ? (originalUrl ?? resultImageUrl) : resultImageUrl) ?? undefined}
-                alt={`Processed ${job.originalFilename}`}
-                onLoad={handleImageLoad}
-              />
-              {!isEditing && (
-                <>
-                  <div className="comparison-before" style={{ clipPath: `inset(0 calc(100% - ${split}%) 0 0)` }}>
-                    {originalUrl && (
-                      <img src={originalUrl} alt={`Original ${job.originalFilename}`} onLoad={handleImageLoad} />
-                    )}
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={split}
-                    onChange={(event) => setSplit(Number(event.target.value))}
-                    className="comparison-range"
-                    aria-label="Before / after"
-                  />
-                  <div
-                    className={`comparison-divider${split < 3 ? " is-start" : split > 97 ? " is-end" : ""}`}
-                    style={{ left: `${split}%` }}
-                  />
-                </>
+              {isEditing ? (
+                <canvas
+                  ref={canvasRef}
+                  className="comparison-after"
+                  aria-label="Live redaction preview"
+                  data-testid="live-preview-canvas"
+                />
+              ) : (
+                <img
+                  className="comparison-after"
+                  src={resultImageUrl ?? undefined}
+                  alt={`Processed ${job.originalFilename}`}
+                  onLoad={handleImageLoad}
+                />
               )}
+              <div className="comparison-before" style={{ clipPath: `inset(0 calc(100% - ${split}%) 0 0)` }}>
+                {originalUrl && (
+                  <img
+                    ref={originalImgRef}
+                    src={originalUrl}
+                    alt={`Original ${job.originalFilename}`}
+                    onLoad={handleImageLoad}
+                  />
+                )}
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={split}
+                onChange={(event) => setSplit(Number(event.target.value))}
+                className="comparison-range"
+                aria-label="Before / after"
+              />
+              <div
+                className={`comparison-divider${split < 3 ? " is-start" : split > 97 ? " is-end" : ""}`}
+                style={{ left: `${split}%` }}
+              />
 
               {isEditing && (
                 <div
@@ -482,14 +590,14 @@ export function ImageResultViewer({
                           <span className="detection-box-label">+{addedIndex + 1}</span>
                           <button
                             type="button"
-                            className="ghost-button detection-box-remove"
+                            className="delete-item-button"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleRemoveAddedBox(addedIndex);
                             }}
-                            aria-label={`Remove box +${addedIndex + 1}`}
+                            aria-label={`Remove drawn box ${addedIndex + 1}`}
                           >
-                            ×
+                            <Trash aria-hidden />
                           </button>
                         </div>
                       );
@@ -498,6 +606,7 @@ export function ImageResultViewer({
               )}
             </ImageStage>
           </div>
+          {isEditing && <p className="preview-note">Approximate preview; final render is performed by the server.</p>}
           {!isEditing && (
             <div className="viewer-controls">
               <label className="overlay-toggle">

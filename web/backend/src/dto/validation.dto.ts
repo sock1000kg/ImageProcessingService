@@ -32,7 +32,7 @@ export const batchNameSchema = z
   .superRefine((val, ctx) => {
     if (CONTROL_CHAR_REGEX.test(val)) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Batch name must not contain control characters",
       });
     }

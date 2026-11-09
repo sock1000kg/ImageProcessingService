@@ -1,27 +1,27 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: minio-results
+  name: minio-blob
 spec:
   hostnames:
-    - imgproc.sock1000kg.io.vn
+    - blob-imgproc.sock1000kg.io.vn
   parentRefs:
     - name: traefik-gateway
       namespace: traefik
   rules:
-    # same-origin delivery of finished results: /results/<key> is passed through
-    # untouched, so MinIO serves bucket `results` path-style.
-    # GET and HEAD only — the anonymous policy on the bucket is GetObject, so any
-    # other method would fail anyway; refusing it at the Gateway keeps an
-    # unmaintained object store from ever seeing a write attempt.
+    # Public blob route for presigned S3 URLs.
+    # The gateway must pass host and path through unchanged (no path or host rewrite)
+    # because the S3 signature covers both the host and path.
+    # GET and HEAD only — signed downloads and Range seeks are GET requests with a
+    # Range header; nothing in the browser writes to MinIO, preventing write attempts at the gateway.
     - matches:
         - path:
             type: PathPrefix
-            value: /results/
+            value: /
           method: GET
         - path:
             type: PathPrefix
-            value: /results/
+            value: /
           method: HEAD
       backendRefs:
         - name: minio

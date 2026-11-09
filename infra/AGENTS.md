@@ -48,13 +48,13 @@ This document outlines the complete plan to deploy the foundational infrastructu
 *   **Tasks:**
         - [x] Deploy PostgreSQL via Helm/Kustomize to serve as the application state backend.
         - [x] Deploy MinIO for object storage (buckets: `uploads` and `results`).
-        - [x] Configure the MinIO `results` bucket for public read-only access.
-        - [x] Set up an HTTPRoute `minio-results` on the lab's `traefik-gateway` (ns `traefik`) routing `/results/` directly to MinIO `minio:9000` without path rewrite (Same-Origin Routing). Public hostname (`imgproc.sock1000kg.io.vn`) is configured by the user in the Cloudflare dashboard pointing at `http://traefik.traefik.svc.cluster.local:80`.
+        - [x] Configure MinIO `results` bucket (private; access via presigned S3 URLs).
+        - [x] Set up HTTPRoute `minio-blob` on the lab's `traefik-gateway` (ns `traefik`) routing `blob-imgproc.sock1000kg.io.vn` directly to MinIO `minio:9000` without path or host rewrite for presigned S3 URLs. Public hostname (`blob-imgproc.sock1000kg.io.vn`) is configured by the user in the Cloudflare dashboard pointing at `http://traefik.traefik.svc.cluster.local:80` on the existing tunnel.
         - [x] Configure MinIO lifecycle policies (TTL) to automatically delete objects in `uploads` and `results` sau 24 giờ (MVP data deletion).
         - [ ] Phase 2, ship together with the web media library (contract §5): drop the lifecycle rule on both buckets (data is kept until the user deletes it; the web enforces the optional `RETENTION_DAYS`). `setup-buckets.sh` must remove the existing rule on re-run (`mc ilm rule rm --all`), not only skip importing it.
 *   **Verification:**
         - [ ] Verify PostgreSQL connectivity from a temporary client pod.
-        - [ ] Upload a test image to the `results` bucket and verify it is publicly accessible via the `/results/...` ingress route.
+        - [ ] Verify test object download via presigned S3 URL on `blob-imgproc.sock1000kg.io.vn` and verify anonymous access is denied.
         - [ ] Verify the TTL policy is applied to the buckets.
 
 ## Milestone 3: Engine Worker Deployments & Resource Limits
@@ -97,11 +97,12 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * Every Deployment/StatefulSet/Job is pinned with `nodeSelector: kubernetes.io/hostname: home-server` and has an explicit memory limit. `infra/verify-render.sh` renders `app` and `cluster/keda` overlays and prints both totals: steady-state (setup Jobs excluded — the budget gate, currently **1696Mi**, capped at **2560Mi**) and including the transient setup Jobs (**1888Mi**, informational only). The gate is the steady-state total, which must stay ≤ ~2.5Gi.
 * `MINIO_PROMETHEUS_AUTH_TYPE=public` is emitted by the MinIO chart via `metrics.serviceMonitor.public: true` — never add it again under `environment:` in `values.yaml`, a duplicate env key breaks client-side re-apply. `verify-render.sh` fails on duplicate env names.
 * The MinIO chart defaults to a **16Gi** memory request — always keep the `resources` override in `infra/app/minio/values.yaml`. Memory limit: **MinIO 512Mi** (set in `infra/app/minio/values.yaml`).
-* Bucket setup: anonymous policy is **GetObject only** (no ListBucket) and lifecycle is imported wholesale with `mc ilm import`, so re-running the Job is safe.
+* Bucket setup: anonymous policy is set to `none` (revoked, presigned S3 URLs only) and lifecycle is imported wholesale with `mc ilm import`, so re-running the Job is safe.
 * The setup scripts (`infra/app/nats/setup-streams.sh`, `infra/app/minio/setup-buckets.sh`) are shared verbatim with `infra/docker-compose.yaml`.
 * `kubectl run ... --command -- /bin/sh -c <script> sh <arg>`: `--command` is a boolean flag and the trailing `sh` becomes `$0`, so the real argument must come after it.
 * **MinIO image is ours, not upstream's.** MinIO is archived and its images can't be pulled any more, so `infra/images/minio/Dockerfile` builds the server from the release source and bundles the official sha256-verified `mc` client. Everything uses `socknot1000kg/minio:RELEASE.2025-10-15T17-29-55Z`. Rebuild with `infra/images/build-push.sh`; never re-pin to a MinIO registry. `verify-render.sh` fails if any rendered image points at `quay.io/minio`, `minio/mc` or `docker.io/minio/`.
-* The public `/results/` HTTPRoute matches **GET and HEAD only**; `verify-render.sh` asserts it.
+* **Public blob route (`minio-blob`) and presigned S3 URLs:** Dedicated hostname `blob-imgproc.sock1000kg.io.vn` routed to MinIO `minio:9000` via HTTPRoute `minio-blob` (`PathPrefix /`, methods GET and HEAD only; `verify-render.sh` asserts it). Web backend signs URLs using `S3_PUBLIC_ENDPOINT=https://blob-imgproc.sock1000kg.io.vn`. Cloudflare setup: user adds a second Public Hostname `blob-imgproc.sock1000kg.io.vn` to the existing tunnel pointing at `http://traefik.traefik.svc.cluster.local:80` (same target as `imgproc`, no new tunnel). Proxy requirement: any proxy in front of MinIO must not change host or path, because the S3 signature covers both. Cloudflare Stream and R2 are avoided so unredacted originals don't leave the lab.
+* **Deploy order:** Deploy the backend image first (Tasks 87–88, web backend signing S3 URLs), then apply this removal commit (removing anonymous results policy and legacy route).
 
 ## Operational notes (Round 1.2 — KEDA namespace fix)
 * **Never put `namespace:` at the top level of a kustomization that uses `helmCharts`.** The namespace transformer rewrites *every* namespaced resource, including the ones the chart deliberately creates in `kube-system`. KEDA's `RoleBinding/keda-operator-auth-reader` (Role `extension-apiserver-authentication-reader` → SA `keda/keda-metrics-server`) was dragged into `keda`, granted nothing, and crash-looped the metrics apiserver with `unable to load configmap based request-header` for `configmap/extension-apiserver-authentication` in `kube-system`.
@@ -137,7 +138,7 @@ This document outlines the complete plan to deploy the foundational infrastructu
 * **Web deployment & routing:** Web application deployed via `infra/app/web/` (`Deployment`, `Service`, `HTTPRoute` `web`). Replicas: 1, image `socknot1000kg/imgproc-web:main`, `imagePullPolicy: Always`. Container port 3000. `:main` tracks the latest build of `main`, picking up changes on restart. Exact commit SHAs can be pinned manually when needed.
 * **Database URL assembly:** Secrets `PGPASSWORD` from `imgproc-postgres` (key `password`), then `DATABASE_URL=postgresql://imgproc:$(PGPASSWORD)@postgresql:5432/imgproc` using Kubernetes `$(VAR)` expansion (`PGPASSWORD` declared before `DATABASE_URL`). This assumes a URL-safe password (generated as hex by `seal.sh`).
 * **Resource limits & steady-state budget:** Container requests 128Mi / 100m, limits 512Mi / 1 CPU (uploads buffered in memory via multer `memoryStorage`). Component is `web` (not `worker`), counting toward the platform steady-state budget (steady-state total 2208Mi, staying well under the 2560Mi ceiling).
-* **HTTPRoute precedence:** HTTPRoute `web` matches `PathPrefix /` on `imgproc.sock1000kg.io.vn`. The existing `minio-results` HTTPRoute (`PathPrefix /results/`) on the same hostname wins by longest-prefix match under Gateway API route matching rules.
+* **HTTPRoute configuration:** HTTPRoute `web` matches `PathPrefix /` on `imgproc.sock1000kg.io.vn`. Media blobs are served on `blob-imgproc.sock1000kg.io.vn` via HTTPRoute `minio-blob`.
 
 ## Operational notes (Task 9, CI image builds and rollout)
 * **CI workflow (`.github/workflows/images.yml`):** Automatically builds and pushes `socknot1000kg/imgproc-web` and `socknot1000kg/imgproc-engine` to Docker Hub on push to `main` when `web/**` or `engine/**` change, or on manual `workflow_dispatch`. Each build is tagged with both the commit SHA (`:${{ github.sha }}`) and `:main`, targeting `linux/amd64` with GHA layer caching.

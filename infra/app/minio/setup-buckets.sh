@@ -3,9 +3,9 @@
 # Shared by the Kubernetes setup Job (infra/app/minio/setup-job.yaml) and the
 # local docker-compose service `minio-setup` (infra/docker-compose.yaml).
 #
-# Idempotent: buckets are created with --ignore-existing, the anonymous policy
-# and the whole lifecycle config are replaced (import), so re-runs never
-# duplicate rules. Exits non-zero on real errors.
+# Idempotent: buckets are created with --ignore-existing, the results bucket has
+# anonymous access revoked (set to none), and the whole lifecycle config is
+# replaced (import), so re-runs never duplicate rules. Exits non-zero on real errors.
 set -eu
 
 MINIO_URL="${MINIO_URL:-http://minio:9000}"
@@ -41,13 +41,6 @@ wait_for_server() {
   fail "timed out after ${WAIT_TIMEOUT_SECONDS}s waiting for MinIO at $MINIO_URL"
 }
 
-apply_bucket_policy() {
-  bucket="$1"
-  policy="$2"
-  log "bucket $bucket: anonymous GetObject-only policy"
-  mc_cli anonymous set-json "$policy" "$MINIO_ALIAS/$bucket"
-}
-
 apply_lifecycle() {
   bucket="$1"
   log "bucket $bucket: lifecycle (expire after 1 day)"
@@ -57,7 +50,6 @@ apply_lifecycle() {
 main() {
   [ -n "$MINIO_ROOT_USER" ] || fail "MINIO_ROOT_USER is not set"
   [ -n "$MINIO_ROOT_PASSWORD" ] || fail "MINIO_ROOT_PASSWORD is not set"
-  [ -f "$SCRIPT_DIR/results-policy.json" ] || fail "missing results-policy.json next to this script"
   [ -f "$SCRIPT_DIR/ilm.json" ] || fail "missing ilm.json next to this script"
 
   MC_CONFIG_DIR="$(mktemp -d)"
@@ -71,14 +63,16 @@ main() {
     mc_cli mb --ignore-existing "$MINIO_ALIAS/$bucket"
   done
 
-  # GetObject only, no ListBucket: object keys are unguessable UUID paths
-  apply_bucket_policy results "$SCRIPT_DIR/results-policy.json"
+  # Revoke anonymous policy on results bucket (presigned S3 URLs are used instead).
+  # Setting to none ensures that re-running this setup Job revokes an already-applied policy.
+  log "bucket results: set anonymous access to none"
+  mc_cli anonymous set none "$MINIO_ALIAS/results"
 
   for bucket in uploads results; do
     apply_lifecycle "$bucket"
   done
 
-  log "buckets, anonymous policy and lifecycle are up to date"
+  log "buckets, access policy and lifecycle are up to date"
 }
 
 main "$@"

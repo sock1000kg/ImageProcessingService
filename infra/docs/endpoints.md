@@ -14,6 +14,7 @@ wins: change `docs/` first (with the team), then this file.
 |---|---|
 | namespace | `imgproc` |
 | public hostname | `imgproc.sock1000kg.io.vn` |
+| public blob hostname | `blob-imgproc.sock1000kg.io.vn` |
 | kustomization | `infra/app` |
 | KEDA | namespace `keda` (`infra/cluster/keda`) |
 
@@ -31,7 +32,7 @@ Runs on the single lab node `home-server` (i5-7200U, 2C/4T, 12GB, HDD).
 | Web application | `web.imgproc.svc:3000` |
 
 - PostgreSQL: database `imgproc`, user `imgproc`, port `5432`.
-- MinIO buckets: `uploads` (private), `results` (anonymous **GetObject only**).
+- MinIO buckets: `uploads` (private), `results` (private; presigned S3 URLs only).
 
 ## Secrets
 
@@ -45,25 +46,28 @@ Create `infra/app/real-secret.yaml` from `real-secret.example.yaml`
 The committed `sealed-secret.yaml` is a **placeholder**; `deploy.sh` refuses to
 run until it has been sealed.
 
-## Public results URL
+## Public blob URL (presigned S3)
 
-Finished images are served same-origin by Traefik straight from MinIO:
+Browser downloads and video streaming reach MinIO directly using presigned S3 URLs on its dedicated hostname:
 
 ```
-https://<host>/results/<object-key>
+https://blob-imgproc.sock1000kg.io.vn/<bucket>/<object-key>?X-Amz-Algorithm=...
 ```
 
-- HTTPRoute `minio-results` in `imgproc`, `parentRefs: traefik-gateway`
-  (namespace `traefik`), `PathPrefix /results/`, backend `minio:9000`, **no path
-  rewrite** — `/results/<key>` maps to bucket `results`, key `<key>`.
-- The route matches **GET and HEAD only**. Any other method is refused at the Gateway, so a
-  write can never reach an object store that upstream no longer maintains.
-- Anonymous `GET` on a known key works; anonymous listing of the bucket is
-  denied (403/404). Keys are unguessable UUID paths, which is the access model.
-- Cloudflare: the user adds a Tunnel public hostname
-  (`imgproc.sock1000kg.io.vn`) pointing at
-  `http://traefik.traefik.svc.cluster.local:80` in the CF dashboard. Nothing in
-  this repo creates it.
+- HTTPRoute `minio-blob` in `imgproc`, `parentRefs: traefik-gateway`
+  (namespace `traefik`), hostname `blob-imgproc.sock1000kg.io.vn`,
+  `PathPrefix /`, backend `minio:9000`, **no path or host rewrite**.
+- Self-host note: a proxy in front of MinIO must not change the host or path, because the
+  S3 signature covers both host and path.
+- The route matches **GET and HEAD only** (signed downloads and Range seeks are GET with a
+  `Range` header; nothing in the browser writes directly to MinIO).
+- Cloudflare: the user adds a second **Public Hostname**
+  `blob-imgproc.sock1000kg.io.vn` to the **existing** tunnel, pointing at
+  `http://traefik.traefik.svc.cluster.local:80` (same target as `imgproc`; no new tunnel).
+- Self-hosting privacy rationale: Cloudflare Stream and Cloudflare R2 are avoided so unredacted
+  originals don't leave the lab.
+
+- Deploy order: deploy the backend image first (Tasks 87–88, web backend signing S3 URLs), then apply this removal commit (revoking the anonymous policy and removing the legacy route).
 
 ## Web application
 
@@ -71,10 +75,10 @@ Web tier serving the frontend SPA and `/api` backend routes:
 
 | service | route | internal DNS | port | image | env configuration |
 |---|---|---|---|---|---|
-| `web` | `https://<host>/` (`HTTPRoute/web`, `PathPrefix /`) | `web.imgproc.svc:3000` | 3000 | `socknot1000kg/imgproc-web:main` (and `:<sha>`) | `PORT=3000`, `NATS_URL=nats://nats:4222`, `MINIO_ENDPOINT=minio`, `MINIO_PORT=9000`, `MINIO_USE_SSL=false`, `PUBLIC_RESULTS_BASE_URL=/results`, `MINIO_ACCESS_KEY` & `MINIO_SECRET_KEY` (from `imgproc-minio`), `PGPASSWORD` & `DATABASE_URL` (from `imgproc-postgres`) |
+| `web` | `https://<host>/` (`HTTPRoute/web`, `PathPrefix /`) | `web.imgproc.svc:3000` | 3000 | `socknot1000kg/imgproc-web:main` (and `:<sha>`) | `PORT=3000`, `NATS_URL=nats://nats:4222`, `MINIO_ENDPOINT=minio`, `MINIO_PORT=9000`, `MINIO_USE_SSL=false`, `S3_PUBLIC_ENDPOINT=https://blob-imgproc.sock1000kg.io.vn`, `MINIO_ACCESS_KEY` & `MINIO_SECRET_KEY` (from `imgproc-minio`), `PGPASSWORD` & `DATABASE_URL` (from `imgproc-postgres`) |
 
 - HTTPRoute `web` in `imgproc`, `parentRefs: traefik-gateway` (namespace `traefik`), `PathPrefix /`, backend `web:3000`.
-- Longest-prefix match: Traefik routes `/results/` to `minio-results` and everything else (`/`, `/api/*`, `/health`, `/ready`) to `web`.
+- Traefik routes all web traffic (`/`, `/api/*`, `/health`, `/ready`) on `imgproc.sock1000kg.io.vn` to `web`. Media blobs are routed on `blob-imgproc.sock1000kg.io.vn` to MinIO via `minio-blob`.
 - Image: built by `.github/workflows/images.yml` and pushed to Docker Hub as `socknot1000kg/imgproc-web:main` and `:<sha>`. Deployment uses `:main` with `imagePullPolicy: Always`.
 
 ## Streams, subjects and consumers
@@ -155,7 +159,7 @@ docker compose -f infra/docker-compose.yaml down -v
 
 The compose setup services bind-mount the very same `setup-streams.sh` /
 `setup-buckets.sh` scripts that the Kubernetes Jobs run, so local and cluster
-behaviour match. No Gateway there: use `http://localhost:9000/results/<key>`.
+behaviour match. Presigned S3 URLs point directly at MinIO.
 
 
 ## MinIO image (we build it ourselves)

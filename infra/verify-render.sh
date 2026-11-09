@@ -239,9 +239,9 @@ sys.exit(1 if problems else 0)
 OWN
 }
 
-# Rule 7: /results/ route allows GET and HEAD only
-check_results_route() {
-  python3 - "$1" <<'ROUTE'
+# Rule 7: minio-blob route for blob-imgproc.sock1000kg.io.vn allows GET and HEAD only
+check_blob_route() {
+  python3 - "$1" <<'BLOBROUTE'
 import sys, yaml
 
 problems = []
@@ -250,19 +250,24 @@ for doc in yaml.safe_load_all(open(sys.argv[1])):
     if not doc or doc.get("kind") != "HTTPRoute":
         continue
     name = (doc.get("metadata") or {}).get("name")
+    if name != "minio-blob":
+        continue
+    found_route = True
+    hostnames = (doc.get("spec") or {}).get("hostnames") or []
+    if hostnames != ["blob-imgproc.sock1000kg.io.vn"]:
+        problems.append(f"{name}: hostnames {hostnames!r} != ['blob-imgproc.sock1000kg.io.vn']")
     for rule in (doc.get("spec") or {}).get("rules") or []:
         for match in rule.get("matches") or []:
-            if (match.get("path") or {}).get("value") == "/results/":
-                found_route = True
+            if (match.get("path") or {}).get("value") == "/":
                 methods = {m.get("method") for m in rule.get("matches") or []}
                 if methods != {"GET", "HEAD"}:
-                    problems.append(f"{name}: /results/ methods {sorted(m or '-' for m in methods)} != ['GET', 'HEAD']")
+                    problems.append(f"{name}: / methods {sorted(m or '-' for m in methods)} != ['GET', 'HEAD']")
 if not found_route:
-    problems.append("HTTPRoute for /results/ not found")
+    problems.append("HTTPRoute minio-blob for blob-imgproc.sock1000kg.io.vn not found")
 for p in problems:
     print("PROBLEM:", p)
 sys.exit(1 if problems else 0)
-ROUTE
+BLOBROUTE
 }
 
 # Rule 8: No duplicate env names in any container
@@ -467,10 +472,10 @@ if [ -n "${out:-}" ]; then
     fail "$ns: missing root/CHOWN init container on PVC workload"
   fi
 
-  if check_results_route "$out"; then
-    pass "$ns: /results/ route allows GET and HEAD only"
+  if check_blob_route "$out"; then
+    pass "$ns: minio-blob route allows GET and HEAD only for blob-imgproc.sock1000kg.io.vn"
   else
-    fail "$ns: /results/ route configuration invalid"
+    fail "$ns: minio-blob route configuration invalid"
   fi
 
   if check_duplicate_env "$out"; then

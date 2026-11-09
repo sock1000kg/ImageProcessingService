@@ -1,12 +1,14 @@
 """Face Whitelist management and embedding caching for Vlogger Mode."""
 import io
 import logging
-from typing import Dict, Any, List, Optional
+import time
+from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
 import cv2
 from PIL import Image
 
 from .face_embedding import FaceEmbedder
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,24 +23,70 @@ class WhitelistManager:
 
     Caches extracted 512-d embeddings in-memory using reference key as cache key
     to avoid re-downloading and re-computing for multiple images in the same batch.
+    Includes TTL expiration (Contract §5 / GDPR) to ensure deleted biometric references
+    are not retained in worker memory indefinitely.
     """
 
-    def __init__(self, embedder: Optional[FaceEmbedder] = None, max_cache_size: int = 1000):
+    def __init__(
+        self,
+        embedder: Optional[FaceEmbedder] = None,
+        max_cache_size: Optional[int] = None,
+        ttl_seconds: Optional[float] = None,
+    ):
         self.embedder = embedder or FaceEmbedder()
-        self.max_cache_size = max_cache_size
-        self._cache: Dict[str, np.ndarray] = {}
+        self.max_cache_size = (
+            max_cache_size if max_cache_size is not None else settings.whitelist_max_cache_size
+        )
+        self.ttl_seconds = (
+            ttl_seconds if ttl_seconds is not None else float(settings.whitelist_cache_ttl_seconds)
+        )
+        # Cache maps cache_key -> (embedding, cached_timestamp)
+        self._cache: Dict[str, Tuple[np.ndarray, float]] = {}
 
     def get_cached_embedding(self, cache_key: str) -> Optional[np.ndarray]:
-        """Retrieve cached embedding vector by key."""
-        return self._cache.get(cache_key)
+        """Retrieve cached embedding vector by key if it has not expired under TTL."""
+        entry = self._cache.get(cache_key)
+        if entry is None:
+            return None
+
+        emb, cached_at = entry
+        if self.ttl_seconds is not None and self.ttl_seconds > 0:
+            elapsed = time.time() - cached_at
+            if elapsed > self.ttl_seconds:
+                logger.info(
+                    f"Whitelist embedding cache EXPIRED for '{cache_key}' "
+                    f"(elapsed {elapsed:.1f}s > TTL {self.ttl_seconds:.1f}s). Evicting from memory."
+                )
+                self._cache.pop(cache_key, None)
+                return None
+
+        return emb
+
+    def _cleanup_expired(self) -> int:
+        """Evict all entries whose age exceeds ttl_seconds. Returns count of evicted items."""
+        if self.ttl_seconds is None or self.ttl_seconds <= 0:
+            return 0
+
+        now = time.time()
+        expired_keys = [
+            k for k, (_, cached_at) in self._cache.items()
+            if (now - cached_at) > self.ttl_seconds
+        ]
+        for k in expired_keys:
+            self._cache.pop(k, None)
+        return len(expired_keys)
 
     def cache_embedding(self, cache_key: str, embedding: np.ndarray) -> None:
-        """Store embedding vector into in-memory cache."""
+        """Store embedding vector into in-memory cache with timestamp and enforce bounds."""
+        now = time.time()
         if len(self._cache) >= self.max_cache_size:
-            # Simple eviction: pop oldest item
-            oldest_key = next(iter(self._cache))
-            self._cache.pop(oldest_key, None)
-        self._cache[cache_key] = embedding
+            # First try cleaning up any expired entries to free capacity
+            self._cleanup_expired()
+            if len(self._cache) >= self.max_cache_size:
+                # Still full: FIFO eviction of oldest entry
+                oldest_key = next(iter(self._cache))
+                self._cache.pop(oldest_key, None)
+        self._cache[cache_key] = (embedding, now)
 
     def clear_cache(self) -> None:
         """Clear all cached embeddings."""

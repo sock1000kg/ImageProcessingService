@@ -32,6 +32,7 @@ try:
         test_whitelist_cache_and_mock_storage,
         test_whitelist_reference_errors,
         test_vlogger_mode_two_persons,
+        test_whitelist_cache_ttl_and_biometric_removal,
     )
 except ImportError:
     from tests.test_image_redact import (
@@ -52,6 +53,7 @@ except ImportError:
         test_whitelist_cache_and_mock_storage,
         test_whitelist_reference_errors,
         test_vlogger_mode_two_persons,
+        test_whitelist_cache_ttl_and_biometric_removal,
     )
 
 if __name__ == "__main__":
@@ -79,6 +81,7 @@ if __name__ == "__main__":
     test_whitelist_cache_and_mock_storage()
     test_whitelist_reference_errors()
     test_vlogger_mode_two_persons()
+    test_whitelist_cache_ttl_and_biometric_removal()
 
     print("==================================================")
     print("🎉 TẤT CẢ PROCESSORS (M1 + M2) ĐÃ ĐẠT CHUẨN 100%!")

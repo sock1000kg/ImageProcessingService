@@ -745,7 +745,11 @@ class VideoRedactProcessor(BaseProcessor):
         if self.whitelist_manager is None:
             if self.face_embedder is None:
                 self.face_embedder = FaceEmbedder(model_name=self.face_embedding_model)
-            self.whitelist_manager = WhitelistManager(embedder=self.face_embedder)
+            self.whitelist_manager = WhitelistManager(
+                embedder=self.face_embedder,
+                max_cache_size=settings.whitelist_max_cache_size,
+                ttl_seconds=settings.whitelist_cache_ttl_seconds,
+            )
         return self.whitelist_manager
 
     @staticmethod

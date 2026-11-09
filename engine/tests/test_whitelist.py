@@ -13,6 +13,7 @@ Tests:
 import io
 import os
 import sys
+import time
 
 if sys.platform == "win32":
     try:
@@ -288,6 +289,93 @@ def test_vlogger_mode_two_persons():
     print("=> TEST 4 PASSED!\n")
 
 
+def test_whitelist_cache_ttl_and_biometric_removal():
+    print("--- [TEST 5] WhitelistManager: TTL Expiration & Biometric Removal (Contract §5 / GDPR) ---")
+    embedder = FaceEmbedder(model_name="w600k_mbf.onnx")
+
+    # 1. Initialize WhitelistManager with short TTL (0.15s) and max capacity 2
+    manager = WhitelistManager(embedder=embedder, max_cache_size=2, ttl_seconds=0.15)
+
+    ref_key = "batch-ttl/whitelist/face-ttl.jpg"
+    cache_key = f"uploads/{ref_key}"
+    ref_emb = np.random.randn(512).astype(np.float32)
+    ref_emb /= np.linalg.norm(ref_emb)
+
+    dummy_face_bytes = create_solid_image(w=112, h=112, color=(180, 180, 180))
+    mock_storage = MockStorageClient(objects={cache_key: dummy_face_bytes})
+
+    # Test cache insertion
+    manager.cache_embedding(cache_key, ref_emb)
+
+    # Immediate fetch -> HIT
+    assert manager.get_cached_embedding(cache_key) is not None
+    assert np.array_equal(manager.get_cached_embedding(cache_key), ref_emb)
+    print("  ✅ Immediate retrieval: Cache HIT before TTL expiration.")
+
+    # Wait for TTL to expire
+    time.sleep(0.20)
+
+    # Post-TTL retrieval -> expired, evicted from _cache, returns None
+    expired_emb = manager.get_cached_embedding(cache_key)
+    assert expired_emb is None, "Embedding should have expired and returned None!"
+    assert cache_key not in manager._cache, "Expired cache key was not evicted from _cache!"
+    print("  ✅ Post-TTL retrieval: Cache EXPIRED and successfully evicted from memory.")
+
+    # 2. Test re-download after expiration
+    class DummyYOLOBox:
+        def __init__(self):
+            self.cls = [np.array(0)]
+            self.xyxy = [np.array([10, 10, 100, 100])]
+
+    class DummyYOLOResult:
+        def __init__(self):
+            self.boxes = [DummyYOLOBox()]
+
+    class DummyYOLO:
+        names = {0: "Human face"}
+
+        def predict(self, *args, **kwargs):
+            return [DummyYOLOResult()]
+
+    dummy_yolo = DummyYOLO()
+    class_map = {"Human face": "face"}
+
+    specs = [{"bucket": "uploads", "key": ref_key}]
+    loaded = manager.load_reference_embeddings(specs, dummy_yolo, class_map, storage_client=mock_storage)
+    assert len(loaded) == 1
+    assert mock_storage.download_counts.get(cache_key, 0) == 1
+    print("  ✅ Re-download after TTL: Successfully fetched fresh reference and refreshed cache.")
+
+    # 3. Test Contract §5: Biometric reference removal
+    time.sleep(0.20)  # Wait for TTL to expire again
+    # Simulate user or batch retention policy deleted the reference image from MinIO
+    del mock_storage.objects[cache_key]
+
+    # Loading deleted reference image must raise WhitelistReferenceError, never fall back to stale vector
+    try:
+        manager.load_reference_embeddings(specs, dummy_yolo, class_map, storage_client=mock_storage)
+        assert False, "Should have raised WhitelistReferenceError because reference image was deleted from storage!"
+    except WhitelistReferenceError as e:
+        print(f"  ✅ Contract §5 compliance: Deleted reference correctly raised WhitelistReferenceError: {e}")
+
+    # 4. Test capacity enforcement and _cleanup_expired
+    manager.clear_cache()
+    manager.cache_embedding("key1", ref_emb)
+    manager.cache_embedding("key2", ref_emb)
+    assert len(manager._cache) == 2
+
+    time.sleep(0.20)  # key1 and key2 expire
+
+    # Inserting 3rd item reaches max_cache_size=2 and triggers _cleanup_expired()
+    manager.cache_embedding("key3", ref_emb)
+    assert "key1" not in manager._cache
+    assert "key2" not in manager._cache
+    assert "key3" in manager._cache
+    assert len(manager._cache) == 1
+    print("  ✅ Cache capacity: Expired items proactively cleaned up during capacity threshold.")
+    print("=> TEST 5 PASSED!\n")
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY BỘ UNIT TEST MILESTONE 2 (WHITELIST)")
@@ -296,6 +384,7 @@ if __name__ == "__main__":
     test_whitelist_cache_and_mock_storage()
     test_whitelist_reference_errors()
     test_vlogger_mode_two_persons()
+    test_whitelist_cache_ttl_and_biometric_removal()
     print("==================================================")
     print("🎉 TẤT CẢ UNIT TESTS MILESTONE 2 ĐỀU ĐẠT CHUẨN 100%!")
     print("==================================================")

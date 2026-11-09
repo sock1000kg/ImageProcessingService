@@ -57,6 +57,10 @@ class Settings(BaseModel):
     ffprobe_bin: str = Field(default_factory=lambda: _detect_binary("ffprobe"))
     video_tracker: str = os.getenv("VIDEO_TRACKER", "bytetrack.yaml")
 
+    # Contract §5 & GDPR: Whitelist Biometric Cache Expiration
+    whitelist_cache_ttl_seconds: int = int(os.getenv("WHITELIST_CACHE_TTL_SECONDS", "900"))  # Default 15 mins (900s)
+    whitelist_max_cache_size: int = int(os.getenv("WHITELIST_MAX_CACHE_SIZE", "1000"))
+
     @property
     def is_video_pool(self) -> bool:
         """Check if this worker instance is dedicated to the video pool."""

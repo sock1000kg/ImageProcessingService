@@ -30,6 +30,8 @@ describe("Presigned URLs Backend Unit Tests (Task 87)", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Why: tokens are signed in tests; CI has no web/.env, so JWT_SECRET must not come from the environment.
+    config.JWT_SECRET = "test-secret-with-at-least-32-characters";
   });
 
   const createMockResponse = () => {

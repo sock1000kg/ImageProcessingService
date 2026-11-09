@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError, getBatchReport, getBatchZipUrl, retryJob, startBatch } from "../api";
-import { Batch, BatchReport as Report, Job, MessageHandler } from "../types";
+import { Batch, BatchReport as Report, Detection, Job, MessageHandler } from "../types";
 import { formatJobErrorMessage } from "../utils/format";
 import { BatchHeader } from "./BatchHeader";
 import { BatchImageList } from "./BatchImageList";
@@ -77,7 +77,9 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
   };
 
   const selectedReport = report?.images.find((item) => item.jobId === selected?.id);
-  const detections = selectedReport?.detections ?? [];
+  const detections =
+    selectedReport?.detections ??
+    (Array.isArray(selected?.resultSummary?.detections) ? (selected.resultSummary.detections as Detection[]) : []);
   const hasWhitelist = Boolean(batch.whitelistKeys && batch.whitelistKeys.length > 0);
   const completedJobs = useMemo(() => batch.jobs.filter((job) => job.status === "COMPLETED"), [batch.jobs]);
 
@@ -170,6 +172,10 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
               reviewReasons={selectedReport?.reviewReasons ?? []}
               hasWhitelist={hasWhitelist}
               onRetry={(job) => void retry(job)}
+              batchConfig={batch.config}
+              onSelectJob={(id) => setSelectedId(id)}
+              onRefresh={onRefresh}
+              onError={(message) => onMessage(message, { variant: "error" })}
             />
           )}
         </div>

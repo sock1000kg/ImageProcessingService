@@ -5,6 +5,7 @@ import { NextFunction, Request, Response } from "express";
 import { getStats } from "../repositories/job.repository";
 import { isMessagingReady } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
+import { verifyDatabase } from "../db";
 
 export function getHealthHandler(_req: Request, res: Response): void {
   res.json({ status: "ok" });
@@ -12,7 +13,7 @@ export function getHealthHandler(_req: Request, res: Response): void {
 
 export async function getReadyHandler(_req: Request, res: Response): Promise<void> {
   try {
-    await getStats();
+    await verifyDatabase();
     if (
       !isMessagingReady() ||
       !(await storage.bucketExists(UPLOADS_BUCKET)) ||
@@ -29,7 +30,7 @@ export async function getReadyHandler(_req: Request, res: Response): Promise<voi
 
 export async function getSystemStatsHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const stats = await getStats(req.authUser?.id);
+    const stats = await getStats(req.authUser!.id);
     res.json({ jobs: stats, timestamp: new Date().toISOString() });
   } catch (error) {
     next(error);

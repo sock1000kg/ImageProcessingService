@@ -65,7 +65,6 @@ describe("App Routing and Page Headings", () => {
                     status: "PROCESSING",
                     progress: 60,
                     stage: "REDACTING",
-                    resultUrl: null,
                     resultSummary: null,
                     error: null,
                     createdAt: new Date().toISOString(),

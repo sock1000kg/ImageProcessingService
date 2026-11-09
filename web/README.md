@@ -44,9 +44,10 @@ Phase 2 authentication uses email as the unique login identifier. Access tokens 
 
   Behind a proxy, set `CLIENT_IP_HEADER` to the header that carries the real client IP (`cf-connecting-ip` on the lab); leave it empty locally.
 
-- `GET /api/jobs/:id/original` needs the Bearer token and responds with `Cache-Control: private, no-store`, so the frontend fetches it as a Blob via `usePrivateImage` and shows it through an object URL instead of a plain `<img src>`.
+- Presigned URLs are used for all media in MinIO (results, originals, allow list faces, and whitelist reference photos). The frontend consumes them via `usePresignedUrl`, which requests `{ url, expiresAt }` and reuses the signed URL until 30 seconds before expiration. Signed URLs expire (results in 1 hour; originals and reference photos in 5 minutes with `Cache-Control: private, no-store`). Logging out does not revoke already issued presigned URLs until their expiration or until the underlying object is deleted.
+- Streaming image endpoints (`/original`, `/whitelist/:n`, `/faces/:faceId`) and `resultUrl` on jobs have been removed. Streaming zip archive download (`GET /api/batches/:id/download.zip`) remains streamed through the backend via `archiver` and `storage.getObjectStream`.
 - There is no CORS middleware: the SPA and the API share one origin (Vite proxies `/api` in development).
-- Batches created before the auth migration have no owner (`user_id` is null) and are not visible to any account; the periodic cleanup still removes them.
+- Every batch has an owner (`user_id` is required); ownerless batches from Phase 1 were deleted by migration.
 
 ## Prerequisites
 
@@ -127,7 +128,9 @@ MINIO_PORT=9000
 MINIO_ACCESS_KEY=imgproclocal
 MINIO_SECRET_KEY=CHANGE_ME_minio_local
 MINIO_USE_SSL=false
-PUBLIC_RESULTS_BASE_URL=/results
+S3_PUBLIC_ENDPOINT=http://localhost:9000
+PRESIGN_RESULT_TTL_SECONDS=3600
+PRESIGN_PRIVATE_TTL_SECONDS=300
 UPLOAD_MAX_BYTES=52428800
 BATCH_MAX_FILES=1000
 RATE_LIMIT_MULTIPLIER=1
@@ -240,38 +243,40 @@ The Engine must have its Python environment, model weights, and configuration re
 
 ## API endpoints
 
-| Method   | Path                              | Description                                                                                                                               |
-| -------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`    | `/api/batches`                    | List authed user's batches (`?limit`, `?cursor`): items with thumbnail, status, size, and total account storage                           |
-| `POST`   | `/api/batches`                    | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`)                          |
-| `POST`   | `/api/batches/:id/files`          | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`)                                                            |
-| `POST`   | `/api/batches/:id/start`          | Start batch processing for pending jobs. Returns 202 `{ batch }`                                                                          |
-| `GET`    | `/api/batches/:id`                | Batch details and jobs (includes `name`)                                                                                                  |
-| `PATCH`  | `/api/batches/:id`                | Rename batch with JSON `{ name }`. Returns 200 `{ batch }`                                                                                |
-| `GET`    | `/api/batches/:id/report`         | Batch report with totals, review images/reasons, `batchName`, `whitelistPeople` (with `name`), and detections when provided by Engine     |
-| `GET`    | `/api/batches/:id/whitelist/:n`   | Stream the batch's nth reference photo (1-based) with `Cache-Control: private, no-store`                                                  |
-| `DELETE` | `/api/batches/:id`                | Delete the batch and its `uploads`/`results` objects                                                                                      |
-| `POST`   | `/api/batches/:id/download-token` | Issue short-lived (60 s) signed token for streaming batch zip (owner only)                                                                |
-| `GET`    | `/api/batches/:id/download.zip`   | Stream all completed results as a zip archive using signed token                                                                          |
-| `GET`    | `/api/face-lists`                 | List authenticated user's allow lists: `{ lists: [{ id, name, faceCount, faceNames, createdAt }] }`                                       |
-| `POST`   | `/api/face-lists`                 | Create allow list: multipart `name` (1..100) and 1..5 `faces` image files. Returns 201 `{ list }`                                         |
-| `POST`   | `/api/face-lists/:id/faces`       | Append faces to allow list: multipart 1..5 `faces` image files. Returns 200 `{ list }`                                                    |
-| `GET`    | `/api/face-lists/:id/faces/:n`    | Stream individual face thumbnail with `Cache-Control: private, no-store`                                                                  |
-| `DELETE` | `/api/face-lists/:id/faces/:n`    | Delete single face from allow list (deletes list if last face; MinIO purged immediately). Returns 200 `{ list }`                          |
-| `PATCH`  | `/api/face-lists/:id`             | Rename allow list with JSON `{ name }`. Returns 200 `{ list }`                                                                            |
-| `DELETE` | `/api/face-lists/:id`             | Permanently delete allow list and immediately purge its MinIO objects (`lists/<userId>/<id>/`). Returns 204                               |
-| `GET`    | `/api/jobs/:id`                   | Job status and details                                                                                                                    |
-| `DELETE` | `/api/jobs/:id`                   | Delete single image job and its storage objects (deletes batch if last job; 409 if active)                                                |
-| `POST`   | `/api/jobs/:id/retry`             | Retry a `FAILED` job with a new job ID and output key (409 `WHITELIST_FACES_MISSING` if faces missing without `acceptMissingFaces: true`) |
-| `GET`    | `/api/jobs/:id/original`          | Stream the private original image with `Cache-Control: private, no-store`                                                                 |
-| `GET`    | `/api/system/stats`               | Job counts grouped by status                                                                                                              |
-| `POST`   | `/api/auth/register`              | Create an account with email, password, and `REGISTER_KEY`                                                                                |
-| `POST`   | `/api/auth/login`                 | Sign in and receive a short-lived access token                                                                                            |
-| `POST`   | `/api/auth/refresh`               | Rotate the `httpOnly` refresh cookie and issue a new access token                                                                         |
-| `POST`   | `/api/auth/logout`                | Revoke the current refresh token and clear the cookie                                                                                     |
-| `GET`    | `/api/auth/me`                    | Return the authenticated user's public profile                                                                                            |
-| `GET`    | `/health`                         | Liveness check                                                                                                                            |
-| `GET`    | `/ready`                          | PostgreSQL, NATS, and MinIO readiness check                                                                                               |
+| Method   | Path                                    | Description                                                                                                                               |
+| -------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/batches`                          | List authed user's batches (`?limit`, `?cursor`): items with signed thumbnail URL, status, size, and total account storage                |
+| `POST`   | `/api/batches`                          | Create draft batch: `whitelist` (0..5), `config` JSON string, optional `name`. Returns 201 `{ batch }` (`DRAFT`)                          |
+| `POST`   | `/api/batches/:id/files`                | Upload single image (`file`) to draft batch. Returns 201 `{ job }` (`PENDING`)                                                            |
+| `POST`   | `/api/batches/:id/start`                | Start batch processing for pending jobs. Returns 202 `{ batch }`                                                                          |
+| `GET`    | `/api/batches/:id`                      | Batch details and jobs (includes `name`)                                                                                                  |
+| `PATCH`  | `/api/batches/:id`                      | Rename batch with JSON `{ name }`. Returns 200 `{ batch }`                                                                                |
+| `GET`    | `/api/batches/:id/report`               | Batch report with totals, review images/reasons, `batchName`, `whitelistPeople` (with `name`), and detections when provided by Engine     |
+| `GET`    | `/api/batches/:id/whitelist/:n/url`     | Issue presigned GET URL (`{ url, expiresAt }`, 5 min, `private, no-store`) for batch's nth reference photo                                |
+| `DELETE` | `/api/batches/:id`                      | Delete the batch and its `uploads`/`results` objects                                                                                      |
+| `POST`   | `/api/batches/:id/download-token`       | Issue short-lived (60 s) signed token for streaming batch zip (owner only)                                                                |
+| `GET`    | `/api/batches/:id/download.zip`         | Stream all completed results as a zip archive using signed token                                                                          |
+| `GET`    | `/api/face-lists`                       | List authenticated user's allow lists: `{ lists: [{ id, name, faceCount, faceNames, createdAt }] }`                                       |
+| `POST`   | `/api/face-lists`                       | Create allow list: multipart `name` (1..100) and 1..5 `faces` image files. Returns 201 `{ list }`                                         |
+| `POST`   | `/api/face-lists/:id/faces`             | Append faces to allow list: multipart 1..5 `faces` image files. Returns 200 `{ list }`                                                    |
+| `GET`    | `/api/face-lists/:id/faces/:faceId/url` | Issue presigned GET URL (`{ url, expiresAt }`, 5 min, `private, no-store`) for allow list face photo                                      |
+| `DELETE` | `/api/face-lists/:id/faces/:faceId`     | Delete single face from allow list (deletes list if last face; MinIO purged immediately). Returns 200 `{ list }`                          |
+| `PATCH`  | `/api/face-lists/:id`                   | Rename allow list with JSON `{ name }`. Returns 200 `{ list }`                                                                            |
+| `DELETE` | `/api/face-lists/:id`                   | Permanently delete allow list and immediately purge its MinIO objects (`lists/<userId>/<id>/`). Returns 204                               |
+| `GET`    | `/api/jobs/:id`                         | Job status and details (resultUrl removed; use /result-url endpoint)                                                                      |
+| `GET`    | `/api/jobs/:id/result-url`              | Issue presigned GET URL (`{ url, expiresAt }`, 1 hr) for completed result; `?download=1` sets `response-content-disposition`              |
+| `GET`    | `/api/jobs/:id/original-url`            | Issue presigned GET URL (`{ url, expiresAt }`, 5 min, `private, no-store`) for unredacted original image                                  |
+| `DELETE` | `/api/jobs/:id`                         | Delete single image job and its storage objects (deletes batch if last job; 409 if active)                                                |
+| `POST`   | `/api/jobs/:id/retry`                   | Retry a `FAILED` job with a new job ID and output key (409 `WHITELIST_FACES_MISSING` if faces missing without `acceptMissingFaces: true`) |
+| `POST`   | `/api/jobs/:id/edit`                    | Re-render a `COMPLETED` image with updated boxes/style without re-running AI. Returns 201 `{ job: JobResponseDTO }`                       |
+| `GET`    | `/api/system/stats`                     | Job counts grouped by status                                                                                                              |
+| `POST`   | `/api/auth/register`                    | Create an account with email, password, and `REGISTER_KEY`                                                                                |
+| `POST`   | `/api/auth/login`                       | Sign in and receive a short-lived access token                                                                                            |
+| `POST`   | `/api/auth/refresh`                     | Rotate the `httpOnly` refresh cookie and issue a new access token                                                                         |
+| `POST`   | `/api/auth/logout`                      | Revoke the current refresh token and clear the cookie                                                                                     |
+| `GET`    | `/api/auth/me`                          | Return the authenticated user's public profile                                                                                            |
+| `GET`    | `/health`                               | Liveness check                                                                                                                            |
+| `GET`    | `/ready`                                | PostgreSQL, NATS, and MinIO readiness check                                                                                               |
 
 ### Upload flow (Per-image upload)
 
@@ -280,7 +285,7 @@ Batch creation and image processing use a three-step flow:
 1. **`POST /api/batches`** (Create draft batch)
    - **Request**: Multipart form data with:
      - `name`: optional batch name (1–100 characters after trimming, no control characters). When omitted or empty, the server sets a default name formatted as `Batch <YYYY-MM-DD HH:mm>` in UTC. Values exceeding 100 characters or containing control characters return `400 VALIDATION_ERROR`.
-     - `config`: serialized JSON string with redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `faceConfidenceThreshold`, `plateConfidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
+     - `config`: serialized JSON string with redaction options (`targets`, `style`, `strength` [relative to box width: blur 1–50%, default 15; pixelate 3–32 cells across, default 8], `padding`, `quality`, `format`, `faceConfidenceThreshold`, `plateConfidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
      - `whitelist`: optional 0 to 20 face reference images (JPG, PNG, WEBP, up to `UPLOAD_MAX_BYTES`).
      - `faceListIds`: optional array of allow list UUIDs (JSON array string or repeated form field, deduped; `faceListId` also accepted as a single-item alias). Batches reference allow list photos directly under `uploads/lists/...` without copying them server-side, in list order before uploaded files.
      - Note: allow lists and uploaded files can be combined, up to a maximum total of 20 reference faces per batch (exceeding 20 returns `400 VALIDATION_ERROR` "At most 20 whitelist faces per batch"). Specifying an unknown or foreign allow list id returns `404 NOT_FOUND`.
@@ -322,7 +327,7 @@ Batch creation and image processing use a three-step flow:
 5. **`POST /api/batches/:id/rerun`** (Re-run batch with new settings)
    - **Request**: Multipart form data with:
      - `name`: optional batch name (1–100 characters after trimming). When omitted or empty, defaults to `<source name> (re-run)` (trimmed to 100 characters).
-     - `config`: serialized JSON string with updated redaction options (`targets`, `style`, `strength`, `padding`, `quality`, `format`, `faceConfidenceThreshold`, `plateConfidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
+     - `config`: serialized JSON string with updated redaction options (`targets`, `style`, `strength` [relative to box width: blur 1–50%, default 15; pixelate 3–32 cells across, default 8], `padding`, `quality`, `format`, `faceConfidenceThreshold`, `plateConfidenceThreshold`, `reviewThreshold`, `similarityThreshold`).
      - `whitelist`: optional 0 to 20 fresh face reference images. The source batch's whitelist is never reused (it is purged when jobs finish).
      - `faceListIds`: optional array of allow list UUIDs (JSON array string or repeated form field, deduped; `faceListId` also accepted as a single-item alias). Batches reference allow list photos directly under `uploads/lists/...` without copying, in list order before uploaded files. Combining allow lists and uploaded files is supported up to a total of 20 reference faces per batch. Specifying an unknown or foreign allow list id returns `404 NOT_FOUND`.
    - **Behavior**: Verifies the source batch belongs to the authenticated user and has been started. Server-side copies each distinct input object to the new batch's S3 namespace (`uploads/<newBatchId>/<newJobId>/input.<ext>`), resolves output extension from the new `format`, and returns the newly created draft batch without starting it. The client can optionally upload additional images (`POST /api/batches/:id/files`) before starting processing via `POST /api/batches/:id/start`. Missing originals are skipped. If all originals are missing, returns `410 NO_ORIGINALS` and cleans up the draft.
@@ -332,6 +337,24 @@ Batch creation and image processing use a three-step flow:
      - `404 NOT_FOUND`: source batch does not exist, belongs to another user, or references an invalid/foreign allow list.
      - `409 BATCH_NOT_STARTED`: source batch is still a draft (`startedAt` is null).
      - `410 NO_ORIGINALS`: no original images remain in storage for the source batch.
+     - `503 SERVICE_UNAVAILABLE`: queue unavailable.
+
+6. **`POST /api/jobs/:id/edit`** (Re-render completed image with updated boxes/settings)
+   - **Request**: JSON body with:
+     - `redactIndices`: array of integer indices into the job's `resultSummary.detections` that must be redacted in the new render.
+     - `addedBoxes`: array of 0–50 objects `{ box: [x1, y1, x2, y2] }` representing user-drawn boxes in original-image pixels (`x1 < x2`, `y1 < y2`, finite numbers). Defaults to `[]`.
+     - `style`: optional redaction style (`"blur"` | `"pixelate"` | `"blackout"`), defaulting to the batch config.
+     - `strength`: optional redaction strength (blur: 1–50; pixelate: 3–32; ignored for blackout), defaulting to the batch config.
+     - `padding`: optional box expansion ratio (0–0.5), defaulting to the batch config.
+     - Strict schema: unknown properties in the JSON body return `400 VALIDATION_ERROR`.
+   - **Behavior**: Verifies the job belongs to the authenticated user and is `COMPLETED`. If an active edit is already running for this job (`replacesJobId = id` with a non-terminal status), returns that active job DTO without creating a duplicate. Otherwise, copies the original image into a new job directory (`uploads/<batchId>/<newJobId>/input.<ext>`), creates a new `Job` row linking to the original via `replacesJobId` with initial detections stored upfront, and publishes an `image-render` command to NATS JetStream on `jobs.image`. On successful completion, the old job row and its storage objects are cleaned up in-place.
+   - **Response**: `201 Created` with `{ job: JobResponseDTO }`.
+   - **Errors**:
+     - `400 VALIDATION_ERROR` / `INVALID_UUID`: invalid job id, bad box coordinates, invalid strength range, or unknown fields.
+     - `400 INDEX_OUT_OF_RANGE`: detection index out of range.
+     - `404 NOT_FOUND`: job does not exist or belongs to another user.
+     - `409 JOB_NOT_EDITABLE`: job is not in `COMPLETED` state.
+     - `410 INPUT_EXPIRED`: original input image is missing from storage.
      - `503 SERVICE_UNAVAILABLE`: queue unavailable.
 
 Every batch response (`BatchResponseDTO`) includes `name: string`. The batch report (`ReportResponseDTO` from `GET /api/batches/:id/report`) includes `batchName: string`.
@@ -362,6 +385,8 @@ The report keeps Engine-provided review signals authoritative. An image is marke
 - **Batch-level extras**: Exposes `models: string[]` (unique non-null models across latest completed attempts) and `processingTimeMs: { total, mean, max } | null` over the latest completed attempts.
 
 The batch page and media library provide **Download zip**, which requests a short-lived signed download token via `POST /api/batches/:id/download-token` (60 s TTL) and streams the entire batch of completed results as an uncompressed zip archive (`GET /api/batches/:id/download.zip?token=…`). The archive is streamed directly from MinIO into the response without buffering in server memory or writing temporary files, deduplicating names inside the archive (`name (2).jpg`), listing any missing results in `MISSING.txt`, and aborting the stream cleanly if the client disconnects. The local PreviewCanvas draws on a bundled street photo (`frontend/public/preview-sample.jpg`: Jorge Láscar, CC BY 2.0, cropped; credited under the preview) with hand-marked face and plate boxes. It is never uploaded.
+
+The result viewer provides an **Edit redaction** mode on completed images: users can toggle individual detection boxes on or off, drag on the stage to draw custom bounding boxes, adjust style and strength, and apply edits to enqueue a re-render job without re-running AI detection.
 
 ## Error response format
 

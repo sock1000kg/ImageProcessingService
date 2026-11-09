@@ -3,7 +3,7 @@
  * and authenticated workspace environments, plus the initial session loading state.
  */
 import { Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
-import { Images, Plus, SignOut, SquaresFour, Stack, X } from "@phosphor-icons/react";
+import { ImagesIcon, PlusIcon, SignOutIcon, SquaresFourIcon, StackIcon, XIcon } from "@phosphor-icons/react";
 import { useAuth } from "../context/AuthContext";
 import { Banner } from "./ui/Banner";
 import { SyncStatus } from "./SyncStatus";
@@ -47,7 +47,7 @@ function Topbar() {
         ? "Media library"
         : isBatch
           ? "Batch review"
-          : "Your privacy workspace";
+          : "Your workspace";
 
   const subtitle = isRerun
     ? "Rerun a batch with different configs"
@@ -94,21 +94,21 @@ function Sidebar({ activeBatchId }: SidebarProps) {
           title="Overview"
           className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}
         >
-          <SquaresFour aria-hidden /> <span>Overview</span>
+          <SquaresFourIcon aria-hidden /> <span>Overview</span>
         </NavLink>
         <NavLink
           to="/library"
           title="Library"
           className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}
         >
-          <Images aria-hidden /> <span>Library</span>
+          <ImagesIcon aria-hidden /> <span>Library</span>
         </NavLink>
         <NavLink
           to="/batches/new"
           title="New batch"
           className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}
         >
-          <Plus aria-hidden /> <span>New batch</span>
+          <PlusIcon aria-hidden /> <span>New batch</span>
         </NavLink>
         {activeBatchId && (
           <NavLink
@@ -116,7 +116,7 @@ function Sidebar({ activeBatchId }: SidebarProps) {
             title="Batch details"
             className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`.trim()}
           >
-            <Stack aria-hidden /> <span>Batch details</span>
+            <StackIcon aria-hidden /> <span>Batch details</span>
           </NavLink>
         )}
       </nav>
@@ -132,7 +132,7 @@ function Sidebar({ activeBatchId }: SidebarProps) {
         </div>
         {user && (
           <button type="button" className="secondary-button" title={user.email} onClick={() => void signOut()}>
-            <SignOut aria-hidden />
+            <SignOutIcon aria-hidden />
             <span>Sign out</span>
           </button>
         )}
@@ -204,7 +204,7 @@ export function WorkspaceLayout({ message, onDismiss }: WorkspaceLayoutProps) {
               <span>{message.text}</span>
               {message.variant === "error" && (
                 <button type="button" className="icon-button" aria-label="Dismiss" onClick={onDismiss}>
-                  <X aria-hidden />
+                  <XIcon aria-hidden />
                 </button>
               )}
             </Banner>

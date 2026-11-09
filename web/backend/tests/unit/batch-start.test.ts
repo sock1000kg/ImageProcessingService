@@ -5,13 +5,16 @@ import * as messaging from "../../src/messaging";
 import { JobStatus } from "../../src/generated/prisma/client";
 
 describe("startBatch Unit Tests", () => {
+  const userId = "test-user-id";
+
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   it("throws 400 BATCH_EMPTY if batch has no jobs", async () => {
-    vi.spyOn(jobRepository, "getBatch").mockResolvedValue({
+    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue({
       id: "11111111-1111-1111-1111-111111111111",
+      userId,
       config: {},
       whitelistKeys: [],
       whitelistDeletedAt: null,
@@ -20,7 +23,7 @@ describe("startBatch Unit Tests", () => {
     } as any);
     vi.spyOn(jobRepository, "getJobsByBatchId").mockResolvedValue([]);
 
-    await expect(startBatch("11111111-1111-1111-1111-111111111111")).rejects.toMatchObject({
+    await expect(startBatch("11111111-1111-1111-1111-111111111111", userId)).rejects.toMatchObject({
       status: 400,
       code: "BATCH_EMPTY",
     });
@@ -30,6 +33,7 @@ describe("startBatch Unit Tests", () => {
     const batchId = "22222222-2222-2222-2222-222222222222";
     const batchData = {
       id: batchId,
+      userId,
       config: { targets: ["face"], style: "blur" },
       whitelistKeys: [],
       whitelistDeletedAt: null,
@@ -46,7 +50,6 @@ describe("startBatch Unit Tests", () => {
       status: JobStatus.PENDING,
       progress: 0,
       stage: null,
-      resultUrl: null,
       resultSummary: null,
       error: null,
       createdAt: new Date(),
@@ -62,7 +65,6 @@ describe("startBatch Unit Tests", () => {
       status: JobStatus.QUEUED,
       progress: 0,
       stage: null,
-      resultUrl: null,
       resultSummary: null,
       error: null,
       createdAt: new Date(),
@@ -78,7 +80,6 @@ describe("startBatch Unit Tests", () => {
       status: JobStatus.COMPLETED,
       progress: 100,
       stage: "DONE",
-      resultUrl: "/results/sample.jpg",
       resultSummary: null,
       error: null,
       createdAt: new Date(),
@@ -87,6 +88,13 @@ describe("startBatch Unit Tests", () => {
 
     const allJobs = [pendingJob, queuedJob, completedJob];
 
+    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockImplementation(
+      async () =>
+        ({
+          ...batchData,
+          startedAt: batchData.startedAt ? new Date(batchData.startedAt) : null,
+        }) as any,
+    );
     vi.spyOn(jobRepository, "getBatch").mockImplementation(
       async () =>
         ({
@@ -117,7 +125,7 @@ describe("startBatch Unit Tests", () => {
     });
 
     // First call to startBatch
-    const result1 = await startBatch(batchId);
+    const result1 = await startBatch(batchId, userId);
 
     expect(setBatchStartedSpy).toHaveBeenCalledWith(batchId);
     expect(publishedCommands).toHaveLength(1);
@@ -128,7 +136,7 @@ describe("startBatch Unit Tests", () => {
 
     // Second call to startBatch - now 0 pending jobs
     vi.spyOn(jobRepository, "getPendingJobsByBatchId").mockResolvedValue([]);
-    const result2 = await startBatch(batchId);
+    const result2 = await startBatch(batchId, userId);
 
     // No additional publishes
     expect(publishedCommands).toHaveLength(1);

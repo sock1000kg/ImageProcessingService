@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import { connect, JetStreamManager, NatsConnection, StringCodec } from "nats";
 import { config } from "../../src/config";
-import { closeDatabase } from "../../src/db";
+import { closeDatabase, prisma } from "../../src/db";
 import { storage } from "../../src/storage";
 import {
   addBatchFile,
@@ -19,15 +20,33 @@ describe("Batch Service Integration Tests", () => {
   let nc: NatsConnection;
   let jsm: JetStreamManager;
   const codec = StringCodec();
+  const userId = randomUUID();
 
   beforeAll(async () => {
     await storage.verifyBuckets();
     await connectMessaging();
     nc = await connect({ servers: config.NATS_URL });
     jsm = await nc.jetstreamManager();
+    try {
+      await prisma.user.create({
+        data: {
+          id: userId,
+          email: `batch-test-${userId}@example.com`,
+          passwordHash: "dummy-hash",
+        },
+      });
+    } catch {
+      // If db not reachable during unit test runs, this is fine
+    }
   });
 
   afterAll(async () => {
+    try {
+      await prisma.batch.deleteMany({ where: { userId } });
+      await prisma.user.deleteMany({ where: { id: userId } });
+    } catch {
+      // Ignore cleanup error if db not connected
+    }
     await closeMessaging();
     if (nc) await nc.close();
     await closeDatabase();
@@ -54,6 +73,7 @@ describe("Batch Service Integration Tests", () => {
 
     const draftBatch = await createDraftBatch({
       whitelist: [whitelistFile],
+      userId,
       rawConfig: {
         style: "pixelate",
         quality: "high",
@@ -108,9 +128,9 @@ describe("Batch Service Integration Tests", () => {
       path: "",
     };
 
-    const job1 = await addBatchFile(batchId, file1);
-    const job2 = await addBatchFile(batchId, file2);
-    const job3 = await addBatchFile(batchId, file3);
+    const job1 = await addBatchFile(batchId, file1, userId);
+    const job2 = await addBatchFile(batchId, file2, userId);
+    const job3 = await addBatchFile(batchId, file3, userId);
 
     expect(job1.status).toBe("PENDING");
     expect(job2.status).toBe("PENDING");
@@ -121,7 +141,7 @@ describe("Batch Service Integration Tests", () => {
     expect(midStreamInfo.state.last_seq).toBe(startSeq);
 
     // 4. Start batch -> 3 commands published, batch is not DRAFT
-    const startedBatch = await startBatch(batchId);
+    const startedBatch = await startBatch(batchId, userId);
     expect(startedBatch.status).not.toBe("DRAFT");
     expect(startedBatch.status).toBe("PROCESSING");
 
@@ -143,12 +163,12 @@ describe("Batch Service Integration Tests", () => {
     expect(receivedCommands).toHaveLength(3);
 
     // 5. Calling start again -> no duplicate publish
-    const startedAgain = await startBatch(batchId);
+    const startedAgain = await startBatch(batchId, userId);
     const afterSecondStartSeq = (await jsm.streams.info("IMAGE_JOBS")).state.last_seq;
     expect(afterSecondStartSeq).toBe(endSeq);
 
     // 6. Upload after start -> 409 BATCH_STARTED
-    await expect(addBatchFile(batchId, file1)).rejects.toMatchObject({
+    await expect(addBatchFile(batchId, file1, userId)).rejects.toMatchObject({
       status: 409,
       code: "BATCH_STARTED",
     });
@@ -157,13 +177,13 @@ describe("Batch Service Integration Tests", () => {
     const originalMaxFiles = config.BATCH_MAX_FILES;
     try {
       (config as any).BATCH_MAX_FILES = 1;
-      const limitBatch = await createDraftBatch({ rawConfig: {} });
-      await addBatchFile(limitBatch.id, file1);
-      await expect(addBatchFile(limitBatch.id, file2)).rejects.toMatchObject({
+      const limitBatch = await createDraftBatch({ rawConfig: {}, userId });
+      await addBatchFile(limitBatch.id, file1, userId);
+      await expect(addBatchFile(limitBatch.id, file2, userId)).rejects.toMatchObject({
         status: 409,
         code: "BATCH_FULL",
       });
-      await deleteBatchById(limitBatch.id);
+      await deleteBatchById(limitBatch.id, userId);
     } finally {
       (config as any).BATCH_MAX_FILES = originalMaxFiles;
     }
@@ -183,7 +203,7 @@ describe("Batch Service Integration Tests", () => {
     expect(cmd1.params.redaction).toEqual({
       targets: ["face", "plate"],
       style: "pixelate",
-      strength: 12,
+      strength: 8,
       padding: 0.1,
     });
     expect(cmd1.params.output.quality).toBe("high");
@@ -199,7 +219,7 @@ describe("Batch Service Integration Tests", () => {
       stage: "DETECTING",
     });
 
-    let currentBatch = await getBatchById(batchId);
+    let currentBatch = await getBatchById(batchId, userId);
     expect(currentBatch?.status).toBe("PROCESSING");
     expect(currentBatch?.jobs.find((j) => j.id === job1.id)?.progress).toBe(50);
 
@@ -217,7 +237,7 @@ describe("Batch Service Integration Tests", () => {
     });
 
     // Whitelist should NOT be deleted yet because job 2 is still pending
-    currentBatch = await getBatchById(batchId);
+    currentBatch = await getBatchById(batchId, userId);
     expect(currentBatch?.whitelistDeletedAt).toBeNull();
 
     // Complete job 2
@@ -235,7 +255,7 @@ describe("Batch Service Integration Tests", () => {
 
     // Whitelist should still be kept because job 3 is still pending
     await checkAndCleanBatchWhitelist(batchId);
-    currentBatch = await getBatchById(batchId);
+    currentBatch = await getBatchById(batchId, userId);
     expect(currentBatch?.status).toBe("PROCESSING");
     expect(currentBatch?.whitelistDeletedAt).toBeNull();
 
@@ -255,15 +275,15 @@ describe("Batch Service Integration Tests", () => {
     // Trigger whitelist cleanup on batch completion
     await checkAndCleanBatchWhitelist(batchId);
 
-    currentBatch = await getBatchById(batchId);
+    currentBatch = await getBatchById(batchId, userId);
     expect(currentBatch?.status).toBe("COMPLETED");
     expect(currentBatch?.whitelistDeletedAt).not.toBeNull();
 
     // 5. Delete batch: removes rows and S3 objects
-    const deleted = await deleteBatchById(batchId);
+    const deleted = await deleteBatchById(batchId, userId);
     expect(deleted).toBe(true);
 
-    const deletedBatch = await getBatchById(batchId);
+    const deletedBatch = await getBatchById(batchId, userId);
     expect(deletedBatch).toBeNull();
   });
 
@@ -271,24 +291,25 @@ describe("Batch Service Integration Tests", () => {
     // 1. Create with a name -> response has it
     const batch = await createDraftBatch({
       name: "Custom Initial Name",
+      userId,
       rawConfig: { style: "blur" },
     });
     expect(batch.name).toBe("Custom Initial Name");
 
     // 2. PATCH (rename) -> GET shows the new name
-    const renamed = await renameBatch(batch.id, "Renamed Batch Title");
+    const renamed = await renameBatch(batch.id, "Renamed Batch Title", userId);
     expect(renamed.name).toBe("Renamed Batch Title");
 
-    const fetched = await getBatchById(batch.id);
+    const fetched = await getBatchById(batch.id, userId);
     expect(fetched?.name).toBe("Renamed Batch Title");
 
     // 3. PATCH on an unknown id -> 404
-    await expect(renameBatch("00000000-0000-0000-0000-000000000000", "Valid Name")).rejects.toMatchObject({
+    await expect(renameBatch("00000000-0000-0000-0000-000000000000", "Valid Name", userId)).rejects.toMatchObject({
       status: 404,
       code: "NOT_FOUND",
     });
 
     // Cleanup
-    await deleteBatchById(batch.id);
+    await deleteBatchById(batch.id, userId);
   });
 });

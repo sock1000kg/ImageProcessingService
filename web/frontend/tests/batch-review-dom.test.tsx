@@ -15,13 +15,14 @@ import { formatJobRowStatus, splitFilename } from "../src/components/BatchImageL
 import * as api from "../src/api";
 import { Batch, BatchReport, Job } from "../src/types";
 
-// Mock usePrivateImage so original image link renders without network calls
-vi.mock("../src/hooks/usePrivateImage", () => ({
-  usePrivateImage: vi.fn((path?: string | null) => ({
-    url: path ? `blob:http://localhost/mock-${path}` : null,
+// Mock usePresignedUrl so signed images render without network calls
+vi.mock("../src/hooks/usePresignedUrl", () => ({
+  usePresignedUrl: vi.fn((path?: string | null) => ({
+    url: path ? `http://localhost:9000/mock-${path}` : null,
     loading: false,
     error: false,
   })),
+  clearPresignedUrlCache: vi.fn(),
 }));
 
 describe("Batch review DOM and interaction tests (Task 72)", () => {
@@ -50,7 +51,6 @@ describe("Batch review DOM and interaction tests (Task 72)", () => {
         status: "COMPLETED",
         progress: 100,
         stage: "COMPLETED",
-        resultUrl: "/api/jobs/job-1/result",
         resultSummary: { faces: 1, plates: 0, redacted: 1, whitelisted: 0, lowConfidence: 0 },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -62,7 +62,6 @@ describe("Batch review DOM and interaction tests (Task 72)", () => {
         status: "COMPLETED",
         progress: 100,
         stage: "COMPLETED",
-        resultUrl: "/api/jobs/job-2/result",
         resultSummary: { faces: 1, plates: 0, redacted: 1, whitelisted: 0, lowConfidence: 1 },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -245,22 +244,27 @@ describe("Batch review DOM and interaction tests (Task 72)", () => {
     expect(screen.getByRole("heading", { name: "photo-review.jpg" })).toBeDefined();
   });
 
-  it("renders Open original and Download result as links, with download attribute on result link", () => {
+  it("renders Open original link and Download result button without pre-rendered URLs in DOM, and clicking download requests ?download=1", async () => {
+    const requestSpy = vi.spyOn(api, "request").mockResolvedValue({
+      url: "http://localhost:9000/results/download.jpg",
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    });
+
     render(
       <MemoryRouter>
         <BatchDetails batch={createBatch("COMPLETED")} onRefresh={vi.fn()} onDelete={vi.fn()} onMessage={vi.fn()} />
       </MemoryRouter>,
     );
 
-    // Why link role: users should be able to open original or trigger download using standard link semantics
     const openOriginalLink = screen.getByRole("link", { name: /open original/i });
     expect(openOriginalLink.tagName).toBe("A");
-    expect(openOriginalLink.getAttribute("href")).toContain("/api/jobs/job-1/original");
+    expect(openOriginalLink.getAttribute("href")).toBe("#");
 
-    const downloadResultLink = screen.getByRole("link", { name: /download result/i });
-    expect(downloadResultLink.tagName).toBe("A");
-    expect(downloadResultLink.hasAttribute("download")).toBe(true);
-    expect(downloadResultLink.getAttribute("href")).toBe("/api/jobs/job-1/result");
+    const downloadResultBtn = screen.getByRole("button", { name: /download result/i });
+    expect(downloadResultBtn.tagName).toBe("BUTTON");
+
+    fireEvent.click(downloadResultBtn);
+    expect(requestSpy).toHaveBeenCalledWith("/api/jobs/job-1/result-url?download=1");
   });
 
   it("keeps delete button accessible without selecting row, selects image on row click, and shows review badges", async () => {
@@ -346,7 +350,6 @@ describe("Batch review DOM and interaction tests (Task 72)", () => {
           status: "COMPLETED",
           progress: 100,
           stage: "COMPLETED",
-          resultUrl: "/api/jobs/job-long-1/result",
           resultSummary: null,
           error: null,
           createdAt: new Date().toISOString(),
@@ -363,7 +366,6 @@ describe("Batch review DOM and interaction tests (Task 72)", () => {
           status: "COMPLETED",
           progress: 100,
           stage: "COMPLETED",
-          resultUrl: "/api/jobs/job-long-1/result",
           resultSummary: null,
           error: null,
           detections: [],

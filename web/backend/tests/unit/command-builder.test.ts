@@ -44,7 +44,7 @@ describe("Command Builder and Extension Mapping (§2A & §5)", () => {
         redaction: {
           targets: ["face", "plate"],
           style: "pixelate",
-          strength: 12,
+          strength: 8,
           padding: 0.1,
         },
         output: { quality: "high" },

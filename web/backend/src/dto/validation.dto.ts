@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { config } from "../config";
 import { badRequest, notFound, payloadTooLarge } from "../errors";
+import { redactionStyleSchema } from "./batch-config.dto";
 
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -32,7 +33,7 @@ export const batchNameSchema = z
   .superRefine((val, ctx) => {
     if (CONTROL_CHAR_REGEX.test(val)) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Batch name must not contain control characters",
       });
     }
@@ -216,3 +217,63 @@ export function validateUploadFiles(options: {
     }
   }
 }
+
+/**
+ * Schema for user-drawn bounding box coordinates in original-image pixels.
+ * Coordinates must be finite numbers satisfying x1 < x2 and y1 < y2.
+ */
+export const addedBoxSchema = z
+  .object({
+    box: z
+      .tuple([z.number(), z.number(), z.number(), z.number()])
+      .refine(
+        ([x1, y1, x2, y2]) =>
+          Number.isFinite(x1) &&
+          Number.isFinite(y1) &&
+          Number.isFinite(x2) &&
+          Number.isFinite(y2) &&
+          x1 < x2 &&
+          y1 < y2,
+        {
+          message: "Box coordinates must be finite numbers with x1 < x2 and y1 < y2",
+        },
+      ),
+  })
+  .strict();
+
+export type AddedBox = z.infer<typeof addedBoxSchema>;
+
+/**
+ * Validation schema for POST /api/jobs/:id/edit request bodies.
+ *
+ * Why strict schema: Prevents unexpected parameters from altering the render command,
+ * while enforcing finite box coordinates, max 50 added boxes, and Contract §2 strength ranges.
+ */
+export const editJobBodySchema = z
+  .object({
+    redactIndices: z.array(z.number().int().nonnegative()),
+    addedBoxes: z.array(addedBoxSchema).max(50).default([]),
+    style: redactionStyleSchema.optional(),
+    strength: z.number().int().positive().optional(),
+    padding: z.number().min(0).max(0.5).optional(),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    if (val.style !== undefined && val.strength !== undefined) {
+      if (val.style === "blur" && (val.strength < 1 || val.strength > 50)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Strength for blur style must be between 1 and 50",
+          path: ["strength"],
+        });
+      } else if (val.style === "pixelate" && (val.strength < 3 || val.strength > 32)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Strength for pixelate style must be between 3 and 32",
+          path: ["strength"],
+        });
+      }
+    }
+  });
+
+export type EditJobInput = z.infer<typeof editJobBodySchema>;

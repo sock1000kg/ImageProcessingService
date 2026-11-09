@@ -11,6 +11,7 @@ import { DeleteBatchDialog } from "../src/components/DeleteBatchDialog";
 import { FaceListViewer } from "../src/components/FaceListViewer";
 import { Dialog } from "../src/components/ui/Dialog";
 import { SavedFaceListsPanel } from "../src/components/SavedFaceListsPanel";
+import { clearPresignedUrlCache } from "../src/hooks/usePresignedUrl";
 
 describe("Face Lists Frontend DOM Tests (Task 39)", () => {
   const originalFetch = global.fetch;
@@ -26,7 +27,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
           return {
             ok: true,
             status: 200,
-            blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+            json: async () => ({
+              url: `http://localhost:9000/mock-${url}`,
+              expiresAt: new Date(Date.now() + 300_000).toISOString(),
+            }),
           } as Response;
         }
 
@@ -125,6 +129,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    clearPresignedUrlCache();
   });
 
   function makeFile(name: string, type = "image/jpeg", size = 1000): File {
@@ -564,6 +569,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
         id: "list-err",
         name: "Broken List",
         faceCount: 1,
+        faceIds: ["face-1"],
         createdAt: "2026-11-05T00:00:00Z",
       };
 
@@ -576,8 +582,8 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
 
       expect(within(dialog).queryAllByRole("img")).toHaveLength(0);
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/api/face-lists/list-err/faces/1"),
-        expect.anything(),
+        expect.stringContaining("/api/face-lists/list-err/faces/face-1/url"),
+        undefined,
       );
     });
 
@@ -732,7 +738,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
             return {
               ok: true,
               status: 200,
-              blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+              json: async () => ({
+                url: `http://localhost:9000/mock-${url}`,
+                expiresAt: new Date(Date.now() + 300_000).toISOString(),
+              }),
             } as Response;
           }
 
@@ -990,7 +999,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
           return {
             ok: true,
             status: 200,
-            blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+            json: async () => ({
+              url: `http://localhost:9000/mock-${url}`,
+              expiresAt: new Date(Date.now() + 300_000).toISOString(),
+            }),
           } as Response;
         }
 
@@ -1058,7 +1070,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
         const method = init?.method ?? "GET";
         requestedUrls.push(`${method} ${url}`);
 
-        if (url.includes("/api/face-lists/list-1/faces/2") && method === "DELETE") {
+        if (url.includes("/api/face-lists/list-1/faces/face-2") && method === "DELETE") {
           return {
             ok: true,
             status: 200,
@@ -1067,6 +1079,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
                 id: "list-1",
                 name: "Family List",
                 faceCount: 2,
+                faceIds: ["face-1", "face-3"],
                 createdAt: "2026-11-05T08:00:00Z",
               },
             }),
@@ -1077,7 +1090,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
           return {
             ok: true,
             status: 200,
-            blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+            json: async () => ({
+              url: `http://localhost:9000/mock-${url}`,
+              expiresAt: new Date(Date.now() + 300_000).toISOString(),
+            }),
           } as Response;
         }
 
@@ -1091,6 +1107,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
                   id: "list-1",
                   name: "Family List",
                   faceCount: 3,
+                  faceIds: ["face-1", "face-2", "face-3"],
                   createdAt: "2026-11-05T08:00:00Z",
                 },
               ],
@@ -1134,16 +1151,16 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
 
       // Verify DELETE API call was made
       await waitFor(() => {
-        expect(requestedUrls.some((u) => u.startsWith("DELETE") && u.includes("/api/face-lists/list-1/faces/2"))).toBe(
-          true,
-        );
+        expect(
+          requestedUrls.some((u) => u.startsWith("DELETE") && u.includes("/api/face-lists/list-1/faces/face-2")),
+        ).toBe(true);
       });
 
       // Viewer requests the next photo at index 2 with fresh fetch
       await waitFor(() => {
-        expect(requestedUrls.some((u) => u.startsWith("GET") && u.includes("/api/face-lists/list-1/faces/2"))).toBe(
-          true,
-        );
+        expect(
+          requestedUrls.some((u) => u.startsWith("GET") && u.includes("/api/face-lists/list-1/faces/face-3")),
+        ).toBe(true);
       });
 
       // Active count is now updated in viewer title (2 faces/files)
@@ -1161,7 +1178,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
             return {
               ok: true,
               status: 200,
-              blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+              json: async () => ({
+                url: `http://localhost:9000/mock-${url}`,
+                expiresAt: new Date(Date.now() + 300_000).toISOString(),
+              }),
             } as Response;
           }
 
@@ -1223,7 +1243,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
           const url = typeof input === "string" ? input : input.toString();
           const method = init?.method ?? "GET";
 
-          if (url.includes("/api/face-lists/list-single/faces/1") && method === "DELETE") {
+          if (url.includes("/api/face-lists/list-single/faces/face-1") && method === "DELETE") {
             deleteCalled = true;
             return {
               ok: true,
@@ -1236,7 +1256,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
             return {
               ok: true,
               status: 200,
-              blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+              json: async () => ({
+                url: `http://localhost:9000/mock-${url}`,
+                expiresAt: new Date(Date.now() + 300_000).toISOString(),
+              }),
             } as Response;
           }
 
@@ -1250,6 +1273,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
                     id: "list-single",
                     name: "Solo List",
                     faceCount: 1,
+                    faceIds: ["face-1"],
                     createdAt: "2026-11-05T08:00:00Z",
                   },
                 ],
@@ -1302,7 +1326,10 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
             return {
               ok: true,
               status: 200,
-              blob: async () => new Blob(["fake-image"], { type: "image/jpeg" }),
+              json: async () => ({
+                url: `http://localhost:9000/mock-${url}`,
+                expiresAt: new Date(Date.now() + 300_000).toISOString(),
+              }),
             } as Response;
           }
 

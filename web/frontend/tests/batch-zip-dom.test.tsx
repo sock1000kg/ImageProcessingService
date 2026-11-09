@@ -47,7 +47,6 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         originalFilename: "portrait.jpg",
         status: "COMPLETED",
         progress: 100,
-        resultUrl: "/results/123/job-1/result.jpg",
         createdAt: "2026-11-04T10:00:10Z",
       },
       {
@@ -56,7 +55,6 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         originalFilename: "landscape.jpg",
         status: "COMPLETED",
         progress: 100,
-        resultUrl: "/results/123/job-2/result.jpg",
         createdAt: "2026-11-04T10:00:20Z",
       },
     ],
@@ -77,7 +75,6 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         originalFilename: "pending.jpg",
         status: "PENDING",
         progress: 0,
-        resultUrl: null,
         createdAt: "2026-11-04T10:00:10Z",
       },
     ],
@@ -91,7 +88,7 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         </MemoryRouter>,
       );
 
-      const downloadBtn = screen.getByRole("button", { name: /(?:zip|download(?!.*json))/i }) as HTMLButtonElement;
+      const downloadBtn = screen.getByRole("button", { name: /zip/i }) as HTMLButtonElement;
       expect(downloadBtn).toBeDefined();
       expect(downloadBtn.disabled).toBe(false);
     });
@@ -103,7 +100,7 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         </MemoryRouter>,
       );
 
-      const downloadBtn = screen.getByRole("button", { name: /(?:zip|download(?!.*json))/i }) as HTMLButtonElement;
+      const downloadBtn = screen.getByRole("button", { name: /zip/i }) as HTMLButtonElement;
       expect(downloadBtn).toBeDefined();
       expect(downloadBtn.disabled).toBe(true);
     });
@@ -139,7 +136,7 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         </MemoryRouter>,
       );
 
-      const downloadBtn = screen.getByRole("button", { name: /(?:zip|download(?!.*json))/i });
+      const downloadBtn = screen.getByRole("button", { name: /zip/i });
       fireEvent.click(downloadBtn);
 
       await waitFor(() => {
@@ -180,7 +177,7 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
         </MemoryRouter>,
       );
 
-      const downloadBtn = screen.getByRole("button", { name: /(?:zip|download(?!.*json))/i });
+      const downloadBtn = screen.getByRole("button", { name: /zip/i });
       fireEvent.click(downloadBtn);
 
       await waitFor(() => {

@@ -5,7 +5,8 @@ import {
   createFaceList,
   deleteFaceFromList,
   deleteFaceList,
-  getFaceStream,
+  faceIdFromKey,
+  getFacePresignedUrl,
   listFaceLists,
   renameFaceList,
   sanitizeFaceFileName,
@@ -21,7 +22,6 @@ import {
   createFaceListHandler,
   deleteFaceFromListHandler,
   deleteFaceListHandler,
-  getFaceStreamHandler,
   listFaceListsHandler,
   renameFaceListHandler,
 } from "../../src/controllers/face-lists.controller";
@@ -161,7 +161,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
     });
   });
 
-  describe("Service: listFaceLists and getFaceStream", () => {
+  describe("Service: listFaceLists", () => {
     it("lists only user's face lists with accurate faceCount", async () => {
       vi.spyOn(faceListRepository, "listFaceListsByUserId").mockResolvedValue([
         {
@@ -177,54 +177,6 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       expect(result.lists).toHaveLength(1);
       expect(result.lists[0].id).toBe(listId);
       expect(result.lists[0].faceCount).toBe(2);
-    });
-
-    it("streams face for valid index and returns streamInfo", async () => {
-      vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue({
-        id: listId,
-        userId,
-        name: "My Faces",
-        keys: [`lists/${userId}/${listId}/face-1.jpg`],
-        createdAt: new Date("2026-11-05T08:00:00Z"),
-      });
-
-      const mockStream = new Readable();
-      vi.spyOn(storage, "getObjectStream").mockResolvedValue({
-        stream: mockStream,
-        contentType: "image/jpeg",
-        contentLength: 1234,
-      });
-
-      const info = await getFaceStream(listId, 1, userId);
-      expect(info.stream).toBe(mockStream);
-      expect(info.contentType).toBe("image/jpeg");
-    });
-
-    it("throws 404 when list is missing or owned by another user", async () => {
-      vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue(null);
-
-      await expect(getFaceStream(listId, 1, otherUserId)).rejects.toMatchObject({
-        status: 404,
-        code: "NOT_FOUND",
-      });
-    });
-
-    it("throws 404 when face index is out of bounds (0 or > count)", async () => {
-      vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue({
-        id: listId,
-        userId,
-        name: "My Faces",
-        keys: [`lists/${userId}/${listId}/face-1.jpg`],
-        createdAt: new Date("2026-11-05T08:00:00Z"),
-      });
-
-      await expect(getFaceStream(listId, 0, userId)).rejects.toMatchObject({
-        status: 404,
-      });
-
-      await expect(getFaceStream(listId, 2, userId)).rejects.toMatchObject({
-        status: 404,
-      });
     });
   });
 
@@ -803,47 +755,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
     });
   });
 
-  describe("Controllers: HTTP handlers and Cache-Control headers", () => {
-    it("getFaceStreamHandler sets Cache-Control: private, no-store", async () => {
-      vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue({
-        id: listId,
-        userId,
-        name: "My Faces",
-        keys: [`lists/${userId}/${listId}/face-1.jpg`],
-        createdAt: new Date(),
-      });
-
-      const mockStream = new Readable({
-        read() {
-          this.push(null);
-        },
-      });
-      vi.spyOn(storage, "getObjectStream").mockResolvedValue({
-        stream: mockStream,
-        contentType: "image/jpeg",
-        contentLength: 42,
-      });
-
-      const headers: Record<string, string | number> = {};
-      const req: any = {
-        params: { id: listId, n: "1" },
-        authUser: { id: userId },
-      };
-      const res: any = {
-        setHeader: vi.fn((k: string, v: any) => {
-          headers[k] = v;
-        }),
-      };
-      mockStream.pipe = vi.fn();
-
-      await getFaceStreamHandler(req, res, vi.fn());
-
-      expect(res.setHeader).toHaveBeenCalledWith("Cache-Control", "private, no-store");
-      expect(res.setHeader).toHaveBeenCalledWith("Content-Type", "image/jpeg");
-      expect(res.setHeader).toHaveBeenCalledWith("Content-Length", 42);
-      expect(mockStream.pipe).toHaveBeenCalledWith(res);
-    });
-
+  describe("Controllers: HTTP handlers", () => {
     it("createFaceListHandler returns 201 with list DTO", async () => {
       vi.spyOn(faceListRepository, "createFaceList").mockResolvedValue({
         id: listId,
@@ -872,6 +784,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
           name: "VIP List",
           faceCount: 1,
           faceNames: [null],
+          faceIds: ["face-1"],
           createdAt: "2026-11-05T09:00:00.000Z",
         },
       });
@@ -902,20 +815,12 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       expect(endMock).toHaveBeenCalled();
     });
 
-    it("forwards 404 when foreign list is accessed on face stream or delete", async () => {
+    it("forwards 404 when foreign list is accessed on delete", async () => {
       vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue(null);
 
-      const next1 = vi.fn();
-      await getFaceStreamHandler(
-        { params: { id: listId, n: "1" }, authUser: { id: otherUserId } } as any,
-        {} as any,
-        next1,
-      );
-      expect(next1).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
-
-      const next2 = vi.fn();
-      await deleteFaceListHandler({ params: { id: listId }, authUser: { id: otherUserId } } as any, {} as any, next2);
-      expect(next2).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
+      const next = vi.fn();
+      await deleteFaceListHandler({ params: { id: listId }, authUser: { id: otherUserId } } as any, {} as any, next);
+      expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
     });
   });
 
@@ -961,7 +866,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       expect(deletePrefixSpy).not.toHaveBeenCalled();
     });
 
-    it("new faces are readable through getFaceStream faces/:n", async () => {
+    it("new faces are accessible through getFacePresignedUrl faces/:faceId", async () => {
       const keys = [
         `lists/${userId}/${listId}/face-1.jpg`,
         `lists/${userId}/${listId}/face-2.jpg`,
@@ -975,16 +880,15 @@ describe("Face Lists Unit Tests (Task 39)", () => {
         createdAt: new Date(),
       });
 
-      const streamSpy = vi.spyOn(storage, "getObjectStream").mockResolvedValue({
-        stream: new Readable() as any,
-        contentType: "image/jpeg",
-        contentLength: 100,
+      const presignSpy = vi.spyOn(storage, "presignGetUrl").mockResolvedValue({
+        url: "http://localhost:9000/presigned-face.jpg",
+        expiresAt: new Date().toISOString(),
       });
 
-      // Stream face #3 (the appended face)
-      const streamInfo = await getFaceStream(listId, 3, userId);
-      expect(streamInfo).toBeDefined();
-      expect(streamSpy).toHaveBeenCalledWith(UPLOADS_BUCKET, keys[2]);
+      // Appended face by ID "face-uuid3"
+      const result = await getFacePresignedUrl(listId, "face-uuid3", userId);
+      expect(result.url).toBe("http://localhost:9000/presigned-face.jpg");
+      expect(presignSpy).toHaveBeenCalledWith(UPLOADS_BUCKET, keys[2], expect.anything());
     });
 
     it("over the cap → rejects with 409 FACE_LIST_FULL and leaves nothing behind", async () => {
@@ -1163,6 +1067,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
           name: "VIP List",
           faceCount: 2,
           faceNames: [null, null],
+          faceIds: ["face-1", "face-new"],
           createdAt: "2026-11-05T09:00:00.000Z",
         },
       });
@@ -1201,8 +1106,8 @@ describe("Face Lists Unit Tests (Task 39)", () => {
         keys: [`lists/${userId}/${listId}/face-1.jpg`, `lists/${userId}/${listId}/face-3.jpg`],
       });
 
-      // Delete face #2 (key face-2.jpg)
-      const result = await deleteFaceFromList(listId, 2, userId);
+      // Delete face with ID face-2
+      const result = await deleteFaceFromList(listId, "face-2", userId);
 
       expect(deleteObjSpy).toHaveBeenCalledWith(UPLOADS_BUCKET, `lists/${userId}/${listId}/face-2.jpg`);
       expect(removeKeySpy).toHaveBeenCalledWith(listId, userId, `lists/${userId}/${listId}/face-2.jpg`);
@@ -1211,27 +1116,81 @@ describe("Face Lists Unit Tests (Task 39)", () => {
         name: "Test List",
         faceCount: 2,
         faceNames: [null, null],
+        faceIds: ["face-1", "face-3"],
         createdAt: "2026-11-05T08:00:00.000Z",
       });
 
-      // Remaining faces stay readable through faces/:n
+      // Remaining faces stay accessible through faces/:faceId/url
       const updatedList = {
         ...existingList,
         keys: [`lists/${userId}/${listId}/face-1.jpg`, `lists/${userId}/${listId}/face-3.jpg`],
       };
       vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue(updatedList);
-      const getStreamSpy = vi.spyOn(storage, "getObjectStream").mockResolvedValue({
-        stream: new Readable() as any,
-        contentType: "image/jpeg",
+      const presignSpy = vi.spyOn(storage, "presignGetUrl").mockResolvedValue({
+        url: "http://localhost:9000/presigned-face.jpg",
+        expiresAt: new Date().toISOString(),
       });
 
-      // Face #1 is face-1.jpg
-      await getFaceStream(listId, 1, userId);
-      expect(getStreamSpy).toHaveBeenCalledWith(UPLOADS_BUCKET, `lists/${userId}/${listId}/face-1.jpg`);
+      // Face face-1 is face-1.jpg
+      await getFacePresignedUrl(listId, "face-1", userId);
+      expect(presignSpy).toHaveBeenCalledWith(
+        UPLOADS_BUCKET,
+        `lists/${userId}/${listId}/face-1.jpg`,
+        expect.anything(),
+      );
 
-      // Face #2 is now face-3.jpg
-      await getFaceStream(listId, 2, userId);
-      expect(getStreamSpy).toHaveBeenCalledWith(UPLOADS_BUCKET, `lists/${userId}/${listId}/face-3.jpg`);
+      // Face face-3 is face-3.jpg
+      await getFacePresignedUrl(listId, "face-3", userId);
+      expect(presignSpy).toHaveBeenCalledWith(
+        UPLOADS_BUCKET,
+        `lists/${userId}/${listId}/face-3.jpg`,
+        expect.anything(),
+      );
+    });
+
+    it("deleting the same face ID twice removes one face and the second call returns 404", async () => {
+      const initialList = {
+        id: listId,
+        userId,
+        name: "Test List",
+        keys: [`lists/${userId}/${listId}/face-1.jpg`, `lists/${userId}/${listId}/face-2.jpg`],
+        faceNames: {
+          [`lists/${userId}/${listId}/face-1.jpg`]: "Alice.jpg",
+          [`lists/${userId}/${listId}/face-2.jpg`]: "Bob.jpg",
+        },
+        createdAt: new Date("2026-11-05T08:00:00.000Z"),
+      };
+
+      const remainingList = {
+        id: listId,
+        userId,
+        name: "Test List",
+        keys: [`lists/${userId}/${listId}/face-2.jpg`],
+        faceNames: {
+          [`lists/${userId}/${listId}/face-2.jpg`]: "Bob.jpg",
+        },
+        createdAt: new Date("2026-11-05T08:00:00.000Z"),
+      };
+
+      vi.spyOn(faceListRepository, "getFaceListOwnedByUser")
+        .mockResolvedValueOnce(initialList)
+        .mockResolvedValueOnce(remainingList);
+      const deleteObjSpy = vi.spyOn(storage, "deleteObject").mockResolvedValue(undefined);
+      const removeKeySpy = vi.spyOn(faceListRepository, "removeFaceListKey").mockResolvedValue(remainingList);
+
+      // First delete removes face-1
+      const res1 = await deleteFaceFromList(listId, "face-1", userId);
+      expect(res1.list?.faceCount).toBe(1);
+      expect(res1.list?.faceIds).toEqual(["face-2"]);
+      expect(res1.list?.faceNames).toEqual(["Bob.jpg"]);
+      expect(deleteObjSpy).toHaveBeenCalledTimes(1);
+      expect(removeKeySpy).toHaveBeenCalledWith(listId, userId, `lists/${userId}/${listId}/face-1.jpg`);
+
+      // Second delete of the same face-1 returns 404 and does not remove face-2
+      await expect(deleteFaceFromList(listId, "face-1", userId)).rejects.toMatchObject({
+        status: 404,
+      });
+      expect(deleteObjSpy).toHaveBeenCalledTimes(1);
     });
 
     it("deleteObject fails → request fails and key stays", async () => {
@@ -1247,7 +1206,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       vi.spyOn(storage, "deleteObject").mockRejectedValue(new Error("MinIO connection reset"));
       const removeKeySpy = vi.spyOn(faceListRepository, "removeFaceListKey");
 
-      await expect(deleteFaceFromList(listId, 1, userId)).rejects.toThrow("MinIO connection reset");
+      await expect(deleteFaceFromList(listId, "face-1", userId)).rejects.toThrow("MinIO connection reset");
       expect(removeKeySpy).not.toHaveBeenCalled();
     });
 
@@ -1265,7 +1224,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       const deleteRowSpy = vi.spyOn(faceListRepository, "deleteFaceListRow").mockResolvedValue(true);
       const deleteObjSpy = vi.spyOn(storage, "deleteObject");
 
-      const result = await deleteFaceFromList(listId, 1, userId);
+      const result = await deleteFaceFromList(listId, "face-1", userId);
 
       expect(deletePrefixSpy).toHaveBeenCalledWith(UPLOADS_BUCKET, `lists/${userId}/${listId}/`);
       expect(deleteRowSpy).toHaveBeenCalledWith(listId, userId);
@@ -1273,22 +1232,22 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       expect(result).toEqual({ list: null });
     });
 
-    it("returns 404 and deletes nothing for other user list, non-UUID id, or out-of-range n", async () => {
+    it("returns 404 and deletes nothing for other user list, non-UUID id, or unknown faceId", async () => {
       const deleteObjSpy = vi.spyOn(storage, "deleteObject");
       const deletePrefixSpy = vi.spyOn(storage, "deletePrefix");
 
       // Non-UUID id
-      await expect(deleteFaceFromList("not-a-uuid", 1, userId)).rejects.toMatchObject({
+      await expect(deleteFaceFromList("not-a-uuid", "face-1", userId)).rejects.toMatchObject({
         status: 404,
       });
 
       // Other user list
       vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue(null);
-      await expect(deleteFaceFromList(listId, 1, otherUserId)).rejects.toMatchObject({
+      await expect(deleteFaceFromList(listId, "face-1", otherUserId)).rejects.toMatchObject({
         status: 404,
       });
 
-      // Out of range n: 0 or > length
+      // Unknown faceId
       const listWith2 = {
         id: listId,
         userId,
@@ -1298,10 +1257,10 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       };
       vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue(listWith2);
 
-      await expect(deleteFaceFromList(listId, 0, userId)).rejects.toMatchObject({
+      await expect(deleteFaceFromList(listId, "face-999", userId)).rejects.toMatchObject({
         status: 404,
       });
-      await expect(deleteFaceFromList(listId, 3, userId)).rejects.toMatchObject({
+      await expect(deleteFaceFromList(listId, "not-found", userId)).rejects.toMatchObject({
         status: 404,
       });
 
@@ -1326,7 +1285,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       });
 
       const req: any = {
-        params: { id: listId, n: "2" },
+        params: { id: listId, faceId: "face-2" },
         authUser: { id: userId },
       };
       const jsonMock = vi.fn();
@@ -1342,26 +1301,27 @@ describe("Face Lists Unit Tests (Task 39)", () => {
           name: "Test List",
           faceCount: 1,
           faceNames: [null],
+          faceIds: ["face-1"],
           createdAt: "2026-11-05T08:00:00.000Z",
         },
       });
     });
 
-    it("deleteFaceFromListHandler rejects invalid n or invalid id with 404", async () => {
+    it("deleteFaceFromListHandler rejects invalid faceId or invalid id with 404", async () => {
       const next = vi.fn();
       const reqBadId: any = {
-        params: { id: "bad-uuid", n: "1" },
+        params: { id: "bad-uuid", faceId: "face-1" },
         authUser: { id: userId },
       };
       await deleteFaceFromListHandler(reqBadId, {} as any, next);
       expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
 
       next.mockClear();
-      const reqBadN: any = {
-        params: { id: listId, n: "not-a-number" },
+      const reqBadFaceId: any = {
+        params: { id: listId, faceId: "   " },
         authUser: { id: userId },
       };
-      await deleteFaceFromListHandler(reqBadN, {} as any, next);
+      await deleteFaceFromListHandler(reqBadFaceId, {} as any, next);
       expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
     });
   });
@@ -1393,6 +1353,15 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       });
     });
 
+    describe("faceIdFromKey", () => {
+      it("extracts file name without extension from storage keys", () => {
+        expect(faceIdFromKey("lists/user-1/list-1/face-1.jpg")).toBe("face-1");
+        expect(faceIdFromKey("lists/user-1/list-1/face-abc-123.png")).toBe("face-abc-123");
+        expect(faceIdFromKey("lists/user-1/list-1/face-uuid.webp")).toBe("face-uuid");
+        expect(faceIdFromKey("k1")).toBe("k1");
+      });
+    });
+
     describe("toFaceListItemDTO", () => {
       it("returns nulls for a list without faceNames", () => {
         const dto = toFaceListItemDTO({
@@ -1405,6 +1374,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
         } as any);
 
         expect(dto.faceNames).toEqual([null, null]);
+        expect(dto.faceIds).toEqual(["k1", "k2"]);
         expect(dto.faceCount).toBe(2);
         expect((dto as any).keys).toBeUndefined();
       });
@@ -1420,6 +1390,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
         } as any);
 
         expect(dto.faceNames).toEqual(["Alice.jpg", null, "Charlie.jpg"]);
+        expect(dto.faceIds).toEqual(["k1", "k2", "k3"]);
         expect(dto.faceCount).toBe(3);
       });
     });
@@ -1501,9 +1472,10 @@ describe("Face Lists Unit Tests (Task 39)", () => {
           } as any;
         });
 
-        const res = await deleteFaceFromList(listId, 2, userId);
+        const res = await deleteFaceFromList(listId, "k2", userId);
         expect(res.list?.faceCount).toBe(2);
         expect(res.list?.faceNames).toEqual(["Photo 1.jpg", "Photo 3.jpg"]);
+        expect(res.list?.faceIds).toEqual(["k1", "k3"]);
       });
     });
 

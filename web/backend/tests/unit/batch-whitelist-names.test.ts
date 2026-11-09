@@ -1,16 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Readable } from "node:stream";
-import { createDraftBatch, getBatchWhitelistStream } from "../../src/services/batch.service";
+import { createDraftBatch } from "../../src/services/batch.service";
 import * as jobRepository from "../../src/repositories/job.repository";
 import * as faceListRepository from "../../src/repositories/face-list.repository";
 import { storage, UPLOADS_BUCKET } from "../../src/storage";
 import { toReportResponse } from "../../src/dto/batch.dto";
-import {
-  createBatchHandler,
-  getBatchWhitelistPhotoHandler,
-  rerunBatchHandler,
-} from "../../src/controllers/batches.controller";
-import { getJobOriginalHandler } from "../../src/controllers/jobs.controller";
+import { createBatchHandler, rerunBatchHandler } from "../../src/controllers/batches.controller";
 import * as batchService from "../../src/services/batch.service";
 
 describe("Batch Whitelist Names and Private Image Endpoint (Task 58)", () => {
@@ -129,131 +124,6 @@ describe("Batch Whitelist Names and Private Image Endpoint (Task 58)", () => {
     // the batch row contains its own snapshot
     const report = toReportResponse(batchRow as any, []);
     expect(report.whitelistPeople[0]?.name).toBe("Original Face Name.jpg");
-  });
-
-  it("streams the owner's whitelist face with Cache-Control: private, no-store", async () => {
-    const fakeStream = new Readable({
-      read() {
-        this.push(Buffer.from("img-bytes"));
-        this.push(null);
-      },
-    });
-
-    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue({
-      id: batchId,
-      userId,
-      whitelistKeys: ["uploads/list/face-1.jpg"],
-    } as any);
-
-    vi.spyOn(storage, "getObjectStream").mockResolvedValue({
-      stream: fakeStream,
-      contentType: "image/jpeg",
-      contentLength: 9,
-    });
-
-    const headers: Record<string, string | number> = {};
-    const res: any = {
-      setHeader: vi.fn((k: string, v: string | number) => {
-        headers[k.toLowerCase()] = v;
-      }),
-    };
-    fakeStream.pipe = vi.fn().mockImplementation((dest) => dest);
-
-    const req: any = {
-      params: { id: batchId, n: "1" },
-      authUser: { id: userId },
-    };
-    const next = vi.fn();
-
-    await getBatchWhitelistPhotoHandler(req, res, next);
-
-    expect(headers["cache-control"]).toBe("private, no-store");
-    expect(headers["content-type"]).toBe("image/jpeg");
-    expect(headers["content-length"]).toBe(9);
-    expect(fakeStream.pipe).toHaveBeenCalledWith(res);
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  it("streams job original with Cache-Control: private, no-store", async () => {
-    const fakeStream = new Readable({
-      read() {
-        this.push(Buffer.from("original-bytes"));
-        this.push(null);
-      },
-    });
-
-    vi.spyOn(batchService, "getJobOriginalStream").mockResolvedValue({
-      stream: fakeStream,
-      contentType: "image/png",
-      contentLength: 14,
-      filename: "test.png",
-    });
-
-    const headers: Record<string, string | number> = {};
-    const res: any = {
-      setHeader: vi.fn((k: string, v: string | number) => {
-        headers[k.toLowerCase()] = v;
-      }),
-    };
-    fakeStream.pipe = vi.fn().mockImplementation((dest) => dest);
-
-    const req: any = {
-      params: { id: "11111111-1111-4111-8111-111111111111" },
-      authUser: { id: userId },
-    };
-    const next = vi.fn();
-
-    await getJobOriginalHandler(req, res, next);
-
-    expect(headers["cache-control"]).toBe("private, no-store");
-    expect(headers["content-type"]).toBe("image/png");
-    expect(headers["content-length"]).toBe(14);
-    expect(fakeStream.pipe).toHaveBeenCalledWith(res);
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  it("returns 404 once the storage object is gone", async () => {
-    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue({
-      id: batchId,
-      userId,
-      whitelistKeys: ["uploads/list/face-purged.jpg"],
-    } as any);
-
-    vi.spyOn(storage, "getObjectStream").mockResolvedValue(null);
-
-    await expect(getBatchWhitelistStream(batchId, 1, userId)).rejects.toMatchObject({
-      status: 404,
-      code: "NOT_FOUND",
-    });
-  });
-
-  it("returns 404 for another user's batch, non-UUID id, and bad ref", async () => {
-    // Another user's batch -> not found
-    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue(null);
-    await expect(getBatchWhitelistStream(batchId, 1, otherUserId)).rejects.toMatchObject({
-      status: 404,
-    });
-
-    // Non-UUID id -> 404
-    await expect(getBatchWhitelistStream("not-a-valid-uuid", 1, userId)).rejects.toMatchObject({
-      status: 404,
-    });
-
-    // Out-of-range ref
-    vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue({
-      id: batchId,
-      userId,
-      whitelistKeys: ["uploads/list/face-1.jpg"],
-    } as any);
-
-    // 0 is out of range (1-based)
-    await expect(getBatchWhitelistStream(batchId, 0, userId)).rejects.toMatchObject({
-      status: 404,
-    });
-    // 2 is out of range (only 1 key)
-    await expect(getBatchWhitelistStream(batchId, 2, userId)).rejects.toMatchObject({
-      status: 404,
-    });
   });
 
   it("createBatchHandler receives multiple faceListIds and forwards them to createDraftBatch", async () => {

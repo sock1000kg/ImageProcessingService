@@ -2,7 +2,7 @@
  * Drag-and-drop file and directory intake zone supporting folder traversal and click selection.
  */
 import { DragEvent, useEffect, useRef, useState } from "react";
-import { UploadSimple } from "@phosphor-icons/react";
+import { UploadSimpleIcon } from "@phosphor-icons/react";
 import {
   ClassifiedDrop,
   classifyDrop,
@@ -165,7 +165,7 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
         aria-label="Choose images to redact"
       >
         <span className="dropzone-icon">
-          <UploadSimple aria-hidden />
+          <UploadSimpleIcon aria-hidden />
         </span>
         <strong>
           {files.length

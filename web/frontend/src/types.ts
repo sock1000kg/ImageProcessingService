@@ -12,7 +12,6 @@ export type Job = {
   status: string;
   progress: number;
   stage: string | null;
-  resultUrl: string | null;
   resultSummary: Record<string, unknown> | null;
   error: { code: string; message: string } | null;
   createdAt: string;
@@ -188,6 +187,7 @@ export type FaceListItem = {
   name: string;
   faceCount: number;
   faceNames?: (string | null)[];
+  faceIds?: string[];
   createdAt: string;
 };
 

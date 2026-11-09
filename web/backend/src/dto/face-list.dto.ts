@@ -11,6 +11,7 @@ export interface FaceListItemDTO {
   name: string;
   faceCount: number;
   faceNames: (string | null)[];
+  faceIds: string[];
   createdAt: string;
 }
 
@@ -27,7 +28,7 @@ export const faceListNameSchema = z
   .superRefine((val, ctx) => {
     if (CONTROL_CHAR_REGEX.test(val)) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Face list name must not contain control characters",
       });
     }

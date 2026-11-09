@@ -7,7 +7,6 @@ describe("Event Sequences and State Transitions (§8)", () => {
     status: "QUEUED",
     progress: 0,
     stage: null,
-    resultUrl: null,
     resultSummary: null,
     error: null,
   };
@@ -31,7 +30,6 @@ describe("Event Sequences and State Transitions (§8)", () => {
       status: "PROCESSING",
       progress: 60,
       stage: "REDACTING",
-      resultUrl: null,
       resultSummary: null,
       error: null,
     };
@@ -48,12 +46,11 @@ describe("Event Sequences and State Transitions (§8)", () => {
     expect(next.progress).toBe(60);
   });
 
-  it("updates job to COMPLETED with 100% progress and resultUrl", () => {
+  it("updates job to COMPLETED with 100% progress", () => {
     const current: JobState = {
       status: "PROCESSING",
       progress: 80,
       stage: "SAVING",
-      resultUrl: null,
       resultSummary: null,
       error: null,
     };
@@ -66,11 +63,10 @@ describe("Event Sequences and State Transitions (§8)", () => {
       resultSummary: { counts: { face: 1, plate: 2, redacted: 3 } },
     };
 
-    const next = calculateNextJobState(current, event, "/results");
+    const next = calculateNextJobState(current, event);
     expect(next.status).toBe("COMPLETED");
     expect(next.progress).toBe(100);
     expect(next.stage).toBe("DONE");
-    expect(next.resultUrl).toBe("/results/batch-1/job-1/result.jpg");
     expect(next.resultSummary).toEqual({ counts: { face: 1, plate: 2, redacted: 3 } });
   });
 
@@ -79,7 +75,6 @@ describe("Event Sequences and State Transitions (§8)", () => {
       status: "PROCESSING",
       progress: 45,
       stage: "REDACTING",
-      resultUrl: null,
       resultSummary: null,
       error: null,
     };
@@ -101,7 +96,6 @@ describe("Event Sequences and State Transitions (§8)", () => {
       status: "COMPLETED",
       progress: 100,
       stage: "DONE",
-      resultUrl: "/results/result.jpg",
       resultSummary: { counts: { face: 1 } },
       error: null,
     };
@@ -122,7 +116,6 @@ describe("Event Sequences and State Transitions (§8)", () => {
       status: "FAILED",
       progress: 20,
       stage: "DETECTING",
-      resultUrl: null,
       resultSummary: null,
       error: { code: "EARLY_FAILURE", message: "Early failure" },
     };
@@ -135,7 +128,6 @@ describe("Event Sequences and State Transitions (§8)", () => {
 
     const next = calculateNextJobState(failedState, lateEvent);
     expect(next.status).toBe("FAILED");
-    expect(next.resultUrl).toBeNull();
   });
 
   it("validates event with jobEventSchema", () => {

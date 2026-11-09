@@ -8,7 +8,7 @@ import { config } from "./config";
 import { getJob } from "./db";
 import { applyJobEvent, checkAndCleanBatchWhitelist } from "./services/batch.service";
 import { jobEventSchema } from "./dto";
-import { ImageRedactCommand } from "./domain";
+import { ImageRedactCommand, ImageRenderCommand } from "./domain";
 
 const codec = StringCodec();
 let connection: NatsConnection | null = null;
@@ -128,7 +128,7 @@ async function handleEventMessage(message: JsMsg): Promise<void> {
  */
 export async function publishJob(
   subject: string,
-  payload: ImageRedactCommand | Record<string, unknown>,
+  payload: ImageRedactCommand | ImageRenderCommand | Record<string, unknown>,
 ): Promise<void> {
   if (!jetStream) throw new Error("NATS connection is not ready");
   await jetStream.publish(subject, codec.encode(JSON.stringify(payload)));

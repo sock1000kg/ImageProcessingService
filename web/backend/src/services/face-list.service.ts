@@ -7,6 +7,7 @@
  */
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { config } from "../config";
 import { storage, UPLOADS_BUCKET } from "../storage";
 import { conflict, notFound } from "../errors";
 import { FaceList } from "../generated/prisma/client";
@@ -65,6 +66,19 @@ export function parseFaceNamesMap(raw: unknown): Record<string, string> {
 }
 
 /**
+ * Derives a stable face ID from its storage key by extracting the file name without extension.
+ *
+ * Why: Storage keys are shaped as `lists/<userId>/<listId>/<fileName>.<ext>` where fileName is unique
+ * within the list (e.g. `face-1`, `face-<uuid>`). Using the file name without extension as the face ID
+ * provides a stable, URL-safe identifier that does not shift when other faces are deleted.
+ */
+export function faceIdFromKey(key: string): string {
+  const base = path.basename(key);
+  const ext = path.extname(base);
+  return ext ? base.slice(0, -ext.length) : base;
+}
+
+/**
  * Converts a database FaceList record into a FaceListItemDTO.
  *
  * Why centralized mapping: Consolidates the four DTO projections in face-list.service into a single function,
@@ -73,16 +87,19 @@ export function parseFaceNamesMap(raw: unknown): Record<string, string> {
  */
 export function toFaceListItemDTO(list: FaceList): FaceListItemDTO {
   const nameMap = parseFaceNamesMap(list.faceNames);
-  const faceNames = (list.keys ?? []).map((key) => {
+  const keys = list.keys ?? [];
+  const faceNames = keys.map((key) => {
     const val = nameMap[key];
     return typeof val === "string" && val.length > 0 ? val : null;
   });
+  const faceIds = keys.map(faceIdFromKey);
 
   return {
     id: list.id,
     name: list.name,
-    faceCount: list.keys.length,
+    faceCount: keys.length,
     faceNames,
+    faceIds,
     createdAt: list.createdAt instanceof Date ? list.createdAt.toISOString() : String(list.createdAt),
   };
 }
@@ -152,32 +169,32 @@ export async function listFaceLists(userId: string): Promise<FaceListsResponseDT
 }
 
 /**
- * Retrieves an image stream for a specific face index within a user's face list.
+ * Generates a presigned GET URL for a specific face in a user's allow list.
  *
- * Why owner verification: Ensures only the authenticated owner can retrieve their own reference photos.
+ * Why owner verification: Ensures only the authenticated owner can access their saved reference photos.
  * Other users receive a 404 response to avoid information disclosure.
+ * Why key matching: Matches faceId against list.keys to prevent reading arbitrary storage objects.
+ * Why private, no-store: Instructs intermediate proxies and browsers never to cache biometric photos.
  */
-export async function getFaceStream(
+export async function getFacePresignedUrl(
   id: string,
-  faceIndex: number,
+  faceId: string,
   userId: string,
-): Promise<{ stream: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+): Promise<{ url: string; expiresAt: string }> {
   const list = await getFaceListOwnedByUser(id, userId);
   if (!list) {
     throw notFound("Face list not found");
   }
 
-  if (faceIndex < 1 || faceIndex > list.keys.length) {
+  const key = list.keys.find((k) => faceIdFromKey(k) === faceId);
+  if (!key) {
     throw notFound("Face reference not found");
   }
 
-  const key = list.keys[faceIndex - 1]!;
-  const streamInfo = await storage.getObjectStream(UPLOADS_BUCKET, key);
-  if (!streamInfo) {
-    throw notFound("Face reference image not found");
-  }
-
-  return streamInfo;
+  return storage.presignGetUrl(UPLOADS_BUCKET, key, {
+    ttlSeconds: config.PRESIGN_PRIVATE_TTL_SECONDS,
+    cacheControl: "private, no-store",
+  });
 }
 
 /**
@@ -277,19 +294,19 @@ export async function addFacesToList(
 }
 
 /**
- * Deletes a single biometric face from a saved face list.
+ * Deletes a single biometric face by stable face ID from a saved face list.
  *
  * Why object deletion first: Removes the biometric storage object before altering the database row.
  * If MinIO deletion fails, the error propagates without catching so the database row remains intact,
  * allowing the user to retry without leaving orphaned biometric objects (S3 deletes are idempotent).
- * Why atomic key removal: Removes the key via array_remove so repeated requests cannot delete
- * a second face if indices shifted.
+ * Why ID-based key matching: Prevents position-shift race conditions from multiple tabs or repeated requests
+ * by identifying the target photo by its stable storage key file name.
  * Why null when last face: When the list's only face is deleted, purges the entire list record and prefix,
  * returning { list: null } identical to deleting a batch's final job.
  */
 export async function deleteFaceFromList(
   id: string,
-  faceIndex: number,
+  faceId: string,
   userId: string,
 ): Promise<{ list: FaceListItemDTO | null }> {
   if (!UUID_REGEX.test(id)) {
@@ -301,7 +318,8 @@ export async function deleteFaceFromList(
     throw notFound("Face list not found");
   }
 
-  if (faceIndex < 1 || faceIndex > list.keys.length) {
+  const key = list.keys.find((k) => faceIdFromKey(k) === faceId);
+  if (!key) {
     throw notFound("Face reference not found");
   }
 
@@ -310,7 +328,6 @@ export async function deleteFaceFromList(
     return { list: null };
   }
 
-  const key = list.keys[faceIndex - 1]!;
   // Delete storage object first without catching errors
   await storage.deleteObject(UPLOADS_BUCKET, key);
 

@@ -16,6 +16,16 @@ import { ImageResultViewer } from "../src/components/ImageResultViewer";
 import { boxToPercent, ImageStage } from "../src/components/ui/ImageStage";
 import { Batch, BatchReport as Report, Detection, Job } from "../src/types";
 
+// Mock usePresignedUrl so before/after images and thumbnails render synchronously
+vi.mock("../src/hooks/usePresignedUrl", () => ({
+  usePresignedUrl: vi.fn((path?: string | null) => ({
+    url: path ? "http://localhost:9000/mock.jpg" : null,
+    loading: false,
+    error: false,
+  })),
+  clearPresignedUrlCache: vi.fn(),
+}));
+
 // The viewer fetches the original image through the authed API; answer with a tiny blob instead of the network.
 beforeEach(() => {
   vi.stubGlobal(
@@ -72,7 +82,6 @@ describe("Step 2 & 3: ImageResultViewer slider and box overlay", () => {
     status: "COMPLETED",
     progress: 100,
     stage: "Done",
-    resultUrl: "blob:http://localhost/processed.jpg",
     resultSummary: { imageSize: [800, 1200] },
     error: null,
     createdAt: new Date().toISOString(),
@@ -310,7 +319,6 @@ describe("Step 5: BatchDetails layout and BatchReport selection", () => {
         status: "COMPLETED",
         progress: 100,
         stage: "Done",
-        resultUrl: "blob:http://localhost/result1.jpg",
         resultSummary: null,
         error: null,
         createdAt: new Date().toISOString(),
@@ -322,7 +330,6 @@ describe("Step 5: BatchDetails layout and BatchReport selection", () => {
         status: "COMPLETED",
         progress: 100,
         stage: "Done",
-        resultUrl: "blob:http://localhost/result2.jpg",
         resultSummary: null,
         error: null,
         createdAt: new Date().toISOString(),

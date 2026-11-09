@@ -68,7 +68,10 @@ async function parseApiError(response: Response): Promise<ApiError> {
   return new ApiError(message, { code, details, status: response.status, retryAfterSeconds });
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+/**
+ * Performs an authenticated JSON API request, parsing standard API error responses.
+ */
+export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await authedFetch(url, init);
   if (response.status === 204) {
     return {} as T;
@@ -77,20 +80,6 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw await parseApiError(response);
   }
   return response.json();
-}
-
-/**
- * Fetches a private image blob from an authenticated API endpoint.
- *
- * Why authedFetch: Protected image endpoints require the Bearer access token; standard <img> tags
- * cannot send custom headers and would receive 401. Callers convert the returned Blob into an object URL.
- */
-export async function fetchPrivateImage(path: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await authedFetch(path, { signal });
-  if (!response.ok) {
-    throw await parseApiError(response);
-  }
-  return response.blob();
 }
 
 /**
@@ -392,6 +381,30 @@ export function retryJob(id: string, options?: { acceptMissingFaces?: boolean })
 }
 
 /**
+ * Request payload for POST /api/jobs/:id/edit.
+ */
+export interface EditJobBody {
+  redactIndices: number[];
+  addedBoxes?: Array<{ box: [number, number, number, number] }>;
+  style?: "blur" | "pixelate" | "blackout";
+  strength?: number;
+  padding?: number;
+}
+
+/**
+ * Enqueues an edited re-render job replacing this completed job with modified boxes, style, or strength.
+ *
+ * Why: Allows users to tune redactions on a finished image without re-running AI detection.
+ */
+export function editJob(id: string, body: EditJobBody): Promise<{ job: Job }> {
+  return request(`/api/jobs/${id}/edit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
  * Lists user batches with pagination and whole-account usage statistics.
  */
 export function listBatches(params?: { limit?: number; cursor?: string }): Promise<BatchListResponse> {
@@ -467,13 +480,13 @@ export async function addFacesToList(id: string, files: File[]): Promise<{ list:
 }
 
 /**
- * Deletes a single biometric face from a saved allow list.
+ * Deletes a single biometric face from a saved allow list by face ID.
  *
  * Why returns { list | null }: If the list's only face was deleted, the list is removed and
  * list is returned as null. Otherwise returns the updated list item with decremented faceCount.
  */
-export function deleteFaceFromList(id: string, n: number): Promise<{ list: FaceListItem | null }> {
-  return request(`/api/face-lists/${id}/faces/${n}`, { method: "DELETE" });
+export function deleteFaceFromList(id: string, faceId: string): Promise<{ list: FaceListItem | null }> {
+  return request(`/api/face-lists/${id}/faces/${faceId}`, { method: "DELETE" });
 }
 
 /**

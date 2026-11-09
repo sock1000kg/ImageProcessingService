@@ -6,12 +6,14 @@ import path from "node:path";
 import { config } from "../config";
 import {
   addJobToBatchWithLock,
+  clearJobReplacesJobId,
   countJobsByBatchId,
   createDraftBatch as createDraftBatchRepository,
   deleteJob,
   deleteBatchRow,
   deleteBatchRowOwnedByUser,
   getAccountUsage,
+  getActiveEditJob,
   getActiveRetryJob,
   getBatch,
   getBatchOwnedByUser,
@@ -22,6 +24,7 @@ import {
   getJobsByBatchId,
   getPendingJobsByBatchId,
   insertBatchAndJobs,
+  insertEditJob,
   insertRetryJob,
   listBatchesByUserId,
   markBatchWhitelistDeleted,
@@ -34,13 +37,16 @@ import { getFaceListOwnedByUser } from "../repositories/face-list.repository";
 import { parseFaceNamesMap, sanitizeFaceFileName } from "./face-list.service";
 import { publishJob } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
+import { buildAttachmentContentDisposition } from "../attachment";
 import { BatchConfig } from "../types";
 import { JobStatus } from "../generated/prisma/client";
 import {
   buildImageRedactCommand,
+  buildImageRenderCommand,
   calculateNextJobState,
   deriveBatchStatus,
   JobState,
+  RenderBox,
   resolveOutputExtension,
 } from "../domain";
 import {
@@ -48,6 +54,8 @@ import {
   BatchListResponseDTO,
   BatchResponseDTO,
   BatchSummaryItemDTO,
+  DEFAULT_REDACTION_STRENGTHS,
+  EditJobInput,
   JobResponseDTO,
   MAX_WHITELIST_FILES,
   parseBatchConfig,
@@ -81,7 +89,7 @@ export async function createDraftBatch(options: {
   rawConfig?: unknown;
   filesPresent?: boolean;
   name?: unknown;
-  userId?: string;
+  userId: string;
 }): Promise<BatchResponseDTO> {
   const { whitelist = [], rawConfig, filesPresent = false, name } = options;
   const faceListIds = parseFaceListIds(options);
@@ -95,7 +103,7 @@ export async function createDraftBatch(options: {
   const faceLists: Array<{ id: string; name: string; keys: string[]; faceNames?: unknown }> = [];
   if (faceListIds && faceListIds.length > 0) {
     for (const id of faceListIds) {
-      if (!UUID_REGEX.test(id) || !options.userId) {
+      if (!UUID_REGEX.test(id)) {
         throw notFound("Face list not found");
       }
       const faceList = await getFaceListOwnedByUser(id, options.userId);
@@ -170,12 +178,12 @@ export const createBatch = createDraftBatch;
 
 export async function addBatchFile(
   batchId: string,
-  file?: Express.Multer.File,
-  userId?: string,
+  file: Express.Multer.File | undefined,
+  userId: string,
 ): Promise<JobResponseDTO> {
   const validFile = validateSingleUploadFile(file);
 
-  const batch = userId ? await getBatchOwnedByUser(batchId, userId) : await getBatch(batchId);
+  const batch = await getBatchOwnedByUser(batchId, userId);
   if (!batch) {
     throw notFound("Batch not found");
   }
@@ -218,8 +226,8 @@ export async function addBatchFile(
  * "Start without them" or retries a failed start call, only jobs remaining in PENDING status are
  * enqueued. startedAt is marked once, avoiding duplicate command dispatches to workers.
  */
-export async function startBatch(batchId: string, userId?: string): Promise<BatchResponseDTO> {
-  const batch = userId ? await getBatchOwnedByUser(batchId, userId) : await getBatch(batchId);
+export async function startBatch(batchId: string, userId: string): Promise<BatchResponseDTO> {
+  const batch = await getBatchOwnedByUser(batchId, userId);
   if (!batch) {
     throw notFound("Batch not found");
   }
@@ -262,15 +270,15 @@ export async function startBatch(batchId: string, userId?: string): Promise<Batc
   return toBatchResponse(updatedBatch!, updatedJobs);
 }
 
-export async function getBatchById(id: string, userId?: string): Promise<BatchResponseDTO | null> {
-  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
+export async function getBatchById(id: string, userId: string): Promise<BatchResponseDTO | null> {
+  const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) return null;
   const jobs = await getJobsByBatchId(id);
   return toBatchResponse(batch, jobs);
 }
 
-export async function renameBatch(id: string, rawName: string, userId?: string): Promise<BatchResponseDTO> {
-  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
+export async function renameBatch(id: string, rawName: string, userId: string): Promise<BatchResponseDTO> {
+  const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) {
     throw notFound("Batch not found");
   }
@@ -280,20 +288,20 @@ export async function renameBatch(id: string, rawName: string, userId?: string):
   return toBatchResponse(updated, jobs);
 }
 
-export async function getBatchReportById(id: string, userId?: string): Promise<ReportResponseDTO | null> {
-  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
+export async function getBatchReportById(id: string, userId: string): Promise<ReportResponseDTO | null> {
+  const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) return null;
   const jobs = await getJobsByBatchId(id);
   return toReportResponse(batch, jobs);
 }
 
-export async function deleteBatchById(id: string, userId?: string): Promise<boolean> {
-  const batch = userId ? await getBatchOwnedByUser(id, userId) : await getBatch(id);
+export async function deleteBatchById(id: string, userId: string): Promise<boolean> {
+  const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) return false;
 
   await storage.deletePrefix(UPLOADS_BUCKET, `${id}/`);
   await storage.deletePrefix(RESULTS_BUCKET, `${id}/`);
-  return userId ? deleteBatchRowOwnedByUser(id, userId) : deleteBatchRow(id);
+  return deleteBatchRowOwnedByUser(id, userId);
 }
 
 /**
@@ -311,10 +319,10 @@ export async function rerunBatch(
     faceListId?: string;
     rawConfig?: unknown;
     name?: unknown;
-    userId?: string;
+    userId: string;
   },
 ): Promise<{ batch: BatchResponseDTO; skipped: number }> {
-  const sourceBatch = options.userId ? await getBatchOwnedByUser(sourceId, options.userId) : await getBatch(sourceId);
+  const sourceBatch = await getBatchOwnedByUser(sourceId, options.userId);
 
   if (!sourceBatch) {
     throw notFound("Batch not found");
@@ -420,29 +428,38 @@ export async function listBatches(
   const pageBatches = hasMore ? batches.slice(0, options.limit) : batches;
   const nextCursor = hasMore ? pageBatches[pageBatches.length - 1].id : null;
 
-  const items: BatchSummaryItemDTO[] = pageBatches.map((batch) => {
-    const jobs = batch.jobs;
-    const total = jobs.length;
-    const completed = jobs.filter((j) => j.status === JobStatus.COMPLETED).length;
-    const failed = jobs.filter((j) => j.status === JobStatus.FAILED).length;
-    const status = deriveBatchStatus(
-      jobs.map((j) => j.status),
-      batch.startedAt,
-    );
-    const firstCompleted = jobs.find((j) => j.status === JobStatus.COMPLETED && j.resultUrl);
-    const thumbnailUrl = firstCompleted ? firstCompleted.resultUrl : null;
-    const bytes = jobs.reduce((sum, j) => sum + (j.inputBytes ?? 0) + (j.resultBytes ?? 0), 0);
+  const items: BatchSummaryItemDTO[] = await Promise.all(
+    pageBatches.map(async (batch) => {
+      const jobs = batch.jobs;
+      const total = jobs.length;
+      const completed = jobs.filter((j) => j.status === JobStatus.COMPLETED).length;
+      const failed = jobs.filter((j) => j.status === JobStatus.FAILED).length;
+      const status = deriveBatchStatus(
+        jobs.map((j) => j.status),
+        batch.startedAt,
+      );
+      // Why presigned thumbnail: Signs thumbnail inline for library browsing with result TTL
+      const firstCompleted = jobs.find((j) => j.status === JobStatus.COMPLETED && j.outputKey);
+      let thumbnailUrl: string | null = null;
+      if (firstCompleted?.outputKey) {
+        const signed = await storage.presignGetUrl(RESULTS_BUCKET, firstCompleted.outputKey, {
+          ttlSeconds: config.PRESIGN_RESULT_TTL_SECONDS,
+        });
+        thumbnailUrl = signed.url;
+      }
+      const bytes = jobs.reduce((sum, j) => sum + (j.inputBytes ?? 0) + (j.resultBytes ?? 0), 0);
 
-    return {
-      id: batch.id,
-      name: batch.name,
-      createdAt: batch.createdAt.toISOString(),
-      status,
-      jobCounts: { total, completed, failed },
-      thumbnailUrl,
-      bytes,
-    };
-  });
+      return {
+        id: batch.id,
+        name: batch.name,
+        createdAt: batch.createdAt.toISOString(),
+        status,
+        jobCounts: { total, completed, failed },
+        thumbnailUrl,
+        bytes,
+      };
+    }),
+  );
 
   const usage = await getAccountUsage(userId);
 
@@ -484,19 +501,23 @@ export async function deleteJobById(id: string, userId: string): Promise<void> {
   }
 }
 
-export async function getJobById(id: string, userId?: string): Promise<JobResponseDTO | null> {
-  const job = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
+export async function getJobById(id: string, userId: string): Promise<JobResponseDTO | null> {
+  const job = await getJobOwnedByUser(id, userId);
   return toJobResponse(job);
 }
 
 export async function retryFailedJob(
   id: string,
-  userId?: string,
+  userId: string,
   options?: { acceptMissingFaces?: boolean },
 ): Promise<JobResponseDTO> {
-  const failedJob = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
+  const failedJob = await getJobOwnedByUser(id, userId);
   if (!failedJob) {
     throw gone("Job not found or its batch has expired", "JOB_EXPIRED");
+  }
+  // Why edit guard: Re-running image-redact on an edit job would discard user-drawn boxes and overrides.
+  if (failedJob.replacesJobId) {
+    throw badRequest("Edit jobs cannot be retried", "JOB_NOT_RETRYABLE");
   }
   if (failedJob.status !== JobStatus.FAILED) {
     throw badRequest("Only FAILED jobs can be retried", "JOB_NOT_FAILED");
@@ -575,30 +596,272 @@ export async function retryFailedJob(
   return toJobResponse(createdRetry)!;
 }
 
-export async function getJobOriginalStream(id: string, userId?: string) {
-  const job = userId ? await getJobOwnedByUser(id, userId) : await getJob(id);
-  if (!job) return null;
-  const streamInfo = await storage.getObjectStream(UPLOADS_BUCKET, job.inputKey);
-  if (!streamInfo) return null;
-  return {
-    ...streamInfo,
-    filename: job.originalFilename,
-  };
+/**
+ * Re-renders a completed image job with modified bounding boxes and redaction options per Contract §2C.
+ *
+ * Why new Job row with replacesJobId: The original result remains accessible and intact until the new render
+ * successfully completes. Once completed, the old row and storage objects are cleaned up in-place.
+ */
+export async function editJob(id: string, userId: string, input: EditJobInput): Promise<JobResponseDTO> {
+  const job = await getJobOwnedByUser(id, userId);
+  if (!job) {
+    throw notFound("Job not found");
+  }
+
+  // Why active check: Returns running edit without creating duplicate workers or redundant storage objects.
+  const activeEdit = await getActiveEditJob(job.id);
+  if (activeEdit) {
+    return toJobResponse(activeEdit)!;
+  }
+
+  if (job.status !== JobStatus.COMPLETED) {
+    throw conflict("Only COMPLETED jobs can be edited", "JOB_NOT_EDITABLE");
+  }
+
+  if (!(await storage.objectExists(UPLOADS_BUCKET, job.inputKey))) {
+    throw gone("Original input has expired and cannot be edited", "INPUT_EXPIRED");
+  }
+
+  const existingDetections = Array.isArray((job.resultSummary as Record<string, unknown> | null)?.detections)
+    ? ((job.resultSummary as Record<string, unknown>).detections as Array<Record<string, unknown>>)
+    : [];
+
+  for (const idx of input.redactIndices) {
+    if (idx < 0 || idx >= existingDetections.length) {
+      throw badRequest(
+        `Index ${idx} is out of range of detections (0-${Math.max(0, existingDetections.length - 1)})`,
+        "INDEX_OUT_OF_RANGE",
+      );
+    }
+  }
+
+  const batch = await getBatch(job.batchId);
+  if (!batch) {
+    throw gone("Batch has expired", "BATCH_EXPIRED");
+  }
+  const batchConfig = parseBatchConfigJson(batch.config);
+
+  const effectiveStyle = input.style ?? batchConfig.style;
+  const effectivePadding = input.padding ?? batchConfig.padding;
+
+  let effectiveStrength: number | undefined;
+  if (effectiveStyle === "blackout") {
+    effectiveStrength = undefined;
+  } else if (input.strength !== undefined) {
+    effectiveStrength = input.strength;
+  } else if (input.style !== undefined && input.style !== batchConfig.style) {
+    // Style changed without explicit strength: fallback to style defaults from Contract §2
+    effectiveStrength = DEFAULT_REDACTION_STRENGTHS[input.style as "blur" | "pixelate"];
+  } else {
+    // Inherit batch config strength
+    effectiveStrength = batchConfig.strength;
+  }
+
+  // Validate strength against effective style range (task 85 / Contract §2)
+  if (effectiveStrength !== undefined) {
+    if (effectiveStyle === "blur" && (effectiveStrength < 1 || effectiveStrength > 50)) {
+      throw badRequest("Strength for blur style must be between 1 and 50", "VALIDATION_ERROR");
+    }
+    if (effectiveStyle === "pixelate" && (effectiveStrength < 3 || effectiveStrength > 32)) {
+      throw badRequest("Strength for pixelate style must be between 3 and 32", "VALIDATION_ERROR");
+    }
+  }
+
+  const uniqueRedactIndices = Array.from(new Set(input.redactIndices));
+  const engineBoxes: RenderBox[] = [];
+
+  for (const idx of uniqueRedactIndices) {
+    const det = existingDetections[idx];
+    const rawBox = Array.isArray(det.box) && det.box.length === 4 ? det.box : null;
+    if (!rawBox) {
+      throw badRequest(`Detection at index ${idx} is missing bounding box`, "INVALID_DETECTION");
+    }
+    const box: [number, number, number, number] = [
+      Number(rawBox[0]),
+      Number(rawBox[1]),
+      Number(rawBox[2]),
+      Number(rawBox[3]),
+    ];
+    const label = typeof det.label === "string" ? det.label : "custom";
+    engineBoxes.push({ label, box });
+  }
+
+  for (const added of input.addedBoxes) {
+    engineBoxes.push({
+      label: "custom",
+      box: added.box,
+    });
+  }
+
+  const redactSet = new Set(input.redactIndices);
+  const resultingDetections: Array<Record<string, unknown>> = existingDetections.map((det, idx) => ({
+    ...det,
+    redacted: redactSet.has(idx),
+  }));
+
+  for (const added of input.addedBoxes) {
+    resultingDetections.push({
+      label: "custom",
+      box: added.box,
+      redacted: true,
+    });
+  }
+
+  const newJobId = randomUUID();
+  const ext = path.extname(job.originalFilename).toLowerCase() || path.extname(job.inputKey).toLowerCase() || ".jpg";
+  const destInputKey = `${job.batchId}/${newJobId}/input${ext}`;
+  const outExt = resolveOutputExtension(batchConfig.format, job.originalFilename);
+  const destOutputKey = `${job.batchId}/${newJobId}/result.${outExt}`;
+
+  await storage.copyObject(UPLOADS_BUCKET, job.inputKey, destInputKey);
+
+  await insertEditJob({
+    id: newJobId,
+    batchId: job.batchId,
+    originalFilename: job.originalFilename,
+    inputKey: destInputKey,
+    outputKey: destOutputKey,
+    inputBytes: job.inputBytes,
+    replacesJobId: job.id,
+    resultSummary: {
+      detections: resultingDetections,
+    },
+  });
+
+  try {
+    const command = buildImageRenderCommand({
+      jobId: newJobId,
+      batchId: job.batchId,
+      inputKey: destInputKey,
+      outputKey: destOutputKey,
+      redaction: {
+        style: effectiveStyle,
+        strength: effectiveStrength,
+        padding: effectivePadding,
+      },
+      quality: batchConfig.quality,
+      boxes: engineBoxes,
+    });
+    await publishJob("jobs.image", command);
+    await updateJobQueued(newJobId);
+  } catch (error) {
+    await deleteJob(newJobId);
+    try {
+      await storage.deleteObject(UPLOADS_BUCKET, destInputKey);
+    } catch (cleanupErr) {
+      console.error(`Failed to cleanup copied input ${destInputKey}`, cleanupErr);
+    }
+    console.error(`Failed to publish image-render command for job ${job.id}`, error);
+    throw unavailable("Job queue is unavailable");
+  }
+
+  const createdEdit = await getJob(newJobId);
+  if (!createdEdit) {
+    throw unavailable("Edit job could not be created");
+  }
+  return toJobResponse(createdEdit)!;
 }
 
 /**
- * Streams the batch's nth reference whitelist photo (1-based index).
+ * Computes the download filename for a job result using the original filename's stem
+ * and the output format extension.
  *
- * Why owner-scoped: Whitelist reference images contain biometric profile data that must remain
- * strictly private to the user account that uploaded or referenced them.
- * Why 404 on missing object: Directly uploaded faces are purged on batch completion, or referenced
- * allow lists/faces may have been deleted, rendering the reference photo unavailable.
+ * Why stem + output extension: The processed result may be converted to another format (e.g. .jpg or .webp),
+ * while preserving the user's original file stem for recognition.
  */
-export async function getBatchWhitelistStream(
+export function buildJobResultFilename(originalFilename: string, outputKey: string): string {
+  let base = path.basename(originalFilename);
+  base = base
+    .replace(/[/\\]+/g, "")
+    .replace(/\.\.+/g, "")
+    .trim();
+  if (!base) base = "image";
+
+  const parsed = path.parse(base);
+  let stem = parsed.name || "image";
+  const knownExts = [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff"];
+  for (const ext of knownExts) {
+    if (stem.toLowerCase().endsWith(ext)) {
+      stem = stem.slice(0, -ext.length) || "image";
+      break;
+    }
+  }
+
+  const extFromOutput = path.extname(outputKey);
+  const resultExt = (extFromOutput || parsed.ext || ".jpg").toLowerCase();
+  return `${stem}${resultExt}`;
+}
+
+/**
+ * Generates a presigned GET URL for a completed job's result image.
+ *
+ * Why owner verification: Job results may contain sensitive personally identifiable imagery.
+ * Only the owner may obtain presigned access; unauthenticated or cross-tenant requests receive 404.
+ * Why 404 on uncompleted: Jobs pending or processing have no finished artifact in the results bucket.
+ * Why signed response-content-disposition: When download is requested, signing the attachment header
+ * ensures the browser saves the file with its original name and output extension even across domains.
+ */
+export async function getJobResultPresignedUrl(
+  id: string,
+  userId: string,
+  options?: { download?: boolean },
+): Promise<{ url: string; expiresAt: string }> {
+  const job = await getJobOwnedByUser(id, userId);
+  if (!job) {
+    throw notFound("Job not found");
+  }
+
+  if (job.status !== JobStatus.COMPLETED || !job.outputKey) {
+    throw notFound("Job result not found");
+  }
+
+  let contentDisposition: string | undefined = undefined;
+  if (options?.download) {
+    const filename = buildJobResultFilename(job.originalFilename, job.outputKey);
+    contentDisposition = buildAttachmentContentDisposition(filename);
+  }
+
+  return storage.presignGetUrl(RESULTS_BUCKET, job.outputKey, {
+    ttlSeconds: config.PRESIGN_RESULT_TTL_SECONDS,
+    contentDisposition,
+  });
+}
+
+/**
+ * Generates a presigned GET URL for a job's original uploaded image.
+ *
+ * Why owner verification: Original images are unredacted and must remain strictly private to the owner.
+ * Cross-tenant or nonexistent requests return 404.
+ * Why private, no-store: Instructs intermediate proxies and browsers never to cache unredacted photos.
+ */
+export async function getJobOriginalPresignedUrl(
+  id: string,
+  userId: string,
+): Promise<{ url: string; expiresAt: string }> {
+  const job = await getJobOwnedByUser(id, userId);
+  if (!job) {
+    throw notFound("Job not found");
+  }
+
+  return storage.presignGetUrl(UPLOADS_BUCKET, job.inputKey, {
+    ttlSeconds: config.PRESIGN_PRIVATE_TTL_SECONDS,
+    cacheControl: "private, no-store",
+  });
+}
+
+/**
+ * Generates a presigned GET URL for the batch's nth reference whitelist photo (1-based index).
+ *
+ * Why owner verification: Whitelist reference images contain biometric profile data that must remain
+ * strictly private to the user account that uploaded or referenced them.
+ * Why key index lookup: Reuses batch.whitelistKeys without constructing storage keys from user input.
+ * Why private, no-store: Protects biometric photos from caching by browsers or intermediate proxies.
+ */
+export async function getBatchWhitelistPresignedUrl(
   batchId: string,
   index: number,
   userId: string,
-): Promise<{ stream: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+): Promise<{ url: string; expiresAt: string }> {
   if (!UUID_REGEX.test(batchId)) {
     throw notFound("Batch not found");
   }
@@ -614,12 +877,10 @@ export async function getBatchWhitelistStream(
   }
 
   const key = keys[index - 1]!;
-  const streamInfo = await storage.getObjectStream(UPLOADS_BUCKET, key);
-  if (!streamInfo) {
-    throw notFound("Whitelist photo not found");
-  }
-
-  return streamInfo;
+  return storage.presignGetUrl(UPLOADS_BUCKET, key, {
+    ttlSeconds: config.PRESIGN_PRIVATE_TTL_SECONDS,
+    cacheControl: "private, no-store",
+  });
 }
 
 /**
@@ -671,7 +932,6 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
     status: current.status,
     progress: current.progress,
     stage: current.stage,
-    resultUrl: current.resultUrl,
     resultSummary: current.resultSummary as Record<string, unknown> | null,
     error: current.error as { code: string; message: string } | null,
   };
@@ -725,7 +985,20 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
     };
   }
 
-  const nextState = calculateNextJobState(currentState, eventPayload, config.PUBLIC_RESULTS_BASE_URL);
+  const nextState = calculateNextJobState(currentState, eventPayload);
+
+  let finalSummary = nextState.resultSummary;
+  // Why merge on replacesJobId: An image-render worker reports filter stats without detections.
+  // Merging over stored summary ensures detections survive into the completed row.
+  if (current.replacesJobId && current.resultSummary) {
+    const stored = current.resultSummary as Record<string, unknown>;
+    const incoming = (event.resultSummary as Record<string, unknown> | undefined) ?? {};
+    finalSummary = {
+      ...stored,
+      ...incoming,
+      detections: incoming.detections ?? stored.detections,
+    };
+  }
 
   let resultBytes: number | null | undefined = undefined;
   if (nextState.status === JobStatus.COMPLETED) {
@@ -736,11 +1009,30 @@ export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
     status: nextState.status,
     progress: nextState.progress,
     stage: nextState.stage,
-    resultUrl: nextState.resultUrl,
-    resultSummary: nextState.resultSummary,
+    resultSummary: finalSummary,
     error: nextState.error,
     resultBytes,
   });
+
+  // On COMPLETED: delete old row's result, input and DB row, then set replacesJobId to null.
+  // Done after saving new row as COMPLETED so we never risk losing both results.
+  if (nextState.status === JobStatus.COMPLETED && current.replacesJobId) {
+    const oldJob = await getJob(current.replacesJobId);
+    if (oldJob) {
+      try {
+        await storage.deleteObject(RESULTS_BUCKET, oldJob.outputKey);
+      } catch (err) {
+        console.error(`Failed to delete old result object ${oldJob.outputKey}`, err);
+      }
+      try {
+        await storage.deleteObject(UPLOADS_BUCKET, oldJob.inputKey);
+      } catch (err) {
+        console.error(`Failed to delete old input object ${oldJob.inputKey}`, err);
+      }
+      await deleteJob(oldJob.id);
+    }
+    await clearJobReplacesJobId(current.id);
+  }
 }
 
 /**

@@ -2,6 +2,27 @@
  * Redaction configuration form for privacy targets, styles, padding, and advanced thresholds.
  */
 import { Dispatch, SetStateAction } from "react";
+import {
+  REDACTION_STRENGTH_RANGES,
+  RedactionPaddingControl,
+  RedactionPaddingSlider,
+  RedactionStyleControls,
+  type RedactionPaddingControlProps,
+  type RedactionPaddingSliderProps,
+  type RedactionStyle,
+  type RedactionStyleControlsProps,
+} from "./RedactionStyleControls";
+
+export {
+  REDACTION_STRENGTH_RANGES,
+  RedactionPaddingControl,
+  RedactionPaddingSlider,
+  RedactionStyleControls,
+  type RedactionPaddingControlProps,
+  type RedactionPaddingSliderProps,
+  type RedactionStyle,
+  type RedactionStyleControlsProps,
+};
 
 export type FormConfig = {
   targets: string[];
@@ -19,7 +40,7 @@ export type FormConfig = {
 export const DEFAULT_FORM_CONFIG: FormConfig = {
   targets: ["face", "plate"],
   style: "blur",
-  strength: 25,
+  strength: REDACTION_STRENGTH_RANGES.blur.default,
   padding: 0.1,
   quality: "high",
   format: "original",
@@ -33,14 +54,19 @@ export const DEFAULT_FORM_CONFIG: FormConfig = {
  * Maps a stored batch config object to form configuration fields with standard fallbacks.
  *
  * Why fallback defaults: Stored batches may lack optional fields or have older schemas;
- * applying defaults ensures the re-run form remains completely interactive and valid.
+ * applying defaults and clamping strengths to style ranges ensures the re-run form remains
+ * completely interactive and valid within Engine Contract §2 bounds.
  */
 export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): FormConfig {
   const c = raw ?? {};
   const style =
     c.style === "pixelate" || c.style === "blackout" || c.style === "blur" ? c.style : DEFAULT_FORM_CONFIG.style;
-  const defaultStrength = style === "pixelate" ? 12 : 25;
-  const strength = typeof c.strength === "number" && c.strength > 0 ? c.strength : defaultStrength;
+  const range = style === "pixelate" ? REDACTION_STRENGTH_RANGES.pixelate : REDACTION_STRENGTH_RANGES.blur;
+  // Why: Stored strengths from older batches (e.g. blur 60) or invalid values are clamped to style range
+  const strength =
+    typeof c.strength === "number" && !Number.isNaN(c.strength)
+      ? Math.min(range.max, Math.max(range.min, Math.round(c.strength)))
+      : range.default;
   const targets =
     Array.isArray(c.targets) && c.targets.length > 0
       ? (c.targets as string[]).filter((t) => t === "face" || t === "plate")
@@ -144,47 +170,15 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
         </div>
       </div>
 
-      <label>
-        Redaction style
-        <select
-          value={config.style}
-          onChange={(event) => {
-            const style = event.target.value as FormConfig["style"];
-            update("style", style);
-            if (style === "blur") update("strength", 25);
-            if (style === "pixelate") update("strength", 12);
-          }}
-        >
-          <option value="blur">Blur</option>
-          <option value="pixelate">Pixelate</option>
-          <option value="blackout">Blackout</option>
-        </select>
-      </label>
+      <RedactionStyleControls
+        style={config.style}
+        strength={config.strength}
+        onChange={(style, strength) => {
+          setConfig((current) => ({ ...current, style, strength }));
+        }}
+      />
 
-      {config.style !== "blackout" && (
-        <label>
-          Strength <output>{config.strength}</output>
-          <input
-            type="range"
-            min="1"
-            max="60"
-            value={config.strength}
-            onChange={(event) => update("strength", Number(event.target.value))}
-          />
-        </label>
-      )}
-
-      <label>
-        Padding <output>{config.padding.toFixed(2)}</output>
-        <input
-          type="range"
-          min="0"
-          max="0.5"
-          step="0.01"
-          value={config.padding}
-          onChange={(event) => update("padding", Number(event.target.value))}
-        />
-      </label>
+      <RedactionPaddingSlider padding={config.padding} onChange={(padding) => update("padding", padding)} />
 
       <label>
         Output quality

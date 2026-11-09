@@ -10,7 +10,6 @@ function reportInput(summary: unknown, status = "COMPLETED", extra: Record<strin
     status,
     progress: status === "COMPLETED" ? 100 : 0,
     stage: null,
-    resultUrl: null,
     resultSummary: summary,
     error: null,
     createdAt: new Date("2026-10-30T00:00:00Z"),

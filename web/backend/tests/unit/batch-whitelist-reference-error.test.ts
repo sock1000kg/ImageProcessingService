@@ -27,7 +27,6 @@ describe("Bad reference photo error sanitization (Task 62)", () => {
     status: JobStatus.PROCESSING,
     progress: 20,
     stage: "DETECTING",
-    resultUrl: null,
     resultSummary: null,
     error: null,
     whitelistRefs: [],

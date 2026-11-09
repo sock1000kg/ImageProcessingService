@@ -64,7 +64,6 @@ describe("Bad reference photo banner and retry behaviour (Task 62)", () => {
       status: "FAILED",
       progress: 0,
       stage: "PROCESSING",
-      resultUrl: null,
       resultSummary: null,
       error: {
         code: "WHITELIST_REFERENCE_ERROR",
@@ -99,7 +98,6 @@ describe("Bad reference photo banner and retry behaviour (Task 62)", () => {
       status: "FAILED",
       progress: 0,
       stage: "PROCESSING",
-      resultUrl: null,
       resultSummary: null,
       error: {
         code: "WHITELIST_REFERENCE_ERROR",
@@ -132,7 +130,6 @@ describe("Bad reference photo banner and retry behaviour (Task 62)", () => {
         status: "FAILED",
         progress: 0,
         stage: "PROCESSING",
-        resultUrl: null,
         resultSummary: null,
         error: {
           code: "WHITELIST_REFERENCE_ERROR",
@@ -148,7 +145,6 @@ describe("Bad reference photo banner and retry behaviour (Task 62)", () => {
         status: "FAILED",
         progress: 0,
         stage: "PROCESSING",
-        resultUrl: null,
         resultSummary: null,
         error: {
           code: "WHITELIST_REFERENCE_ERROR",
@@ -182,7 +178,6 @@ describe("Bad reference photo banner and retry behaviour (Task 62)", () => {
       status: "FAILED",
       progress: 10,
       stage: "PROCESSING",
-      resultUrl: null,
       resultSummary: null,
       error: {
         code: "WHITELIST_REFERENCE_ERROR",
@@ -232,7 +227,6 @@ describe("Bad reference photo banner and retry behaviour (Task 62)", () => {
       status: "FAILED",
       progress: 0,
       stage: "PROCESSING",
-      resultUrl: null,
       resultSummary: null,
       error: {
         code: "WHITELIST_REFERENCE_ERROR",
@@ -277,7 +271,6 @@ describe("Bad reference photo banner and retry behaviour (Task 62)", () => {
       status: "COMPLETED",
       progress: 100,
       stage: "DONE",
-      resultUrl: "/results/batch-1/job-ok/result.jpg",
       resultSummary: null,
       error: null,
       createdAt: new Date().toISOString(),

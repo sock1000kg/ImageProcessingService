@@ -10,7 +10,7 @@ import {
   deleteBatchById,
   getBatchById,
   getBatchReportById,
-  getBatchWhitelistStream,
+  getBatchWhitelistPresignedUrl,
   listBatches,
   renameBatch,
   rerunBatch,
@@ -22,7 +22,7 @@ import { createBatchDownloadToken, verifyBatchDownloadToken } from "../auth";
 import { RESULTS_BUCKET, storage } from "../storage";
 import { getBatch, getBatchOwnedByUser, getJobsByBatchId } from "../repositories/job.repository";
 import { JobStatus } from "../generated/prisma/client";
-import { streamPrivateObject } from "./private-stream";
+import { buildAttachmentContentDisposition, sanitizeAttachmentFilename } from "../attachment";
 
 export async function listBatchesHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
@@ -50,7 +50,7 @@ export async function createBatchHandler(request: Request, response: Response, n
       rawConfig: request.body.config,
       filesPresent,
       name: request.body.name,
-      userId: request.authUser?.id,
+      userId: request.authUser!.id,
     });
 
     response.status(201).json({ batch });
@@ -62,7 +62,7 @@ export async function createBatchHandler(request: Request, response: Response, n
 export async function addBatchFileHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const job = await addBatchFile(id, request.file, request.authUser?.id);
+    const job = await addBatchFile(id, request.file, request.authUser!.id);
     response.status(201).json({ job });
   } catch (error) {
     next(error);
@@ -72,7 +72,7 @@ export async function addBatchFileHandler(request: Request, response: Response, 
 export async function startBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const batch = await startBatch(id, request.authUser?.id);
+    const batch = await startBatch(id, request.authUser!.id);
     response.status(202).json({ batch });
   } catch (error) {
     next(error);
@@ -110,7 +110,7 @@ export async function rerunBatchHandler(request: Request, response: Response, ne
 export async function getBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const batch = await getBatchById(id, request.authUser?.id);
+    const batch = await getBatchById(id, request.authUser!.id);
     if (!batch) {
       throw notFound("Batch not found");
     }
@@ -124,7 +124,7 @@ export async function updateBatchHandler(request: Request, response: Response, n
   try {
     const id = validateIdParam(request.params);
     const body = patchBatchBodySchema.parse(request.body);
-    const batch = await renameBatch(id, body.name, request.authUser?.id);
+    const batch = await renameBatch(id, body.name, request.authUser!.id);
     response.status(200).json({ batch });
   } catch (error) {
     next(error);
@@ -134,7 +134,7 @@ export async function updateBatchHandler(request: Request, response: Response, n
 export async function getBatchReportHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const report = await getBatchReportById(id, request.authUser?.id);
+    const report = await getBatchReportById(id, request.authUser!.id);
     if (!report) {
       throw notFound("Batch not found");
     }
@@ -147,7 +147,7 @@ export async function getBatchReportHandler(request: Request, response: Response
 export async function deleteBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const deleted = await deleteBatchById(id, request.authUser?.id);
+    const deleted = await deleteBatchById(id, request.authUser!.id);
     if (!deleted) {
       throw notFound("Batch not found");
     }
@@ -162,17 +162,8 @@ export async function deleteBatchHandler(request: Request, response: Response, n
  * and UTF-8 encoded filename*.
  */
 export function buildZipContentDisposition(batchName: string): string {
-  const raw = (batchName || "").trim();
-  const base =
-    raw
-      .replace(/[/\\?%*:|"<>]/g, "")
-      .replace(/[\x00-\x1f\x7f-\x9f]/g, "")
-      .replace(/\.\.+/g, "")
-      .trim() || "batch";
-
-  const ascii = base.replace(/[^\w\s.-]/g, "_").trim() || "batch";
-  const utf8 = encodeURIComponent(`${base}.zip`);
-  return `attachment; filename="${ascii}.zip"; filename*=UTF-8''${utf8}`;
+  const base = sanitizeAttachmentFilename(batchName, "batch");
+  return buildAttachmentContentDisposition(`${base}.zip`, "batch.zip");
 }
 
 /**
@@ -280,10 +271,7 @@ export async function createBatchDownloadTokenHandler(
 ): Promise<void> {
   try {
     const id = validateIdParam(request.params);
-    const userId = request.authUser?.id;
-    if (!userId) {
-      throw unauthorized("Authentication required", "UNAUTHORIZED");
-    }
+    const userId = request.authUser!.id;
     const batch = await getBatchOwnedByUser(id, userId);
     if (!batch) {
       throw notFound("Batch not found");
@@ -413,13 +401,28 @@ export async function downloadBatchZipHandler(request: Request, response: Respon
 }
 
 /**
- * GET /api/batches/:id/whitelist/:n
- * Streams the batch's nth reference photo (1-based index) with private no-store headers.
+ * Parses a 1-based whitelist photo index from request parameters strictly.
  *
- * Why 404 on malformed index: Mirroring face list endpoint behaviour, non-numeric or non-positive indices
- * are treated as resource not found rather than bad request.
+ * Why strict digits regex: Prevents parseInt from loosely accepting trailing non-numeric
+ * characters (e.g. "1abc" being parsed as 1). Non-numeric or non-positive indices return 404.
  */
-export async function getBatchWhitelistPhotoHandler(
+function parseWhitelistIndex(nParam: unknown): number {
+  const rawN = Array.isArray(nParam) ? nParam[0] : nParam;
+  if (typeof rawN !== "string" || !/^\d+$/.test(rawN)) {
+    throw notFound("Whitelist photo not found");
+  }
+  const n = parseInt(rawN, 10);
+  if (n < 1) {
+    throw notFound("Whitelist photo not found");
+  }
+  return n;
+}
+
+/**
+ * GET /api/batches/:id/whitelist/:n/url
+ * Returns a presigned GET URL for the batch's nth reference photo (1-based index) with private no-store headers.
+ */
+export async function getBatchWhitelistPhotoUrlHandler(
   request: Request,
   response: Response,
   next: NextFunction,
@@ -431,17 +434,10 @@ export async function getBatchWhitelistPhotoHandler(
       throw notFound("Batch not found");
     }
 
-    const nParam = request.params.n;
-    const rawN = Array.isArray(nParam) ? nParam[0] : nParam;
-    const n = typeof rawN === "string" ? parseInt(rawN, 10) : NaN;
-    if (Number.isNaN(n) || n < 1) {
-      throw notFound("Whitelist photo not found");
-    }
-
+    const n = parseWhitelistIndex(request.params.n);
     const userId = request.authUser!.id;
-    const streamInfo = await getBatchWhitelistStream(id, n, userId);
-
-    streamPrivateObject(response, next, streamInfo);
+    const result = await getBatchWhitelistPresignedUrl(id, n, userId);
+    response.json(result);
   } catch (error) {
     next(error);
   }

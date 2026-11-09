@@ -1,7 +1,7 @@
 /**
  * Detailed detection inspector listing individual bounding boxes, confidence scores, and review flags.
  */
-import { Warning } from "@phosphor-icons/react";
+import { TrashIcon, WarningIcon } from "@phosphor-icons/react";
 import { Detection } from "../types";
 
 export interface DetectionListProps {
@@ -9,6 +9,11 @@ export interface DetectionListProps {
   hasWhitelist?: boolean;
   hoveredIndex?: number | null;
   onHoverDetection?: (index: number | null) => void;
+  isEditing?: boolean;
+  redactIndices?: Set<number>;
+  onToggleRedact?: (index: number) => void;
+  addedBoxes?: Array<{ box: [number, number, number, number] }>;
+  onRemoveAddedBox?: (index: number) => void;
 }
 
 /**
@@ -46,14 +51,21 @@ export function DetectionList({
   hasWhitelist = false,
   hoveredIndex = null,
   onHoverDetection,
+  isEditing = false,
+  redactIndices,
+  onToggleRedact,
+  addedBoxes,
+  onRemoveAddedBox,
 }: DetectionListProps) {
-  if (!detections.length) {
+  if (!detections.length && (!isEditing || !addedBoxes?.length)) {
     return <div className="empty-inline">No detection details were returned for this image.</div>;
   }
 
   return (
     <ul className="detection-list scroll-list" aria-label="Detection list">
       {detections.map((detection, index) => {
+        const hasBox = Boolean(detection.box && detection.box.length >= 4);
+        const isRedacted = isEditing ? (redactIndices?.has(index) ?? false) : Boolean(detection.redacted);
         const isFlagged =
           Boolean(detection.needsReview) ||
           Boolean(detection.lowConfidence) ||
@@ -62,7 +74,7 @@ export function DetectionList({
         const rowClass = `detection-row ${isFlagged ? "warning-row" : ""} ${isHovered ? "active-row" : ""}`.trim();
         const confText = detection.confidence === null ? "—" : `${Math.round(detection.confidence * 100)}%`;
         const labelInWords = formatDetectionLabel(detection.label);
-        const statusText = formatDetectionStatus(detection);
+        const statusText = isEditing ? (isRedacted ? "Redacted" : "Kept") : formatDetectionStatus(detection);
         const reviewNotesText =
           detection.reviewNotes && detection.reviewNotes.length > 0
             ? detection.reviewNotes.join(" · ")
@@ -83,6 +95,16 @@ export function DetectionList({
             onBlur={() => onHoverDetection?.(null)}
           >
             <div className="detection-main">
+              {isEditing && hasBox && (
+                <label className="choice" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={isRedacted}
+                    onChange={() => onToggleRedact?.(index)}
+                    aria-label={`Redact detection #${index + 1}`}
+                  />
+                </label>
+              )}
               <span className="detection-summary">
                 #{index + 1} {labelInWords} {confText} {statusText}
               </span>
@@ -94,13 +116,31 @@ export function DetectionList({
             {isFlagged && (
               <span id={`detection-review-${index}`} role="status">
                 <span className="row-review">
-                  <Warning aria-hidden /> Needs review
+                  <WarningIcon aria-hidden /> Needs review
                 </span>
               </span>
             )}
           </li>
         );
       })}
+      {isEditing &&
+        addedBoxes?.map((item, addedIndex) => (
+          <li className="detection-row" key={`added-${addedIndex}`} role="listitem">
+            <div className="detection-main">
+              <span className="detection-summary">
+                Custom #{addedIndex + 1} [{item.box.join(", ")}] Redacted
+              </span>
+              <button
+                type="button"
+                className="delete-item-button"
+                onClick={() => onRemoveAddedBox?.(addedIndex)}
+                aria-label={`Remove drawn box ${addedIndex + 1}`}
+              >
+                <TrashIcon aria-hidden />
+              </button>
+            </div>
+          </li>
+        ))}
     </ul>
   );
 }

@@ -19,7 +19,7 @@ enum JobStatus {
 
 model Batch {
   id                 String    @id @default(uuid()) @db.Uuid
-  userId             String?   @map("user_id") @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
   name               String    @db.VarChar(100)
   config             Json
   whitelistKeys      String[]  @default([]) @map("whitelist_keys")
@@ -29,7 +29,7 @@ model Batch {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   jobs               Job[]
-  user              User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([createdAt(sort: Desc)], map: "idx_batches_created_at")
   @@index([userId, createdAt(sort: Desc)], map: "idx_batches_user_created_at")
@@ -90,10 +90,10 @@ model Job {
   status           JobStatus @default(PENDING)
   progress         Int       @default(0)
   stage            String?
-  resultUrl        String?   @map("result_url")
   resultSummary    Json?     @map("result_summary")
   error            Json?
   whitelistRefs    Int[]     @default([]) @map("whitelist_refs")
+  replacesJobId    String?   @map("replaces_job_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -102,5 +102,6 @@ model Job {
   @@index([batchId], map: "idx_jobs_batch_id")
   @@index([status], map: "idx_jobs_status")
   @@index([createdAt(sort: Desc)], map: "idx_jobs_created_at")
+  @@index([replacesJobId], map: "idx_jobs_replaces_job_id")
   @@map("jobs")
 }

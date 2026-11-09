@@ -44,14 +44,24 @@ export const batchConfigSchema = z.object({
 
 export type BatchConfig = z.infer<typeof batchConfigSchema>;
 
+/**
+ * Default redaction strength parameters mirroring Engine Contract §2.
+ * Blur is percentage of box width (1-50, default 15); pixelate is cells across box width (3-32, default 8).
+ */
+export const DEFAULT_REDACTION_STRENGTHS = {
+  blur: 15,
+  pixelate: 8,
+} as const;
+
 export function parseBatchConfig(raw: unknown): BatchConfig {
   const data = rawBatchConfigSchema.parse(raw ?? {});
   let strength = data.strength;
   if (strength === undefined) {
+    // Why: Contract §2 relative strength defaults (blur: 15% of box width, pixelate: 8 cells across).
     if (data.style === "blur") {
-      strength = 25;
+      strength = DEFAULT_REDACTION_STRENGTHS.blur;
     } else if (data.style === "pixelate") {
-      strength = 12;
+      strength = DEFAULT_REDACTION_STRENGTHS.pixelate;
     }
   }
 

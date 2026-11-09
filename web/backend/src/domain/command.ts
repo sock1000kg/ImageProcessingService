@@ -112,3 +112,94 @@ export function buildImageRedactCommand(options: {
     params,
   };
 }
+
+/**
+ * Single bounding box in original image pixels passed to the image-render worker.
+ */
+export interface RenderBox {
+  label: string;
+  box: [number, number, number, number];
+}
+
+/**
+ * Worker dispatch command for re-rendering an image with explicit bounding boxes per Contract §2C.
+ */
+export interface ImageRenderCommand {
+  jobId: string;
+  batchId?: string;
+  type: "image-render";
+  input: {
+    bucket: string;
+    key: string;
+  };
+  output: {
+    bucket: string;
+    key: string;
+  };
+  params: {
+    redaction: {
+      style: RedactionStyle;
+      strength?: number;
+      padding: number;
+    };
+    output: {
+      quality: OutputQuality;
+    };
+    boxes: RenderBox[];
+  };
+}
+
+/**
+ * Serializes an image-render command to re-render a completed image without re-running AI detection.
+ *
+ * Why boxes instead of detection thresholds: The render job applies redaction filters to pre-selected
+ * boxes (existing kept detections plus user additions) directly, bypassing neural inference.
+ */
+export function buildImageRenderCommand(options: {
+  jobId: string;
+  batchId: string;
+  inputKey: string;
+  outputKey: string;
+  redaction: {
+    style: RedactionStyle;
+    strength?: number;
+    padding: number;
+  };
+  quality: OutputQuality;
+  boxes: RenderBox[];
+}): ImageRenderCommand {
+  const { jobId, batchId, inputKey, outputKey, redaction, quality, boxes } = options;
+
+  const redactionParams: {
+    style: RedactionStyle;
+    strength?: number;
+    padding: number;
+  } = {
+    style: redaction.style,
+    padding: redaction.padding,
+  };
+  if (redaction.strength !== undefined) {
+    redactionParams.strength = redaction.strength;
+  }
+
+  return {
+    jobId,
+    batchId,
+    type: "image-render",
+    input: {
+      bucket: "uploads",
+      key: inputKey,
+    },
+    output: {
+      bucket: "results",
+      key: outputKey,
+    },
+    params: {
+      redaction: redactionParams,
+      output: {
+        quality,
+      },
+      boxes,
+    },
+  };
+}

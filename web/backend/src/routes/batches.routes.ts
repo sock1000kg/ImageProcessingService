@@ -16,7 +16,7 @@ import {
   downloadBatchZipHandler,
   getBatchHandler,
   getBatchReportHandler,
-  getBatchWhitelistPhotoHandler,
+  getBatchWhitelistPhotoUrlHandler,
   listBatchesHandler,
   rerunBatchHandler,
   startBatchHandler,
@@ -154,12 +154,12 @@ batchesRouter.patch("/:id", requireAuth, validateId, updateBatchHandler);
 batchesRouter.get("/:id/report", requireAuth, validateId, getBatchReportHandler);
 
 /**
- * GET /api/batches/:id/whitelist/:n
+ * GET /api/batches/:id/whitelist/:n/url
  * Request: None
- * Response: 200 (image stream with Cache-Control: private, no-store)
+ * Response: 200 { url: string, expiresAt: string }
  * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
  */
-batchesRouter.get("/:id/whitelist/:n", requireAuth, getBatchWhitelistPhotoHandler);
+batchesRouter.get("/:id/whitelist/:n/url", requireAuth, getBatchWhitelistPhotoUrlHandler);
 
 /**
  * DELETE /api/batches/:id

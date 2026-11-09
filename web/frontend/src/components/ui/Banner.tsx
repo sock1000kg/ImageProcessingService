@@ -2,7 +2,7 @@
  * Shared alert banner component for status, warning, and error messages.
  */
 import React from "react";
-import { CheckCircle, Warning, WarningCircle } from "@phosphor-icons/react";
+import { CheckCircleIcon, WarningIcon, WarningCircleIcon } from "@phosphor-icons/react";
 
 export type BannerVariant = "error" | "success" | "warning";
 
@@ -14,9 +14,9 @@ export interface BannerProps {
 }
 
 const VARIANT_ICONS = {
-  success: CheckCircle,
-  warning: Warning,
-  error: WarningCircle,
+  success: CheckCircleIcon,
+  warning: WarningIcon,
+  error: WarningCircleIcon,
 } as const;
 
 /**

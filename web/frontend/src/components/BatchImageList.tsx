@@ -3,7 +3,7 @@
  */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Trash, Warning } from "@phosphor-icons/react";
+import { TrashIcon, WarningIcon } from "@phosphor-icons/react";
 import { deleteJob } from "../api";
 import { Batch, Job, ReportImage } from "../types";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
@@ -168,7 +168,7 @@ export function BatchImageList({ batch, report, selected, onSelect, onJobDeleted
                     <>
                       {" · "}
                       <span className="row-review">
-                        <Warning aria-hidden /> Needs review
+                        <WarningIcon aria-hidden /> Needs review
                       </span>
                     </>
                   )}
@@ -190,7 +190,7 @@ export function BatchImageList({ batch, report, selected, onSelect, onJobDeleted
                   setDeletingJob(job);
                 }}
               >
-                <Trash aria-hidden />
+                <TrashIcon aria-hidden />
               </button>
             </div>
           );

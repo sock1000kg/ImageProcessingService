@@ -15,14 +15,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { BatchReport } from "../src/components/BatchReport";
 import { BatchReport as Report } from "../src/types";
 
-// Mock usePrivateImage hook
-vi.mock("../src/hooks/usePrivateImage", () => ({
-  usePrivateImage: vi.fn((path?: string | null) => {
+// Mock usePresignedUrl hook
+vi.mock("../src/hooks/usePresignedUrl", () => ({
+  usePresignedUrl: vi.fn((path?: string | null) => {
     if (!path) return { url: null, loading: false, error: false };
-    // Simulate failed thumbnail fetch for person 2 (/whitelist/2)
-    if (path.endsWith("/whitelist/2")) return { url: null, loading: false, error: true };
-    return { url: `blob:http://localhost/fake-img-${path}`, loading: false, error: false };
+    // Simulate failed thumbnail fetch for person 2 (/whitelist/2/url)
+    if (path.endsWith("/whitelist/2/url")) return { url: null, loading: false, error: true };
+    return { url: `http://localhost:9000/fake-img-${path}`, loading: false, error: false };
   }),
+  clearPresignedUrlCache: vi.fn(),
 }));
 
 afterEach(() => {

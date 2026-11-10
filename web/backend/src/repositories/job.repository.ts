@@ -440,13 +440,18 @@ export async function getExpiredBatches(retentionDays?: number) {
     return prisma.batch.findMany({
       where: {
         OR: [{ createdAt: { lt: cutoff } }, { startedAt: null, createdAt: { lt: draftCutoff } }],
+        jobs: { none: { status: { notIn: [JobStatus.COMPLETED, JobStatus.FAILED] } } },
       },
       select: { id: true },
     });
   }
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return prisma.batch.findMany({
-    where: { startedAt: null, createdAt: { lt: cutoff } },
+    where: {
+      startedAt: null,
+      createdAt: { lt: cutoff },
+      jobs: { none: { status: { notIn: [JobStatus.COMPLETED, JobStatus.FAILED] } } },
+    },
     select: { id: true },
   });
 }

@@ -29,6 +29,7 @@ model Batch {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   jobs               Job[]
+  uploadSessions     UploadSession[]
   user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([createdAt(sort: Desc)], map: "idx_batches_created_at")
@@ -46,6 +47,7 @@ model User {
   batches       Batch[]
   refreshTokens RefreshToken[]
   faceLists     FaceList[]
+  uploadSessions UploadSession[]
 
   @@map("users")
 }
@@ -104,4 +106,22 @@ model Job {
   @@index([createdAt(sort: Desc)], map: "idx_jobs_created_at")
   @@index([replacesJobId], map: "idx_jobs_replaces_job_id")
   @@map("jobs")
+}
+
+model UploadSession {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  batchId    String   @map("batch_id") @db.Uuid
+  objectKey  String   @map("object_key")
+  filename   String
+  contentType String  @map("content_type")
+  totalBytes Int      @map("total_bytes")
+  uploadId   String   @map("upload_id")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  batch      Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("upload_sessions")
 }

@@ -49,8 +49,26 @@ export interface ImageRedactCommand {
     whitelist?: {
       faces: Array<{ bucket: string; key: string }>;
       similarityThreshold: number;
+      plates?: string[];
     };
   };
+}
+
+export interface VideoRedactCommand extends Omit<ImageRedactCommand, "type" | "output"> {
+  type: "video-redact";
+  output: ImageRedactCommand["output"];
+}
+
+export function buildVideoRedactCommand(options: {
+  jobId: string;
+  batchId: string;
+  inputKey: string;
+  outputKey: string;
+  config: BatchConfig;
+  whitelistKeys?: string[];
+}): VideoRedactCommand {
+  const image = buildImageRedactCommand(options);
+  return { ...image, type: "video-redact", output: { bucket: "results", key: options.outputKey } };
 }
 
 export function buildImageRedactCommand(options: {
@@ -90,10 +108,11 @@ export function buildImageRedactCommand(options: {
     reviewThreshold: config.reviewThreshold,
   };
 
-  if (whitelistKeys && whitelistKeys.length > 0) {
+  if ((whitelistKeys && whitelistKeys.length > 0) || config.whitelistPlates.length > 0) {
     params.whitelist = {
-      faces: whitelistKeys.map((key) => ({ bucket: "uploads", key })),
+      faces: (whitelistKeys ?? []).map((key) => ({ bucket: "uploads", key })),
       similarityThreshold: config.similarityThreshold,
+      ...(config.whitelistPlates.length > 0 ? { plates: config.whitelistPlates } : {}),
     };
   }
 

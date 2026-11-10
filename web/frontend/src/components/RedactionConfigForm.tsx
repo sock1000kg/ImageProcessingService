@@ -35,6 +35,7 @@ export type FormConfig = {
   plateConfidenceThreshold: number;
   reviewThreshold: number;
   similarityThreshold: number;
+  whitelistPlates: string[];
 };
 
 export const DEFAULT_FORM_CONFIG: FormConfig = {
@@ -48,6 +49,7 @@ export const DEFAULT_FORM_CONFIG: FormConfig = {
   plateConfidenceThreshold: 0.11,
   reviewThreshold: 0.25,
   similarityThreshold: 0.45,
+  whitelistPlates: [],
 };
 
 /**
@@ -95,6 +97,9 @@ export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): F
     typeof c.reviewThreshold === "number" ? c.reviewThreshold : DEFAULT_FORM_CONFIG.reviewThreshold;
   const similarityThreshold =
     typeof c.similarityThreshold === "number" ? c.similarityThreshold : DEFAULT_FORM_CONFIG.similarityThreshold;
+  const whitelistPlates = Array.isArray(c.whitelistPlates)
+    ? c.whitelistPlates.filter((value): value is string => typeof value === "string")
+    : DEFAULT_FORM_CONFIG.whitelistPlates;
 
   return {
     targets: targets.length > 0 ? targets : [...DEFAULT_FORM_CONFIG.targets],
@@ -107,6 +112,7 @@ export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): F
     plateConfidenceThreshold,
     reviewThreshold,
     similarityThreshold,
+    whitelistPlates,
   };
 }
 
@@ -225,6 +231,28 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
           ))}
         </div>
       </details>
+      <label>
+        License plates to allow
+        <textarea
+          value={config.whitelistPlates.join("\n")}
+          placeholder="30A-123.45"
+          onChange={(event) =>
+            update(
+              "whitelistPlates",
+              event.target.value
+                .split(/\r?\n/)
+                .map((value) =>
+                  value
+                    .trim()
+                    .toUpperCase()
+                    .replace(/[\s.-]/g, ""),
+                )
+                .filter(Boolean),
+            )
+          }
+          aria-label="License plates to allow"
+        />
+      </label>
     </div>
   );
 }

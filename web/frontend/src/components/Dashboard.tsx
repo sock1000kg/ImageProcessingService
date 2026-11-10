@@ -5,6 +5,7 @@ import React from "react";
 import { Batch, MessageHandler } from "../types";
 import { StatTile } from "./ui/StatTile";
 import { SavedFaceListsPanel } from "./SavedFaceListsPanel";
+import { ChangePasswordForm } from "./ChangePasswordForm";
 
 export interface DashboardProps {
   stats: Record<string, number>;
@@ -39,6 +40,7 @@ export function Dashboard({ stats, batch, onCreate, onMessage }: DashboardProps)
       </div>
 
       <SavedFaceListsPanel onMessage={onMessage} />
+      <ChangePasswordForm onMessage={onMessage} />
     </section>
   );
 }

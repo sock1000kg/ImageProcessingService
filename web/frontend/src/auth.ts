@@ -82,3 +82,19 @@ export async function logout(): Promise<void> {
   await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
   setAccessToken(null);
 }
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const response = await fetch("/api/auth/change-password", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+    credentials: "include",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  if (!response.ok) {
+    const data = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
+    throw new Error(data.error?.message ?? "Could not change password");
+  }
+}

@@ -11,6 +11,7 @@ import { BatchImageList } from "./BatchImageList";
 import { BatchReport } from "./BatchReport";
 import { DeleteBatchDialog } from "./DeleteBatchDialog";
 import { ImageResultViewer } from "./ImageResultViewer";
+import { VideoResultViewer } from "./VideoResultViewer";
 import { Banner } from "./ui/Banner";
 
 export interface BatchDetailsProps {
@@ -165,7 +166,9 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
         </div>
 
         <div>
-          {selected && (
+          {selected && selected.originalFilename.toLowerCase().endsWith(".mp4") ? (
+            <VideoResultViewer job={selected} />
+          ) : selected ? (
             <ImageResultViewer
               job={selected}
               detections={detections}
@@ -177,7 +180,7 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
               onRefresh={onRefresh}
               onError={(message) => onMessage(message, { variant: "error" })}
             />
-          )}
+          ) : null}
         </div>
 
         <div className="report-card details-report-card">

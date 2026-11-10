@@ -11,6 +11,10 @@ import {
   DeleteObjectsCommand,
   DeleteObjectCommand,
   CopyObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -193,6 +197,52 @@ export async function copyObject(bucket: string, sourceKey: string, destKey: str
   );
 }
 
+export async function createMultipartUpload(bucket: string, key: string, contentType: string): Promise<string> {
+  const response = await s3Client.send(
+    new CreateMultipartUploadCommand({ Bucket: bucket, Key: key, ContentType: contentType }),
+  );
+  if (!response.UploadId) throw new Error("Storage did not return a multipart upload ID");
+  return response.UploadId;
+}
+
+export async function uploadPart(
+  bucket: string,
+  key: string,
+  uploadId: string,
+  partNumber: number,
+  body: Buffer,
+): Promise<string> {
+  const response = await s3Client.send(
+    new UploadPartCommand({ Bucket: bucket, Key: key, UploadId: uploadId, PartNumber: partNumber, Body: body }),
+  );
+  if (!response.ETag) throw new Error("Storage did not return a multipart part ETag");
+  return response.ETag;
+}
+
+export async function completeMultipartUpload(
+  bucket: string,
+  key: string,
+  uploadId: string,
+  parts: Array<{ partNumber: number; etag: string }>,
+): Promise<void> {
+  await s3Client.send(
+    new CompleteMultipartUploadCommand({
+      Bucket: bucket,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: {
+        Parts: parts
+          .sort((a, b) => a.partNumber - b.partNumber)
+          .map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })),
+      },
+    }),
+  );
+}
+
+export async function abortMultipartUpload(bucket: string, key: string, uploadId: string): Promise<void> {
+  await s3Client.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: uploadId }));
+}
+
 export async function verifyBuckets(): Promise<void> {
   for (const bucket of [UPLOADS_BUCKET, RESULTS_BUCKET]) {
     if (!(await bucketExists(bucket))) {
@@ -257,4 +307,8 @@ export const storage = {
   deletePrefix,
   verifyBuckets,
   presignGetUrl,
+  createMultipartUpload,
+  uploadPart,
+  completeMultipartUpload,
+  abortMultipartUpload,
 };

@@ -12,7 +12,6 @@ configMapGenerator:
   - name: minio-setup-scripts
     files:
       - setup-buckets.sh
-      - ilm.json
 
 generatorOptions:
   disableNameSuffixHash: true

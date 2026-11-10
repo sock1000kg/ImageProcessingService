@@ -235,13 +235,8 @@ until mc alias set local "$MINIO_URL" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 
 done
 for b in uploads results; do
   mc stat "local/$b" >/dev/null || exit 20
-  rules=$(mc ilm rule ls "local/$b" --json)
-  count=$(printf '%s' "$rules" | grep -c '"ID"')
-  [ "$count" = "1" ] || exit 21
-  # the one rule must be enabled with "Days": 1 (24h TTL);
-  # counting rules alone would let a disabled or wrong-TTL rule pass
-  printf '%s' "$rules" | grep -q '"Status": *"Enabled"' || exit 24
-  printf '%s' "$rules" | grep -qE '"Days": *1([,}]|$)' || exit 25
+  # no expiry rule may remain: the web owns retention (RETENTION_DAYS)
+  if mc ilm rule ls "local/$b" --json 2>/dev/null | grep -q '"ID"'; then exit 21; fi
 done
 printf '%s' "$BODY" > /tmp/hello.txt
 mc cp /tmp/hello.txt "local/results/$1" >/dev/null || exit 22
@@ -311,7 +306,7 @@ check_minio() {
       --env="BODY=$TEST_BODY" \
       --command -- /bin/sh -c "$MINIO_CHECK_SCRIPT" sh "$TEST_KEY" 2>&1); then
     if echo "$out" | grep -q "MINIO_OK"; then
-      pass "minio: buckets exist, one enabled 1-day-TTL ILM rule each, test object uploaded"
+      pass "minio: buckets exist, no ILM expiry rule, test object uploaded"
     else
       fail "minio: unexpected output: $out"
     fi

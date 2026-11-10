@@ -37,7 +37,7 @@ resources:
 nodeSelector:
   kubernetes.io/hostname: home-server
 
-# our own setup Job owns buckets / anonymous policy / lifecycle:
+# our own setup Job owns buckets / anonymous policy (no lifecycle, the web owns retention):
 # disable every chart-managed bucket, user and policy resource
 buckets: []
 users: []

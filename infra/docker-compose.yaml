@@ -85,7 +85,6 @@ services:
       WAIT_TIMEOUT_SECONDS: "120"
     volumes:
       - ./app/minio/setup-buckets.sh:/scripts/setup-buckets.sh:ro
-      - ./app/minio/ilm.json:/scripts/ilm.json:ro
     entrypoint: ["/bin/sh", "/scripts/setup-buckets.sh"]
     restart: "no"
 

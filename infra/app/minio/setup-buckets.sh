@@ -4,8 +4,9 @@
 # local docker-compose service `minio-setup` (infra/docker-compose.yaml).
 #
 # Idempotent: buckets are created with --ignore-existing, the results bucket has
-# anonymous access revoked (set to none), and the whole lifecycle config is
-# replaced (import), so re-runs never duplicate rules. Exits non-zero on real errors.
+# anonymous access revoked (set to none), and any lifecycle rule left by an older
+# release is removed. Retention is the web's job (RETENTION_DAYS), because it must
+# delete the database rows together with the objects. Exits non-zero on real errors.
 set -eu
 
 MINIO_URL="${MINIO_URL:-http://minio:9000}"
@@ -41,16 +42,17 @@ wait_for_server() {
   fail "timed out after ${WAIT_TIMEOUT_SECONDS}s waiting for MinIO at $MINIO_URL"
 }
 
-apply_lifecycle() {
+# Objects are kept until the web deletes them. Remove any expiry rule an earlier
+# release imported; `|| true` because a bucket without rules makes mc exit non-zero.
+remove_lifecycle() {
   bucket="$1"
-  log "bucket $bucket: lifecycle (expire after 1 day)"
-  mc_cli ilm import "$MINIO_ALIAS/$bucket" <"$SCRIPT_DIR/ilm.json"
+  log "bucket $bucket: remove lifecycle rules (retention is handled by the web)"
+  mc_cli ilm rule rm --all --force "$MINIO_ALIAS/$bucket" >/dev/null 2>&1 || true
 }
 
 main() {
   [ -n "$MINIO_ROOT_USER" ] || fail "MINIO_ROOT_USER is not set"
   [ -n "$MINIO_ROOT_PASSWORD" ] || fail "MINIO_ROOT_PASSWORD is not set"
-  [ -f "$SCRIPT_DIR/ilm.json" ] || fail "missing ilm.json next to this script"
 
   MC_CONFIG_DIR="$(mktemp -d)"
   export MC_CONFIG_DIR
@@ -69,10 +71,10 @@ main() {
   mc_cli anonymous set none "$MINIO_ALIAS/results"
 
   for bucket in uploads results; do
-    apply_lifecycle "$bucket"
+    remove_lifecycle "$bucket"
   done
 
-  log "buckets, access policy and lifecycle are up to date"
+  log "buckets and access policy are up to date, no lifecycle rule remains"
 }
 
 main "$@"

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   loginHandler,
+  changePasswordHandler,
   logoutHandler,
   meHandler,
   refreshHandler,
@@ -20,3 +21,4 @@ authRouter.post("/login", authLimit, loginHandler);
 authRouter.post("/refresh", refreshLimit, refreshHandler);
 authRouter.post("/logout", logoutHandler);
 authRouter.get("/me", requireAuth, meHandler);
+authRouter.post("/change-password", requireAuth, authLimit, changePasswordHandler);

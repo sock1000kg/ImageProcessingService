@@ -191,7 +191,23 @@ export async function authenticateUser(emailInput: string, password: string): Pr
   if (!user || !(await verifyPassword(password, user.passwordHash))) {
     throw unauthorized("Invalid email or password", "INVALID_CREDENTIALS");
   }
+
   return { id: user.id, email: user.email };
+}
+
+export async function changePassword(userId: string, currentPassword: string, nextPassword: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !(await verifyPassword(currentPassword, user.passwordHash))) {
+    throw unauthorized("Current password is incorrect", "INVALID_CURRENT_PASSWORD");
+  }
+  const passwordHash = await hashPassword(nextPassword);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+    prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+  ]);
 }
 
 export async function issueRefreshToken(userId: string): Promise<string> {

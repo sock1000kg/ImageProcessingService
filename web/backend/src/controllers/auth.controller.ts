@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import {
   authenticateUser,
+  changePassword,
   clearRefreshCookie,
   createAccessToken,
   issueRefreshToken,
@@ -23,6 +24,10 @@ const credentialsSchema = z.object({
 
 const registerSchema = credentialsSchema.extend({
   registerKey: z.string().min(1, "Registration key is required"),
+});
+const changePasswordSchema = z.object({
+  currentPassword: credentialsSchema.shape.password,
+  newPassword: credentialsSchema.shape.password,
 });
 
 function publicUser(user: { id: string; email: string }) {
@@ -78,4 +83,17 @@ export async function logoutHandler(request: Request, response: Response, next: 
 
 export function meHandler(request: Request, response: Response): void {
   response.json({ user: publicUser(request.authUser!) });
+}
+
+export async function changePasswordHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
+  try {
+    const body = changePasswordSchema.parse(request.body);
+    if (body.currentPassword === body.newPassword) {
+      throw badRequest("New password must be different", "PASSWORD_UNCHANGED");
+    }
+    await changePassword(request.authUser!.id, body.currentPassword, body.newPassword);
+    response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
 }

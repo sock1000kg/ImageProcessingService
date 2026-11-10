@@ -49,6 +49,7 @@ export interface ImageRedactCommand {
     whitelist?: {
       faces: Array<{ bucket: string; key: string }>;
       similarityThreshold: number;
+      plates?: string[];
     };
   };
 }
@@ -90,10 +91,11 @@ export function buildImageRedactCommand(options: {
     reviewThreshold: config.reviewThreshold,
   };
 
-  if (whitelistKeys && whitelistKeys.length > 0) {
+  if ((whitelistKeys && whitelistKeys.length > 0) || config.whitelistPlates.length > 0) {
     params.whitelist = {
-      faces: whitelistKeys.map((key) => ({ bucket: "uploads", key })),
+      faces: (whitelistKeys ?? []).map((key) => ({ bucket: "uploads", key })),
       similarityThreshold: config.similarityThreshold,
+      ...(config.whitelistPlates.length > 0 ? { plates: config.whitelistPlates } : {}),
     };
   }
 

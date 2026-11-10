@@ -27,6 +27,16 @@ export const rawBatchConfigSchema = z.object({
   plateConfidenceThreshold: z.number().min(0).max(1).default(0.11),
   reviewThreshold: z.number().min(0).max(1).default(0.25),
   similarityThreshold: z.number().min(0).max(1).default(0.45),
+  whitelistPlates: z
+    .array(
+      z
+        .string()
+        .trim()
+        .toUpperCase()
+        .transform((value) => value.replace(/[\s.-]/g, "")),
+    )
+    .max(20)
+    .default([]),
 });
 
 export const batchConfigSchema = z.object({
@@ -40,6 +50,16 @@ export const batchConfigSchema = z.object({
   plateConfidenceThreshold: z.number().min(0).max(1).default(0.11),
   reviewThreshold: z.number().min(0).max(1).default(0.25),
   similarityThreshold: z.number().min(0).max(1).default(0.45),
+  whitelistPlates: z
+    .array(
+      z
+        .string()
+        .trim()
+        .toUpperCase()
+        .transform((value) => value.replace(/[\s.-]/g, "")),
+    )
+    .max(20)
+    .default([]),
 });
 
 export type BatchConfig = z.infer<typeof batchConfigSchema>;
@@ -75,6 +95,7 @@ export function parseBatchConfig(raw: unknown): BatchConfig {
     plateConfidenceThreshold: data.plateConfidenceThreshold,
     reviewThreshold: data.reviewThreshold,
     similarityThreshold: data.similarityThreshold,
+    whitelistPlates: data.whitelistPlates.filter(Boolean),
   };
   if (strength !== undefined) {
     cfg.strength = strength;

@@ -49,6 +49,7 @@ describe("Command Builder and Extension Mapping (§2A & §5)", () => {
         },
         output: { quality: "high" },
         confidenceThresholds: { face: 0.17, plate: 0.11 },
+        detection: { mode: "fast" },
         reviewThreshold: 0.25,
       },
     });
@@ -88,6 +89,7 @@ describe("Command Builder and Extension Mapping (§2A & §5)", () => {
         },
         output: { quality: "max" },
         confidenceThresholds: { face: 0.17, plate: 0.11 },
+        detection: { mode: "fast" },
         reviewThreshold: 0.25,
         whitelist: {
           faces: [
@@ -129,5 +131,19 @@ describe("Command Builder and Extension Mapping (§2A & §5)", () => {
     });
     expect(command.params.confidenceThresholds).toEqual({ face: 0.25, plate: 0.15 });
     expect(command.params.reviewThreshold).toBe(0.4);
+  });
+
+  it("serializes detection mode and applies its default thresholds", () => {
+    const config = parseBatchConfig({ detectionMode: "max_privacy" });
+    const command = buildImageRedactCommand({
+      jobId: "job-mode",
+      batchId: "batch-mode",
+      inputKey: "input.jpg",
+      outputKey: "result.jpg",
+      config,
+    });
+
+    expect(command.params.detection).toEqual({ mode: "max_privacy" });
+    expect(command.params.confidenceThresholds).toEqual({ face: 0.06, plate: 0.05 });
   });
 });

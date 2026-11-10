@@ -5,7 +5,6 @@ import {
   isHiddenOrSystemFile,
   getInferredImageType,
   ensureFileType,
-  MAX_FILE_BYTES,
   validateImageFiles,
   getFileRejectionReason,
   formatFileRejection,
@@ -156,17 +155,15 @@ describe("Folder Upload - selectFolderFiles and helper logic", () => {
     expect(result.folderName).toBe("album");
   });
 
-  it("skips files over MAX_FILE_BYTES and preserves their names in tooLarge", () => {
+  it("keeps oversized files for backend-side deployment limit validation", () => {
     const normal = makeFile("small.jpg", "batch/small.jpg", "image/jpeg", 1024);
-    const oversized1 = makeFile("giant1.png", "batch/giant1.png", "image/png", MAX_FILE_BYTES + 1);
-    const oversized2 = makeFile("giant2.jpg", "batch/giant2.jpg", "image/jpeg", MAX_FILE_BYTES + 500);
+    const oversized1 = makeFile("giant1.png", "batch/giant1.png", "image/png", 63 * 1024 * 1024);
+    const oversized2 = makeFile("giant2.jpg", "batch/giant2.jpg", "image/jpeg", 64 * 1024 * 1024);
 
     const result = selectFolderFiles([normal, oversized1, oversized2]);
 
-    expect(result.images).toHaveLength(1);
-    expect(result.images[0].name).toBe("small.jpg");
-    expect(result.skipped.tooLarge).toHaveLength(2);
-    expect(result.skipped.tooLarge.map((f) => f.name)).toEqual(["giant1.png", "giant2.jpg"]);
+    expect(result.images).toHaveLength(3);
+    expect(result.skipped.tooLarge).toHaveLength(0);
   });
 
   it("extracts folder name from webkitRelativePath", () => {
@@ -194,33 +191,29 @@ describe("Folder Summary formatting (formatFolderSummary)", () => {
     expect(summary).toBe("Folder vacation: 2 images selected, 2 skipped (1 unsupported, 1 hidden)");
   });
 
-  it("formats summary with <= 5 oversized files", () => {
+  it("does not display a client-side size limit", () => {
     const files = [
       makeFile("a.jpg", "photos/a.jpg", "image/jpeg"),
-      makeFile("big1.png", "photos/big1.png", "image/png", MAX_FILE_BYTES + 1),
-      makeFile("big2.jpg", "photos/big2.jpg", "image/jpeg", MAX_FILE_BYTES + 1),
+      makeFile("big1.png", "photos/big1.png", "image/png", 63 * 1024 * 1024),
+      makeFile("big2.jpg", "photos/big2.jpg", "image/jpeg", 63 * 1024 * 1024),
     ];
     const result = selectFolderFiles(files);
     const summary = formatFolderSummary(result);
 
-    expect(summary).toBe(
-      "Folder photos: 1 images selected, 0 skipped (0 unsupported, 0 hidden), 2 over the 50 MB limit: big1.png, big2.jpg",
-    );
+    expect(summary).toBe("Folder photos: 3 images selected, 0 skipped (0 unsupported, 0 hidden)");
   });
 
-  it("formats summary with > 5 oversized files showing 5 names and +n more", () => {
+  it("does not truncate large files before the backend validates them", () => {
     const files = [
       makeFile("ok.jpg", "data/ok.jpg", "image/jpeg"),
       ...Array.from({ length: 7 }, (_, i) =>
-        makeFile(`large_${i + 1}.png`, `data/large_${i + 1}.png`, "image/png", MAX_FILE_BYTES + 1),
+        makeFile(`large_${i + 1}.png`, `data/large_${i + 1}.png`, "image/png", 63 * 1024 * 1024),
       ),
     ];
     const result = selectFolderFiles(files);
     const summary = formatFolderSummary(result);
 
-    expect(summary).toBe(
-      "Folder data: 1 images selected, 0 skipped (0 unsupported, 0 hidden), 7 over the 50 MB limit: large_1.png, large_2.png, large_3.png, large_4.png, large_5.png, +2 more",
-    );
+    expect(summary).toBe("Folder data: 8 images selected, 0 skipped (0 unsupported, 0 hidden)");
   });
 });
 
@@ -265,16 +258,11 @@ describe("Step 2 & 4: Rejection reason builder", () => {
     expect(getFileRejectionReason(fileWithoutMime)).toBe("unsupported image type (image/tiff)");
   });
 
-  it("formats file exceeding limit (e.g. 63 MB over 50 MB limit)", () => {
+  it("does not reject a supported file based on a client-side size limit", () => {
     const size63Mb = 63 * 1024 * 1024;
     const file = makeFile("big.jpg", "big.jpg", "image/jpeg", size63Mb);
-    expect(getFileRejectionReason(file)).toBe("63 MB, over the 50 MB limit");
-    expect(formatFileRejection(file)).toBe("big.jpg — 63 MB, over the 50 MB limit");
-
-    // Honest formatting for fractional sizes, e.g. 50.4 MB
-    const size50_4Mb = Math.round(50.4 * 1024 * 1024);
-    const file50_4 = makeFile("edge.jpg", "edge.jpg", "image/jpeg", size50_4Mb);
-    expect(getFileRejectionReason(file50_4)).toBe("50.4 MB, over the 50 MB limit");
+    expect(getFileRejectionReason(file)).toBe("not an image (.jpg); only JPG, PNG and WEBP are accepted");
+    expect(formatFileRejection(file)).toBe("big.jpg — not an image (.jpg); only JPG, PNG and WEBP are accepted");
   });
 
   it("formats dropped folder as 'is a folder: use Choose folder'", () => {

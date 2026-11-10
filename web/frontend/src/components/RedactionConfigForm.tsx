@@ -36,6 +36,7 @@ export type FormConfig = {
   reviewThreshold: number;
   similarityThreshold: number;
   whitelistPlates: string[];
+  detectionMode: "fast" | "accurate" | "max_privacy";
 };
 
 export const DEFAULT_FORM_CONFIG: FormConfig = {
@@ -50,6 +51,7 @@ export const DEFAULT_FORM_CONFIG: FormConfig = {
   reviewThreshold: 0.25,
   similarityThreshold: 0.45,
   whitelistPlates: [],
+  detectionMode: "fast",
 };
 
 /**
@@ -100,6 +102,7 @@ export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): F
   const whitelistPlates = Array.isArray(c.whitelistPlates)
     ? c.whitelistPlates.filter((value): value is string => typeof value === "string")
     : DEFAULT_FORM_CONFIG.whitelistPlates;
+  const detectionMode = c.detectionMode === "accurate" || c.detectionMode === "max_privacy" ? c.detectionMode : "fast";
 
   return {
     targets: targets.length > 0 ? targets : [...DEFAULT_FORM_CONFIG.targets],
@@ -113,6 +116,7 @@ export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): F
     reviewThreshold,
     similarityThreshold,
     whitelistPlates,
+    detectionMode,
   };
 }
 
@@ -208,6 +212,18 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
           <option value="jpg">JPEG</option>
           <option value="png">PNG</option>
           <option value="webp">WEBP</option>
+        </select>
+      </label>
+
+      <label>
+        Detection mode
+        <select
+          value={config.detectionMode}
+          onChange={(event) => update("detectionMode", event.target.value as FormConfig["detectionMode"])}
+        >
+          <option value="fast">Fast</option>
+          <option value="accurate">Accurate</option>
+          <option value="max_privacy">Maximum privacy</option>
         </select>
       </label>
 

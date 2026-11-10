@@ -72,6 +72,19 @@ describe("Batch Config Schema and Defaults", () => {
     expect(parseBatchConfigJson("").style).toBe("blur");
   });
 
+  it("uses detection mode defaults unless thresholds are explicitly supplied", () => {
+    expect(parseBatchConfig({ detectionMode: "accurate" })).toMatchObject({
+      detectionMode: "accurate",
+      faceConfidenceThreshold: 0.13,
+      plateConfidenceThreshold: 0.09,
+    });
+    expect(parseBatchConfig({ detectionMode: "max_privacy", faceConfidenceThreshold: 0.2 })).toMatchObject({
+      detectionMode: "max_privacy",
+      faceConfidenceThreshold: 0.2,
+      plateConfidenceThreshold: 0.05,
+    });
+  });
+
   it("throws validation error for invalid JSON string", () => {
     expect(() => parseBatchConfigJson("{invalid-json")).toThrow("must be valid JSON");
   });

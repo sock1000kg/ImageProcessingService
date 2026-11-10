@@ -1,7 +1,7 @@
 /**
  * Local-only preview using a bundled sample image. It is never uploaded or sent to the Engine.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { drawRedaction } from "../redaction-draw";
 
 export interface PreviewCanvasProps {
@@ -20,9 +20,8 @@ const SAMPLE_CREDIT_URL =
   "https://commons.wikimedia.org/wiki/File:Lascar_Ho_Chi_Minh_City_-_The_capital_of_motorbikes_(4607953274).jpg";
 
 /**
- * Face and plate boxes in the sample's own pixels, [x1, y1, x2, y2] like the engine's detections. They come from the
- * fine-tuned YOLO11n (engine/training run yolo11-1280/e20, best.pt) at 1280 px, keeping detections with confidence
- * >= 0.2, and are fixed in code so the preview never depends on running a model in the browser.
+ * Face and plate boxes in the sample's own pixels, [x1, y1, x2, y2] like the engine's detections. They are fixed
+ * against this bundled photograph so the preview never depends on running a model in the browser.
  */
 const SAMPLE_BOXES: Record<string, [number, number, number, number][]> = {
   face: [
@@ -41,36 +40,72 @@ const SAMPLE_BOXES: Record<string, [number, number, number, number][]> = {
 
 export function PreviewCanvas({ style, strength, targets = ["face", "plate"], padding = 0.1 }: PreviewCanvasProps) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const [imageState, setImageState] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const context = canvas.getContext("2d");
-    if (!context) return;
+    if (!context) {
+      setImageState("error");
+      return;
+    }
 
+    let active = true;
     const image = new Image();
     image.onload = () => {
+      if (!active) return;
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      // Boxes are in the photo's pixels; the canvas is smaller, so scale them down.
-      const scale = canvas.width / image.naturalWidth;
+      setImageState("ready");
+      const scaleX = canvas.width / image.naturalWidth;
+      const scaleY = canvas.height / image.naturalHeight;
       for (const target of targets) {
         for (const [x1, y1, x2, y2] of SAMPLE_BOXES[target] ?? []) {
-          const box = { x: x1 * scale, y: y1 * scale, width: (x2 - x1) * scale, height: (y2 - y1) * scale };
+          const box = {
+            x: x1 * scaleX,
+            y: y1 * scaleY,
+            width: (x2 - x1) * scaleX,
+            height: (y2 - y1) * scaleY,
+          };
           drawRedaction(context, box, style, strength, padding);
         }
       }
     };
+    image.onerror = () => {
+      if (!active) return;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      setImageState("error");
+    };
+    setImageState("loading");
+    image.decoding = "async";
     image.src = SAMPLE_IMAGE;
+
+    return () => {
+      active = false;
+      image.onload = null;
+      image.onerror = null;
+    };
   }, [style, strength, targets, padding]);
 
   return (
     <>
       <div className="preview-canvas">
-        <canvas ref={ref} width={640} height={400} aria-label="Local redaction preview using a sample image" />
+        <canvas
+          ref={ref}
+          width={640}
+          height={400}
+          aria-busy={imageState === "loading"}
+          aria-label="Local redaction preview using a real street photo"
+        />
       </div>
+      {imageState === "error" && (
+        <p className="preview-error" role="status">
+          The preview photo could not be loaded. The final processing result is unaffected.
+        </p>
+      )}
       <p className="preview-note">
-        Photo: Jorge Láscar,{" "}
+        Real street photo: Jorge Láscar,{" "}
         <a href={SAMPLE_CREDIT_URL} target="_blank" rel="noreferrer">
           CC BY 2.0
         </a>

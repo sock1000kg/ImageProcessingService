@@ -774,6 +774,11 @@ output {
   width: 92px;
   height: 97px;
 }
+.preview-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: var(--text-xs);
+}
 .submit-button {
   width: 100%;
   margin-top: 20px;

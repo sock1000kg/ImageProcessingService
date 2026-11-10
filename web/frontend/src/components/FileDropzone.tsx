@@ -8,7 +8,6 @@ import {
   classifyDrop,
   isFolderFile,
   isHiddenOrSystemFile,
-  MAX_FILE_BYTES,
   readFileEntry,
   walkDirectory,
   walkEntries,
@@ -117,8 +116,6 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
     }
   };
 
-  const maxMb = Math.round(MAX_FILE_BYTES / (1024 * 1024));
-
   return (
     <div className="dropzone-wrapper">
       <input
@@ -172,7 +169,7 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
             ? `${files.length} image${files.length === 1 ? "" : "s"} selected`
             : "Drop images or MP4 videos here or browse"}
         </strong>
-        <span>JPG, PNG, WEBP or MP4 · {maxMb} MB each</span>
+        <span>JPG, PNG, WEBP or MP4</span>
         <div className="dropzone-actions">
           <button
             type="button"

@@ -6,7 +6,6 @@
 export const MAX_WHITELIST_FILES = 20;
 /** Maximum reference face photos allowed for creating a single saved allow list. */
 export const MAX_FACE_LIST_FILES = 5;
-export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 export const ALLOWED_VIDEO_TYPES = new Set(["video/mp4"]);
 
@@ -229,12 +228,6 @@ export function getFileRejectionReason(file: File, isFolder = false): string {
     return "is a folder: use Choose folder";
   }
 
-  const mime = getInferredMediaType(file);
-
-  if (mime && file.size > MAX_FILE_BYTES) {
-    return `${formatFileSizeMb(file.size)}, over the ${formatFileSizeMb(MAX_FILE_BYTES)} limit`;
-  }
-
   if (
     file.type &&
     (file.type.startsWith("image/") || file.type.startsWith("video/")) &&
@@ -292,9 +285,6 @@ export function validateImageFiles(files: File[]): FileSelectionIssue[] {
     if (!mime) {
       return [{ file, reason: getFileRejectionReason(file, false) }];
     }
-    if (file.size > MAX_FILE_BYTES) {
-      return [{ file, reason: getFileRejectionReason(file, false) }];
-    }
     return [];
   });
 }
@@ -307,7 +297,7 @@ export function validateMediaFiles(files: File[]): FileSelectionIssue[] {
       return [{ file, reason: getFileRejectionReason(file, true) }];
     }
     const mime = getInferredMediaType(file);
-    if (!mime || file.size > MAX_FILE_BYTES) {
+    if (!mime) {
       return [{ file, reason: getFileRejectionReason(file) }];
     }
     return [];
@@ -332,11 +322,6 @@ export function selectFolderFiles(files: File[]): FolderSelectionResult {
     const mime = getInferredMediaType(file);
     if (!mime) {
       unsupported++;
-      continue;
-    }
-
-    if (file.size > MAX_FILE_BYTES) {
-      tooLarge.push(file);
       continue;
     }
 
@@ -365,7 +350,6 @@ export function formatFolderSummary(result: FolderSelectionResult): string {
   const w = skipped.hidden;
   const y = z + w;
   const k = skipped.tooLarge.length;
-  const maxMb = Math.round(MAX_FILE_BYTES / (1024 * 1024));
 
   let text = `Folder ${name}: ${x} images selected, ${y} skipped (${z} unsupported, ${w} hidden)`;
   if (k > 0) {
@@ -374,7 +358,7 @@ export function formatFolderSummary(result: FolderSelectionResult): string {
       .map((f) => f.name)
       .join(", ");
     const more = k > 5 ? `, +${k - 5} more` : "";
-    text += `, ${k} over the ${maxMb} MB limit: ${shown}${more}`;
+    text += `, ${k} over the deployment limit: ${shown}${more}`;
   }
   return text;
 }

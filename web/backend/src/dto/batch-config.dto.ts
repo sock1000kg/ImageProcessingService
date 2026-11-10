@@ -16,6 +16,9 @@ export type OutputQuality = z.infer<typeof outputQualitySchema>;
 export const outputFormatSchema = z.enum(["original", "jpg", "jpeg", "png", "webp"]);
 export type OutputFormat = z.infer<typeof outputFormatSchema>;
 
+export const detectionModeSchema = z.enum(["fast", "accurate", "max_privacy"]);
+export type DetectionMode = z.infer<typeof detectionModeSchema>;
+
 export const rawBatchConfigSchema = z.object({
   targets: z.array(redactionTargetSchema).min(1).default(["face", "plate"]),
   style: redactionStyleSchema.default("blur"),
@@ -27,6 +30,7 @@ export const rawBatchConfigSchema = z.object({
   plateConfidenceThreshold: z.number().min(0).max(1).default(0.11),
   reviewThreshold: z.number().min(0).max(1).default(0.25),
   similarityThreshold: z.number().min(0).max(1).default(0.45),
+  detectionMode: detectionModeSchema.default("fast"),
   whitelistPlates: z
     .array(
       z
@@ -50,6 +54,7 @@ export const batchConfigSchema = z.object({
   plateConfidenceThreshold: z.number().min(0).max(1).default(0.11),
   reviewThreshold: z.number().min(0).max(1).default(0.25),
   similarityThreshold: z.number().min(0).max(1).default(0.45),
+  detectionMode: detectionModeSchema.default("fast"),
   whitelistPlates: z
     .array(
       z
@@ -73,8 +78,20 @@ export const DEFAULT_REDACTION_STRENGTHS = {
   pixelate: 8,
 } as const;
 
+const DETECTION_MODE_THRESHOLDS: Record<DetectionMode, { face: number; plate: number }> = {
+  fast: { face: 0.17, plate: 0.11 },
+  accurate: { face: 0.13, plate: 0.09 },
+  max_privacy: { face: 0.06, plate: 0.05 },
+};
+
 export function parseBatchConfig(raw: unknown): BatchConfig {
   const data = rawBatchConfigSchema.parse(raw ?? {});
+  const rawObject = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const modeThresholds = DETECTION_MODE_THRESHOLDS[data.detectionMode];
+  const faceConfidenceThreshold =
+    "faceConfidenceThreshold" in rawObject ? data.faceConfidenceThreshold : modeThresholds.face;
+  const plateConfidenceThreshold =
+    "plateConfidenceThreshold" in rawObject ? data.plateConfidenceThreshold : modeThresholds.plate;
   let strength = data.strength;
   if (strength === undefined) {
     // Why: Contract §2 relative strength defaults (blur: 15% of box width, pixelate: 8 cells across).
@@ -91,10 +108,11 @@ export function parseBatchConfig(raw: unknown): BatchConfig {
     padding: data.padding,
     quality: data.quality,
     format: data.format,
-    faceConfidenceThreshold: data.faceConfidenceThreshold,
-    plateConfidenceThreshold: data.plateConfidenceThreshold,
+    faceConfidenceThreshold,
+    plateConfidenceThreshold,
     reviewThreshold: data.reviewThreshold,
     similarityThreshold: data.similarityThreshold,
+    detectionMode: data.detectionMode,
     whitelistPlates: data.whitelistPlates.filter(Boolean),
   };
   if (strength !== undefined) {

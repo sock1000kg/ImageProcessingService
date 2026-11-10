@@ -147,16 +147,13 @@ describe("Frontend Batch Upload and Validation", () => {
     expect(fetchCalls.some((c) => c.url.includes("/start"))).toBe(false);
   });
 
-  it("accepts supported images and rejects unsupported or oversized files", () => {
+  it("accepts supported images and rejects unsupported files", () => {
     const valid = new File(["content"], "photo.webp", { type: "image/webp" });
     const invalid = new File(["content"], "photo.gif", { type: "image/gif" });
     const oversized = new File([new Uint8Array(50 * 1024 * 1024 + 1)], "large.jpg", { type: "image/jpeg" });
 
     expect(validateImageFiles([valid])).toHaveLength(0);
-    expect(validateImageFiles([invalid, oversized]).map((issue) => issue.file.name)).toEqual([
-      "photo.gif",
-      "large.jpg",
-    ]);
+    expect(validateImageFiles([invalid, oversized]).map((issue) => issue.file.name)).toEqual(["photo.gif"]);
   });
 
   it("preserves folder paths and duplicate names as distinct files", () => {

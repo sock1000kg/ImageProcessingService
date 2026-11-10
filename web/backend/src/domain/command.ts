@@ -1,7 +1,7 @@
 /**
  * Worker dispatch command schema and serializer for image redaction tasks.
  */
-import { BatchConfig, OutputFormat, OutputQuality, RedactionStyle, RedactionTarget } from "../types";
+import { BatchConfig, DetectionMode, OutputFormat, OutputQuality, RedactionStyle, RedactionTarget } from "../types";
 
 export function resolveOutputExtension(format: OutputFormat, inputFilenameOrExt: string): string {
   if (format === "original") {
@@ -44,6 +44,9 @@ export interface ImageRedactCommand {
     confidenceThresholds: {
       face: number;
       plate: number;
+    };
+    detection: {
+      mode: DetectionMode;
     };
     reviewThreshold: number;
     whitelist?: {
@@ -104,6 +107,9 @@ export function buildImageRedactCommand(options: {
     confidenceThresholds: {
       face: config.faceConfidenceThreshold,
       plate: config.plateConfidenceThreshold,
+    },
+    detection: {
+      mode: config.detectionMode,
     },
     reviewThreshold: config.reviewThreshold,
   };

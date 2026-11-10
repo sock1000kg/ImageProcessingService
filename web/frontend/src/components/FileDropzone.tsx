@@ -126,7 +126,7 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
         hidden
         type="file"
         multiple
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/webp,video/mp4"
         onChange={(event) => {
           accept(Array.from(event.target.files ?? []));
           event.currentTarget.value = "";
@@ -170,9 +170,9 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
         <strong>
           {files.length
             ? `${files.length} image${files.length === 1 ? "" : "s"} selected`
-            : "Drop images here or browse"}
+            : "Drop images or MP4 videos here or browse"}
         </strong>
-        <span>JPG, PNG or WEBP · {maxMb} MB each</span>
+        <span>JPG, PNG, WEBP or MP4 · {maxMb} MB each</span>
         <div className="dropzone-actions">
           <button
             type="button"

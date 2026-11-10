@@ -9,6 +9,7 @@ import { jobsRouter } from "./routes/jobs.routes";
 import { systemRouter } from "./routes/system.routes";
 import { authRouter } from "./routes/auth.routes";
 import { faceListsRouter } from "./routes/face-lists.routes";
+import { uploadsRouter } from "./routes/uploads.routes";
 
 /**
  * Creates and configures the Express application with JSON parsing, API routes, and static frontend assets.
@@ -19,6 +20,7 @@ export function createApp(): Express {
   app.use(express.json());
 
   app.use("/api/auth", authRouter);
+  app.use("/api/uploads", uploadsRouter);
   app.use(systemRouter);
   app.use("/api/face-lists", faceListsRouter);
   app.use("/api/batches", batchesRouter);

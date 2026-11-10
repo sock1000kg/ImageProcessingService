@@ -42,6 +42,7 @@ import { BatchConfig } from "../types";
 import { JobStatus } from "../generated/prisma/client";
 import {
   buildImageRedactCommand,
+  buildVideoRedactCommand,
   buildImageRenderCommand,
   calculateNextJobState,
   deriveBatchStatus,
@@ -187,6 +188,7 @@ export async function addBatchFile(
   if (!batch) {
     throw notFound("Batch not found");
   }
+
   if (batch.startedAt !== null) {
     throw conflict("Batch has already been started", "BATCH_STARTED");
   }
@@ -219,6 +221,28 @@ export async function addBatchFile(
   }
 }
 
+export async function addBatchStoredObject(
+  batchId: string,
+  file: { originalFilename: string; inputKey: string; inputBytes: number; contentType: string },
+  userId: string,
+): Promise<JobResponseDTO> {
+  const batch = await getBatchOwnedByUser(batchId, userId);
+  if (!batch) throw notFound("Batch not found");
+  if (batch.startedAt !== null) throw conflict("Batch has already been started", "BATCH_STARTED");
+  const batchConfig = parseBatchConfig(batch.config);
+  const jobId = randomUUID();
+  const ext = path.extname(file.originalFilename).toLowerCase() || ".jpg";
+  const outputExt = ext === ".mp4" ? "mp4" : resolveOutputExtension(batchConfig.format, file.originalFilename);
+  const job = await addJobToBatchWithLock(batchId, {
+    id: jobId,
+    originalFilename: file.originalFilename,
+    inputKey: file.inputKey,
+    outputKey: `${batchId}/${jobId}/result.${outputExt}`,
+    inputBytes: file.inputBytes,
+  });
+  return toJobResponse(job);
+}
+
 /**
  * Starts a draft batch by publishing all pending image jobs to the NATS worker queue.
  *
@@ -247,7 +271,8 @@ export async function startBatch(batchId: string, userId: string): Promise<Batch
   const batchConfig = parseBatchConfig(batch.config);
 
   for (const job of pendingJobs) {
-    const command = buildImageRedactCommand({
+    const isVideo = path.extname(job.originalFilename).toLowerCase() === ".mp4";
+    const command = (isVideo ? buildVideoRedactCommand : buildImageRedactCommand)({
       jobId: job.id,
       batchId: batch.id,
       inputKey: job.inputKey,
@@ -257,7 +282,7 @@ export async function startBatch(batchId: string, userId: string): Promise<Batch
     });
 
     try {
-      await publishJob("jobs.image", command);
+      await publishJob(isVideo ? "jobs.video" : "jobs.image", command);
       await updateJobQueued(job.id);
     } catch (error) {
       console.error(`Failed to publish command for job ${job.id}`, error);

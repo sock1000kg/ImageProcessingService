@@ -171,6 +171,52 @@ export async function uploadFileToBatch(batchId: string, file: File): Promise<{ 
   return request(`/api/batches/${batchId}/files`, { method: "POST", body: form });
 }
 
+const MULTIPART_CHUNK_BYTES = 8 * 1024 * 1024;
+
+async function uploadVideoToBatch(
+  batchId: string,
+  file: File,
+  onChunkProgress?: (uploadedBytes: number) => void,
+): Promise<{ job: Job }> {
+  const started = await request<{ uploadId: string; chunkBytes: number }>("/api/uploads/start", {
+    method: "POST",
+    body: JSON.stringify({ batchId, filename: file.name, contentType: file.type, totalBytes: file.size }),
+    headers: { "Content-Type": "application/json" },
+  });
+  const chunkBytes = started.chunkBytes || MULTIPART_CHUNK_BYTES;
+  const parts: Array<{ partNumber: number; etag: string }> = [];
+  try {
+    for (let offset = 0, partNumber = 1; offset < file.size; offset += chunkBytes, partNumber++) {
+      const body = await file.slice(offset, Math.min(offset + chunkBytes, file.size)).arrayBuffer();
+      let etag = "";
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await authedFetch(`/api/uploads/${started.uploadId}/parts/${partNumber}`, {
+            method: "PUT",
+            body,
+            headers: { "Content-Type": "application/octet-stream" },
+          });
+          if (!response.ok) throw await parseApiError(response);
+          etag = (await response.json()).etag;
+          break;
+        } catch (error) {
+          if (attempt === 1) throw error;
+        }
+      }
+      parts.push({ partNumber, etag });
+      onChunkProgress?.(Math.min(offset + body.byteLength, file.size));
+    }
+    return request(`/api/uploads/${started.uploadId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ parts }),
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    await request(`/api/uploads/${started.uploadId}`, { method: "DELETE" }).catch(() => undefined);
+    throw error;
+  }
+}
+
 /**
  * Starts processing an existing draft batch by queueing pending jobs to NATS JetStream.
  */
@@ -283,7 +329,11 @@ export async function uploadBatch(
         }
 
         try {
-          await uploadFileToBatch(batchId!, file);
+          if (file.type === "video/mp4" || file.name.toLowerCase().endsWith(".mp4")) {
+            await uploadVideoToBatch(batchId!, file);
+          } else {
+            await uploadFileToBatch(batchId!, file);
+          }
           done++;
           onProgress?.({ done, total, failed: [...failed] });
           break;

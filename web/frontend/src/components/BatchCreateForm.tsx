@@ -13,11 +13,11 @@ import {
   FileSelectionIssue,
   getFileIdentity,
   getFolderName,
-  validateImageFiles,
+  validateMediaFiles,
   selectFolderFiles,
   formatFolderSummary,
   ensureFileType,
-  getInferredImageType,
+  getInferredMediaType,
 } from "./file-selection";
 import { Batch } from "../types";
 import { UploadProgress } from "../api";
@@ -111,11 +111,11 @@ export function BatchCreateForm({
   const addFiles = (incoming: File[]) => {
     setFolderSummary(null);
 
-    const issues = validateImageFiles(incoming);
+    const issues = validateMediaFiles(incoming);
     const valid = incoming.filter((file) => !issues.some((issue) => issue.file === file));
 
     const normalized = valid.map((file) => {
-      const mime = getInferredImageType(file);
+      const mime = getInferredMediaType(file);
       return mime ? ensureFileType(file, mime) : file;
     });
 

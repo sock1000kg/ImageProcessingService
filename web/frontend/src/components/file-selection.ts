@@ -8,12 +8,18 @@ export const MAX_WHITELIST_FILES = 20;
 export const MAX_FACE_LIST_FILES = 5;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+export const ALLOWED_VIDEO_TYPES = new Set(["video/mp4"]);
 
 const EXTENSION_TO_MIME: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".png": "image/png",
   ".webp": "image/webp",
+};
+
+const MEDIA_EXTENSION_TO_MIME: Record<string, string> = {
+  ...EXTENSION_TO_MIME,
+  ".mp4": "video/mp4",
 };
 
 const COMMON_IMAGE_EXTENSIONS: Record<string, string> = {
@@ -123,6 +129,18 @@ export function getInferredImageType(file: File): string | null {
   return null;
 }
 
+export function getInferredMediaType(file: File): string | null {
+  if (ALLOWED_IMAGE_TYPES.has(file.type) || ALLOWED_VIDEO_TYPES.has(file.type)) {
+    return file.type;
+  }
+  const name = file.name.toLowerCase();
+  const lastDot = name.lastIndexOf(".");
+  if (lastDot !== -1) {
+    return MEDIA_EXTENSION_TO_MIME[name.slice(lastDot)] ?? null;
+  }
+  return null;
+}
+
 /**
  * Guarantees a file instance has an explicit MIME type by reconstructing a new File object if needed.
  */
@@ -211,13 +229,18 @@ export function getFileRejectionReason(file: File, isFolder = false): string {
     return "is a folder: use Choose folder";
   }
 
-  const mime = getInferredImageType(file);
+  const mime = getInferredMediaType(file);
 
   if (mime && file.size > MAX_FILE_BYTES) {
     return `${formatFileSizeMb(file.size)}, over the ${formatFileSizeMb(MAX_FILE_BYTES)} limit`;
   }
 
-  if (file.type && file.type.startsWith("image/") && !ALLOWED_IMAGE_TYPES.has(file.type)) {
+  if (
+    file.type &&
+    (file.type.startsWith("image/") || file.type.startsWith("video/")) &&
+    !ALLOWED_IMAGE_TYPES.has(file.type) &&
+    !ALLOWED_VIDEO_TYPES.has(file.type)
+  ) {
     return `unsupported image type (${file.type})`;
   }
 
@@ -276,6 +299,21 @@ export function validateImageFiles(files: File[]): FileSelectionIssue[] {
   });
 }
 
+export function validateMediaFiles(files: File[]): FileSelectionIssue[] {
+  return files.flatMap((file) => {
+    const customError = (file as unknown as { errorReason?: string }).errorReason;
+    if (customError) return [{ file, reason: customError }];
+    if ((file as { isFolder?: boolean }).isFolder === true) {
+      return [{ file, reason: getFileRejectionReason(file, true) }];
+    }
+    const mime = getInferredMediaType(file);
+    if (!mime || file.size > MAX_FILE_BYTES) {
+      return [{ file, reason: getFileRejectionReason(file) }];
+    }
+    return [];
+  });
+}
+
 /**
  * Partitions dropped or picked folder contents into valid images, oversized files, and unsupported items.
  */
@@ -291,7 +329,7 @@ export function selectFolderFiles(files: File[]): FolderSelectionResult {
       continue;
     }
 
-    const mime = getInferredImageType(file);
+    const mime = getInferredMediaType(file);
     if (!mime) {
       unsupported++;
       continue;

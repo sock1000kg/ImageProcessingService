@@ -54,6 +54,23 @@ export interface ImageRedactCommand {
   };
 }
 
+export interface VideoRedactCommand extends Omit<ImageRedactCommand, "type" | "output"> {
+  type: "video-redact";
+  output: ImageRedactCommand["output"];
+}
+
+export function buildVideoRedactCommand(options: {
+  jobId: string;
+  batchId: string;
+  inputKey: string;
+  outputKey: string;
+  config: BatchConfig;
+  whitelistKeys?: string[];
+}): VideoRedactCommand {
+  const image = buildImageRedactCommand(options);
+  return { ...image, type: "video-redact", output: { bucket: "results", key: options.outputKey } };
+}
+
 export function buildImageRedactCommand(options: {
   jobId: string;
   batchId: string;

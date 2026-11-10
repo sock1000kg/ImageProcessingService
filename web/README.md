@@ -271,7 +271,7 @@ The Engine must have its Python environment, model weights, and configuration re
 | `POST`   | `/api/jobs/:id/edit`                    | Re-render a `COMPLETED` image with updated boxes/style without re-running AI. Returns 201 `{ job: JobResponseDTO }`                       |
 | `GET`    | `/api/system/stats`                     | Job counts grouped by status                                                                                                              |
 | `POST`   | `/api/auth/register`                    | Create an account with email, password, and `REGISTER_KEY`                                                                                |
-| `POST`   | `/api/auth/change-password`             | Authenticated password change; revokes the user's refresh tokens after updating the password                                               |
+| `POST`   | `/api/auth/change-password`             | Authenticated password change; revokes the user's refresh tokens after updating the password                                              |
 | `POST`   | `/api/auth/login`                       | Sign in and receive a short-lived access token                                                                                            |
 | `POST`   | `/api/auth/refresh`                     | Rotate the `httpOnly` refresh cookie and issue a new access token                                                                         |
 | `POST`   | `/api/auth/logout`                      | Revoke the current refresh token and clear the cookie                                                                                     |

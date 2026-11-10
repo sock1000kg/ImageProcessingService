@@ -100,6 +100,105 @@ describe("advanced batch report features (Task 30)", () => {
     expect(report.failedImages).toHaveLength(0);
   });
 
+  it("reports a video's tracks: low confidence stretches and gaps flag it for review, except tiny faces, brief flickers and one-frame dips", () => {
+    const video = reportInput(
+      {
+        video: { width: 1920, height: 1080 },
+        counts: { faceTracks: 3, lowConfidenceTracks: 1, redactedTracks: 3 },
+        tracks: [
+          {
+            trackId: 1,
+            label: "face",
+            box: [10, 10, 60, 60],
+            startMs: 0,
+            endMs: 3000,
+            redacted: true,
+            whitelisted: false,
+            meanConfidence: 0.7,
+            lowConfidenceRanges: [[2000, 3000]],
+            gapRanges: [],
+          },
+          {
+            trackId: 2,
+            label: "face",
+            box: [10, 10, 60, 60],
+            startMs: 5000,
+            endMs: 9000,
+            redacted: true,
+            whitelisted: false,
+            meanConfidence: 0.8,
+            lowConfidenceRanges: [],
+            gapRanges: [[6000, 7000]],
+          },
+          {
+            trackId: 3,
+            label: "face",
+            box: [10, 10, 60, 60],
+            startMs: 0,
+            endMs: 9000,
+            redacted: true,
+            whitelisted: false,
+            meanConfidence: 0.9,
+            lowConfidenceRanges: [],
+            gapRanges: [],
+          },
+          {
+            trackId: 5,
+            label: "face",
+            box: [0, 0, 80, 80],
+            startMs: 0,
+            endMs: 300,
+            redacted: true,
+            whitelisted: false,
+            meanConfidence: 0.2,
+            lowConfidenceRanges: [[0, 300]],
+            gapRanges: [],
+          },
+          {
+            trackId: 6,
+            label: "face",
+            box: [0, 0, 80, 80],
+            startMs: 0,
+            endMs: 4000,
+            redacted: true,
+            whitelisted: false,
+            meanConfidence: 0.6,
+            lowConfidenceRanges: [[1000, 1100]],
+            gapRanges: [],
+          },
+          {
+            trackId: 4,
+            label: "face",
+            box: [0, 0, 8, 8],
+            startMs: 0,
+            endMs: 500,
+            redacted: true,
+            whitelisted: false,
+            meanConfidence: 0.2,
+            lowConfidenceRanges: [[0, 500]],
+            gapRanges: [[100, 200]],
+          },
+        ],
+      },
+      "COMPLETED",
+      { id: "vid-1", originalFilename: "street.mp4", inputKey: "uploads/batch-1/street.mp4" },
+    );
+
+    const report = toReportResponse(batchInput() as never, [video as never]);
+
+    expect(report.totals.faces).toBe(3);
+    expect(report.totals.lowConfidence).toBe(1);
+    expect(report.reviewImages.map((image) => image.jobId)).toEqual(["vid-1"]);
+    const flagged = report.reviewDetections.map((detection) => [detection.trackId, detection.startMs, detection.endMs]);
+    expect(flagged).toEqual([
+      [1, 0, 3000],
+      [2, 5000, 9000],
+    ]);
+    expect(report.reviewDetections[1]?.reviewNotes.join(" ")).toMatch(/0:06.0–0:07.0/);
+    expect(report.reviewDetections[1]?.reviewReasons).toEqual(["Possible redaction gap"]);
+    expect(report.reviewDetections[0]?.reviewNotes.join(" ")).toMatch(/low confidence at 0:02.0–0:03.0/);
+  });
+
   it("handles whitelist people summary: one person in 2 images and one in none", () => {
     const batch = batchInput({
       whitelistKeys: ["uploads/batch-1/whitelist/person0.jpg", "uploads/batch-1/whitelist/person1.jpg"],

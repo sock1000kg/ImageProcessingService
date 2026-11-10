@@ -184,6 +184,9 @@ async function uploadVideoToBatch(
     headers: { "Content-Type": "application/json" },
   });
   const chunkBytes = started.chunkBytes || MULTIPART_CHUNK_BYTES;
+  // Multipart upload: the file is sent in fixed-size chunks (one PUT each, retried once), the server returns an
+  // ETag per chunk, and `complete` hands back the ordered list so storage can assemble them. Any failure cancels
+  // the session so no partial object is left behind.
   const parts: Array<{ partNumber: number; etag: string }> = [];
   try {
     for (let offset = 0, partNumber = 1; offset < file.size; offset += chunkBytes, partNumber++) {
@@ -214,6 +217,35 @@ async function uploadVideoToBatch(
   } catch (error) {
     await request(`/api/uploads/${started.uploadId}`, { method: "DELETE" }).catch(() => undefined);
     throw error;
+  }
+}
+
+/**
+ * Opens a job's original upload in a new tab through a short-lived signed URL.
+ */
+export async function openJobOriginal(jobId: string): Promise<void> {
+  try {
+    const data = await request<{ url: string; expiresAt: string }>(`/api/jobs/${jobId}/original-url`);
+    window.open(data.url, "_blank", "noreferrer");
+  } catch (err) {
+    console.error("Failed to fetch original presigned URL", err);
+  }
+}
+
+/**
+ * Downloads a job's result file through a signed URL that asks storage to send it as an attachment.
+ */
+export async function downloadJobResult(jobId: string): Promise<void> {
+  try {
+    const data = await request<{ url: string; expiresAt: string }>(`/api/jobs/${jobId}/result-url?download=1`);
+    const link = document.createElement("a");
+    link.href = data.url;
+    link.download = "";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } catch (err) {
+    console.error("Failed to fetch result download URL", err);
   }
 }
 
@@ -263,12 +295,16 @@ export async function uploadBatch(
   let done = 0;
   const total = files.length;
 
+  // State shared by the two workers: the next file to take, the time until which everyone waits after a 429,
+  // the first limit message (which stops the whole upload), and helpers that let one waiter wake the others.
   let currentIndex = 0;
   let pauseUntil = 0;
   let limitReason: string | undefined = undefined;
   let pausePromise: Promise<void> | null = null;
   let wakePause: (() => void) | null = null;
 
+  // Blocks until the shared cooldown has passed. Only the first caller runs the countdown loop (pausePromise);
+  // the other worker just awaits that same promise, so progress is reported once per second, not twice.
   async function waitIfPaused(): Promise<void> {
     while (Date.now() < pauseUntil && !limitReason) {
       if (!pausePromise) {
@@ -305,6 +341,8 @@ export async function uploadBatch(
     }
   }
 
+  // Each worker repeatedly takes the next unclaimed file and uploads it. Nothing is awaited between reading and
+  // incrementing currentIndex, so two workers can never take the same file.
   async function worker() {
     while (true) {
       if (limitReason) return;
@@ -316,6 +354,7 @@ export async function uploadBatch(
       }
       const file = files[currentIndex++];
 
+      // Retry loop for this one file: 429s wait and retry without counting, any other error gets one retry.
       let hasRetried = false;
       while (true) {
         if (limitReason) {
@@ -372,6 +411,7 @@ export async function uploadBatch(
     }
   }
 
+  // Two uploads at a time: faster than one, and few enough to stay under the upload rate limit.
   const workerCount = Math.min(2, files.length);
   const workers = Array.from({ length: workerCount }, () => worker());
   await Promise.all(workers);

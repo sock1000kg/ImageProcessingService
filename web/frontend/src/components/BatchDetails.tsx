@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError, getBatchReport, getBatchZipUrl, retryJob, startBatch } from "../api";
 import { Batch, BatchReport as Report, Detection, Job, MessageHandler } from "../types";
-import { formatJobErrorMessage } from "../utils/format";
+import { formatJobErrorMessage, isVideoFilename } from "../utils/format";
 import { BatchHeader } from "./BatchHeader";
 import { BatchImageList } from "./BatchImageList";
 import { BatchReport } from "./BatchReport";
@@ -81,6 +81,9 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
   const detections =
     selectedReport?.detections ??
     (Array.isArray(selected?.resultSummary?.detections) ? (selected.resultSummary.detections as Detection[]) : []);
+  const allowedPlates = Array.isArray(batch.config?.whitelistPlates)
+    ? batch.config.whitelistPlates.filter((plate): plate is string => typeof plate === "string")
+    : [];
   const hasWhitelist = Boolean(batch.whitelistKeys && batch.whitelistKeys.length > 0);
   const completedJobs = useMemo(() => batch.jobs.filter((job) => job.status === "COMPLETED"), [batch.jobs]);
 
@@ -166,8 +169,8 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
         </div>
 
         <div>
-          {selected && selected.originalFilename.toLowerCase().endsWith(".mp4") ? (
-            <VideoResultViewer job={selected} />
+          {selected && isVideoFilename(selected.originalFilename) ? (
+            <VideoResultViewer job={selected} detections={detections} onRetry={(job) => void retry(job)} />
           ) : selected ? (
             <ImageResultViewer
               job={selected}
@@ -185,7 +188,7 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
 
         <div className="report-card details-report-card">
           <div className="section-kicker">BATCH REPORT</div>
-          <BatchReport report={report} onSelectImage={handleSelectReportImage} />
+          <BatchReport report={report} allowedPlates={allowedPlates} onSelectImage={handleSelectReportImage} />
           <div className="report-downloads">
             <button
               type="button"

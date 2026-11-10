@@ -47,6 +47,8 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
     setDragging(false);
 
     try {
+      // Two ways to read a drop. `items` + webkitGetAsEntry can see inside folders, so it is tried first;
+      // `dataTransfer.files` (the fallback at the bottom) lists a dropped folder as one odd, empty "file".
       const items = event.dataTransfer.items;
       const rawEntries: (WebkitEntry | null)[] = [];
       let hasWebkitGetAsEntry = false;
@@ -64,6 +66,7 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
       if (hasWebkitGetAsEntry) {
         const entries = rawEntries.filter((entry): entry is WebkitEntry => entry !== null);
         if (entries.length > 0) {
+          // One folder → folder mode (replaces the selection); only files → plain add; a mix → flatten everything.
           const drop: ClassifiedDrop = classifyDrop(entries);
           if (drop.kind === "single-folder" && drop.folderEntry) {
             const folderFiles = await walkDirectory(drop.folderEntry, drop.folderEntry.name);
@@ -94,6 +97,7 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
         }
       }
 
+      // Fallback for browsers without webkitGetAsEntry: mark folders so the list can say "use Choose folder".
       const rawFiles = Array.from(event.dataTransfer.files ?? []);
       const detectedFiles = await Promise.all(
         rawFiles.map(async (file) => {
@@ -107,6 +111,7 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
       accept(detectedFiles);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Failed to read dropped files.";
+      // A failed read is shown as a rejected placeholder file in the list instead of being lost silently.
       const errorFile = new File([], "drop", { type: "" });
       Object.defineProperty(errorFile, "errorReason", {
         value: `Could not read dropped files: ${msg}`,

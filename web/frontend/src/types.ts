@@ -34,12 +34,19 @@ export type Detection = {
   similarityNearThreshold: boolean | null;
   reviewReasons: ReviewReason[];
   reviewNotes?: string[];
+  /** Video only: which track this is and when (ms) it is on screen. */
+  trackId?: number;
+  startMs?: number;
+  endMs?: number;
+  /** Video only: the frame (ms) where `box` was measured. */
+  bestFrameMs?: number;
 };
 
 /**
  * Diagnostic reason why an image or detection was flagged for human review.
  */
-export type ReviewReason = "Low confidence" | "Similarity near whitelist threshold" | "Engine reported needsReview";
+export type ReviewReason =
+  "Low confidence" | "Similarity near whitelist threshold" | "Engine reported needsReview" | "Possible redaction gap";
 
 /**
  * Image record in the advanced batch report with detection summary and review flags.

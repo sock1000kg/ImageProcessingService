@@ -76,8 +76,11 @@ export async function finishUpload(
   ) {
     throw badRequest("Uploaded parts must be consecutive and unique", "INVALID_UPLOAD_PARTS");
   }
+  // Any failure below (assembly, size check, ffprobe validation, job creation) leaves a half-finished object, so
+  // the catch discards the multipart upload, the stored object and the session before rethrowing.
   try {
     await completeMultipartUpload(UPLOADS_BUCKET, session.objectKey, session.uploadId, parts);
+    // The declared size came from the client, so compare it with what storage actually assembled.
     const actualBytes = await statObject(UPLOADS_BUCKET, session.objectKey);
     if (actualBytes !== session.totalBytes) {
       await storage.deleteObject(UPLOADS_BUCKET, session.objectKey);

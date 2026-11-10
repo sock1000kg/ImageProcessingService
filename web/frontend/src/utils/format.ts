@@ -31,3 +31,8 @@ export function formatJobErrorMessage(error?: { code?: string; message?: string 
   }
   return error.message ?? "";
 }
+
+/** Whether an uploaded file is a video (only MP4 is accepted), judged by its name. */
+export function isVideoFilename(filename: string): boolean {
+  return filename.toLowerCase().endsWith(".mp4");
+}

@@ -247,28 +247,6 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
           ))}
         </div>
       </details>
-      <label>
-        License plates to allow
-        <textarea
-          value={config.whitelistPlates.join("\n")}
-          placeholder="30A-123.45"
-          onChange={(event) =>
-            update(
-              "whitelistPlates",
-              event.target.value
-                .split(/\r?\n/)
-                .map((value) =>
-                  value
-                    .trim()
-                    .toUpperCase()
-                    .replace(/[\s.-]/g, ""),
-                )
-                .filter(Boolean),
-            )
-          }
-          aria-label="License plates to allow"
-        />
-      </label>
     </div>
   );
 }

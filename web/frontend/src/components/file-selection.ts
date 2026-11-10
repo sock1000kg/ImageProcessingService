@@ -370,6 +370,8 @@ export async function isFolderFile(file: File): Promise<boolean> {
   if ((file as { isFolder?: boolean }).isFolder === true) {
     return true;
   }
+  // Browsers give a dropped folder an empty type and throw when its bytes are read, so a real file with a type
+  // is never a folder and an untyped one is tested by trying to read a single byte.
   if (file.type !== "") {
     return false;
   }
@@ -431,6 +433,8 @@ export async function walkDirectory(dirEntry: WebkitDirectoryEntry, parentPath =
         const subFiles = await walkDirectory(entry, entryPath);
         files.push(...subFiles);
       } catch (err) {
+        // An unreadable folder becomes an empty placeholder carrying `errorReason`, so validation lists it as
+        // rejected with that message and the rest of the drop still goes through.
         const errFile = new File([], entry.name, { type: "" });
         attachRelativePath(errFile, entryPath);
         Object.defineProperty(errFile, "errorReason", {

@@ -97,14 +97,14 @@ export function usePresignedUrl(path?: string | null, revision = 0): PresignedUr
         inFlightRequests.delete(path);
 
         const expiresAtMs = Date.parse(data.expiresAt);
-        const prevEntry = urlCache.get(path);
-        const retriedOnError = isRetry ? true : (prevEntry?.retriedOnError ?? false);
 
+        // Why only a retry sets the flag: it limits the error-driven refetch to one per URL. Carrying it over to
+        // later normal refreshes would leave the image permanently broken the second time a URL expires.
         urlCache.set(path, {
           url: data.url,
           expiresAtMs,
           revision,
-          retriedOnError,
+          retriedOnError: isRetry,
         });
 
         if (isMounted) {
@@ -143,10 +143,22 @@ export function usePresignedUrl(path?: string | null, revision = 0): PresignedUr
 
     window.addEventListener("error", handleCaptureError, true);
 
+    // Why: browsers throttle or suspend timers in background tabs and during sleep, so the scheduled refresh can fire
+    // late. Checking again when the tab becomes visible replaces a URL that expired while the user was away.
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      const entry = urlCache.get(path);
+      if (!entry || Date.now() >= entry.expiresAtMs - 30_000) {
+        fetchUrl(false);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
     return () => {
       isMounted = false;
       if (timerId) clearTimeout(timerId);
       window.removeEventListener("error", handleCaptureError, true);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [path, revision]);
 

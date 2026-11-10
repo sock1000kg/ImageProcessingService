@@ -987,7 +987,7 @@ output {
 .image-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 2px;
+  gap: 8px;
 }
 .image-list-row {
   position: relative;
@@ -997,12 +997,12 @@ output {
   gap: 9px;
   width: 100%;
   min-width: 0;
-  border: 0;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-2);
   text-align: left;
   color: var(--text);
-  background: transparent;
+  background: var(--surface-2);
   box-shadow: none;
 }
 .image-list-row > .status-dot {
@@ -1691,14 +1691,12 @@ input[type="range"].comparison-range::-moz-range-thumb {
   }
 }
 @media (min-width: 981px) {
+  /* The file column is only as tall as its cards; it scrolls once they outgrow the viewer's stage height. */
   .details-layout > :first-child {
-    position: relative;
-    min-height: 0;
+    align-self: start;
   }
   .image-list.scroll-list {
-    position: absolute;
-    inset: 0;
-    max-height: none;
+    max-height: var(--stage-h);
   }
 }
 @media (min-width: 681px) {

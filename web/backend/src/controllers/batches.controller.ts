@@ -3,6 +3,7 @@
  */
 import { NextFunction, Request, Response } from "express";
 import path from "node:path";
+import type { Readable } from "node:stream";
 import archiver, { Archiver } from "archiver";
 import {
   addBatchFile,
@@ -200,21 +201,23 @@ export function sanitizeEntryFilename(originalFilename: string, outputKey: strin
  */
 function appendStream(
   archive: Archiver,
-  stream: NodeJS.ReadableStream,
+  stream: Readable,
   name: string,
   onAbort?: (reject: (err: unknown) => void) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    // The promise must finish exactly once, whichever happens first: the entry is written, the archive or the
+    // MinIO stream errors, or the client disconnects. `settled` turns every later event into a no-op.
     let settled = false;
 
     const cleanup = () => {
       archive.removeListener("entry", onEntry);
       archive.removeListener("error", onError);
-      if (typeof (stream as any).removeListener === "function") {
-        (stream as any).removeListener("error", onStreamError);
-      }
+      stream.removeListener("error", onStreamError);
     };
 
+    // archiver emits "entry" once an appended stream has been fully written into the zip, so this is the
+    // signal that the next file may be opened. Entries are matched by name in case another one finishes first.
     const onEntry = (entry: { name: string }) => {
       if (entry.name === name) {
         if (!settled) {
@@ -241,6 +244,8 @@ function appendStream(
       }
     };
 
+    // Lets the caller reject this promise from outside (the response "close" handler) so a disconnect doesn't
+    // leave the loop waiting forever for an "entry" event that will never come.
     if (onAbort) {
       onAbort((err) => {
         if (!settled) {
@@ -253,10 +258,8 @@ function appendStream(
 
     archive.on("entry", onEntry);
     archive.on("error", onError);
-    if (typeof (stream as any).on === "function") {
-      (stream as any).on("error", onStreamError);
-    }
-    archive.append(stream as any, { name });
+    stream.on("error", onStreamError);
+    archive.append(stream, { name });
   });
 }
 
@@ -323,7 +326,9 @@ export async function downloadBatchZipHandler(request: Request, response: Respon
       }
     });
 
-    let currentStream: NodeJS.ReadableStream | null = null;
+    // Only one MinIO stream is open at a time. The disconnect handler needs it to destroy it, and abortReject to
+    // wake the loop that is waiting on it.
+    let currentStream: Readable | null = null;
     let clientAborted = false;
     let abortReject: ((err?: unknown) => void) | null = null;
 
@@ -333,10 +338,8 @@ export async function downloadBatchZipHandler(request: Request, response: Respon
       if (!response.writableEnded) {
         clientAborted = true;
         archive.abort();
-        if (currentStream && typeof (currentStream as any).destroy === "function") {
-          (currentStream as any).destroy();
-          currentStream = null;
-        }
+        currentStream?.destroy();
+        currentStream = null;
         if (abortReject) {
           abortReject(new Error("Client aborted"));
           abortReject = null;

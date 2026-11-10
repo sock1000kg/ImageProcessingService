@@ -52,6 +52,9 @@ export function usePresignedUrl(path?: string | null, revision = 0): PresignedUr
 
   const [state, setState] = useState<PresignedUrlState>(getCachedState);
 
+  // Flow: ask the backend for a signed URL (shared cache and in-flight map, so many <img> for one path make one
+  // request), refresh it 30 s before it expires, refresh on tab return in case the timer was paused, and on an
+  // <img> load error fetch a new URL once before showing the error.
   useEffect(() => {
     if (!path) {
       setState({ url: null, loading: false, error: false });

@@ -16,6 +16,7 @@ import {
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
+import type { Readable } from "node:stream";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import { config } from "./config";
@@ -84,7 +85,7 @@ export async function putObject(
 export async function getObjectStream(
   bucket: string,
   key: string,
-): Promise<{ stream: NodeJS.ReadableStream; contentType?: string; contentLength?: number } | null> {
+): Promise<{ stream: Readable; contentType?: string; contentLength?: number } | null> {
   try {
     const response = await s3Client.send(
       new GetObjectCommand({
@@ -94,8 +95,8 @@ export async function getObjectStream(
     );
     if (!response.Body) return null;
     return {
-      // AWS SDK v3 response.Body is a Readable/IncomingMessage; cast to NodeJS.ReadableStream
-      stream: response.Body as unknown as NodeJS.ReadableStream,
+      // In Node the SDK returns the body as a Readable (an IncomingMessage), though its type says otherwise.
+      stream: response.Body as unknown as Readable,
       contentType: response.ContentType,
       contentLength: response.ContentLength,
     };

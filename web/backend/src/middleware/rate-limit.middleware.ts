@@ -75,6 +75,9 @@ export function rateLimit(
   keyOfOrGroup?: ((request: Request) => string) | RateLimitGroup,
   _maybeGroup?: RateLimitGroup,
 ): (request: Request, response: Response, next: NextFunction) => void {
+  // Two call shapes share one implementation. Explicit: (windowMs, max, keyOf?) uses the numbers as given and
+  // ignores the multipliers. Scaled: (base, keyOf?, group?) uses a 60 s window and scales `base` by the
+  // multiplier of its group. The type of the second argument tells them apart.
   const isExplicit = typeof maxOrKeyOf === "number";
   const windowMs = isExplicit ? baseOrWindowMs : 60_000;
   const keyOf = isExplicit
@@ -86,6 +89,7 @@ export function rateLimit(
       : clientIp;
   const group: RateLimitGroup = !isExplicit && typeof keyOfOrGroup === "string" ? keyOfOrGroup : "general";
 
+  // Fixed-window counter per key: the first request opens a window, later ones add to its count until it ends.
   const buckets = new Map<string, Bucket>();
   let nextSweep = Date.now() + windowMs;
 

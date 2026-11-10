@@ -221,6 +221,35 @@ async function uploadVideoToBatch(
 }
 
 /**
+ * Opens a job's original upload in a new tab through a short-lived signed URL.
+ */
+export async function openJobOriginal(jobId: string): Promise<void> {
+  try {
+    const data = await request<{ url: string; expiresAt: string }>(`/api/jobs/${jobId}/original-url`);
+    window.open(data.url, "_blank", "noreferrer");
+  } catch (err) {
+    console.error("Failed to fetch original presigned URL", err);
+  }
+}
+
+/**
+ * Downloads a job's result file through a signed URL that asks storage to send it as an attachment.
+ */
+export async function downloadJobResult(jobId: string): Promise<void> {
+  try {
+    const data = await request<{ url: string; expiresAt: string }>(`/api/jobs/${jobId}/result-url?download=1`);
+    const link = document.createElement("a");
+    link.href = data.url;
+    link.download = "";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } catch (err) {
+    console.error("Failed to fetch result download URL", err);
+  }
+}
+
+/**
  * Starts processing an existing draft batch by queueing pending jobs to NATS JetStream.
  */
 export async function startBatch(batchId: string): Promise<{ batch: Batch }> {

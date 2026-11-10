@@ -3,6 +3,7 @@
  */
 import { FormEvent, useEffect, useState } from "react";
 import { FileDropzone } from "./FileDropzone";
+import { PlateAllowList } from "./PlateAllowList";
 import { FilePreviewList } from "./FilePreviewList";
 import { PreviewCanvas } from "./PreviewCanvas";
 import { RedactionConfigForm, FormConfig, DEFAULT_FORM_CONFIG } from "./RedactionConfigForm";
@@ -312,6 +313,10 @@ export function BatchCreateForm({
           onChange={setWhitelist}
           selectedFaceListIds={faceListIds}
           onFaceListIdsChange={setFaceListIds}
+        />
+        <PlateAllowList
+          plates={config.whitelistPlates}
+          onChange={(whitelistPlates) => setConfig((current) => ({ ...current, whitelistPlates }))}
         />
       </div>
       <aside className="config-card">

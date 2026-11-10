@@ -5,11 +5,14 @@ import React, { useEffect, useState } from "react";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { BatchReport as Report, ReportWhitelistPerson } from "../types";
 import { Banner } from "./ui/Banner";
+import { isVideoFilename } from "../utils/format";
 import { StatTile } from "./ui/StatTile";
 import { usePresignedUrl } from "../hooks/usePresignedUrl";
 
 export interface BatchReportProps {
   report: Report | null;
+  /** License plates the batch was configured to leave unredacted (from the batch config, not the report). */
+  allowedPlates?: string[];
   onSelectImage?: (jobId: string) => void;
 }
 
@@ -151,7 +154,7 @@ function WhitelistPersonSection({ batchId, person, onSelectImage }: WhitelistPer
 /**
  * Formats aggregate detection metrics and lists images requiring manual verification.
  */
-export function BatchReport({ report, onSelectImage }: BatchReportProps) {
+export function BatchReport({ report, allowedPlates = [], onSelectImage }: BatchReportProps) {
   if (!report) {
     return <div className="empty-inline">Report is not available yet.</div>;
   }
@@ -162,7 +165,7 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
     ["Redacted", report.totals.redacted],
     ["Allow-listed", report.totals.whitelisted],
     ["Low confidence", report.totals.lowConfidence],
-    ["Images needing review", report.reviewImages.length],
+    ["Items needing review", report.reviewImages.length],
     ["Detections needing review", report.reviewDetections.length],
   ];
 
@@ -178,10 +181,12 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
         <h4>Needs review</h4>
         {report.reviewImages.length > 0 ? (
           <section className="review-report-list scroll-list" aria-label="Review candidates">
-            <Banner variant="warning">{report.reviewImages.length} image(s) need review.</Banner>
+            <Banner variant="warning">{report.reviewImages.length} item(s) need review.</Banner>
             {report.reviewImages.map((image) => {
-              const notes =
-                image.reviewNotes && image.reviewNotes.length > 0
+              // A video row shows just its name: its flagged tracks are listed, with times, in the video viewer.
+              const notes = isVideoFilename(image.originalFilename)
+                ? undefined
+                : image.reviewNotes && image.reviewNotes.length > 0
                   ? image.reviewNotes.join(" · ")
                   : image.reviewReasons.join(" · ");
 
@@ -196,7 +201,7 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
             })}
           </section>
         ) : (
-          <Banner variant="success">No images need review.</Banner>
+          <Banner variant="success">No items need review.</Banner>
         )}
       </div>
       <section className="report-section" aria-label="Allow list people">
@@ -214,6 +219,18 @@ export function BatchReport({ report, onSelectImage }: BatchReportProps) {
           </div>
         ) : (
           <div className="empty-inline">No allow list detections were returned by the Engine.</div>
+        )}
+        {allowedPlates.length > 0 && (
+          <>
+            <h4 className="space-above-2">Allowed license plates</h4>
+            <ul className="plate-chips" aria-label="Allowed license plates">
+              {allowedPlates.map((plate) => (
+                <li key={plate} className="plate-chip">
+                  <span>{plate}</span>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
     </div>

@@ -56,7 +56,8 @@ export interface JobResponseDTO {
   updatedAt: string;
 }
 
-export type ReviewReason = "Low confidence" | "Similarity near whitelist threshold" | "Engine reported needsReview";
+export type ReviewReason =
+  "Low confidence" | "Similarity near whitelist threshold" | "Engine reported needsReview" | "Possible redaction gap";
 
 export interface BatchResponseDTO {
   id: string;
@@ -134,6 +135,12 @@ export interface ReportDetectionDTO {
   similarityNearThreshold: boolean | null;
   reviewReasons: ReviewReason[];
   reviewNotes: string[];
+  /** Video only: the track this detection stands for and the time span (ms) it is visible. */
+  trackId?: number;
+  startMs?: number;
+  endMs?: number;
+  /** Video only: the frame (ms) where `box` was measured, the one moment the box is accurate. */
+  bestFrameMs?: number;
 }
 
 export interface ReportTotalsDTO {
@@ -317,7 +324,8 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
     }
 
     const summaryCounts = summary?.counts ?? null;
-    const rawDetections = summary?.detections ?? [];
+    // A video summary has `tracks` instead of per-frame `detections`; each track is reviewed like one detection.
+    const rawDetections = summary?.detections ?? videoTracksAsDetections(summary?.tracks);
     const detections = rawDetections.map((raw) => toReportDetection(raw, batchConfig.similarityThreshold));
     const reviewDetections = detections.filter((detection) => detection.reviewReasons.length > 0);
     const reviewReasons = [...new Set(reviewDetections.flatMap((detection) => detection.reviewReasons))];
@@ -334,7 +342,8 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
         }
       }
     }
-    const reviewNotes = [...keptFaceNotes, ...otherNotes];
+    // A video can have dozens of flagged tracks; the viewer lists them, so the report row is just the file.
+    const reviewNotes = Array.isArray(summary?.tracks) ? [] : [...keptFaceNotes, ...otherNotes];
 
     const redactedConfidences = detections.flatMap((detection) =>
       detection.redacted === true && detection.confidence !== null && detection.confidence !== undefined
@@ -352,17 +361,30 @@ export function toReportResponse(batch: PrismaBatch, jobs: PrismaJob[]): ReportR
     });
     const largestReviewFaceWidth = reviewFaceWidths.length > 0 ? Math.max(...reviewFaceWidths) : null;
 
+    const isVideo = Array.isArray(summary?.tracks);
     if (summaryCounts) {
-      if (typeof summaryCounts.face === "number") faces += summaryCounts.face;
-      if (typeof summaryCounts.plate === "number") plates += summaryCounts.plate;
-      if (typeof summaryCounts.redacted === "number") redacted += summaryCounts.redacted;
-      const wl = summaryCounts.whitelistedFace ?? summaryCounts.whitelisted ?? 0;
+      // Video summaries count tracks (faceTracks, ...) under different names than the per-image counts.
+      const count = (image: string, video: string) => summaryCounts[image] ?? summaryCounts[video];
+      const face = count("face", "faceTracks");
+      const plate = count("plate", "plateTracks");
+      const redactedCount = count("redacted", "redactedTracks");
+      const wl = summaryCounts.whitelistedFace ?? summaryCounts.whitelistedFaceTracks ?? summaryCounts.whitelisted ?? 0;
+      const low = count("lowConfidence", "lowConfidenceTracks");
+      if (typeof face === "number") faces += face;
+      if (typeof plate === "number") plates += plate;
+      if (typeof redactedCount === "number") redacted += redactedCount;
       if (typeof wl === "number") whitelisted += wl;
-      if (typeof summaryCounts.lowConfidence === "number") lowConfidence += summaryCounts.lowConfidence;
+      // For video the raw engine count includes tiny background faces, so it is counted from the tracks below.
+      if (typeof low === "number" && !isVideo) lowConfidence += low;
     }
     for (const detection of detections) {
-      if (detection.lowConfidence === true) {
-        if (!summaryCounts || typeof summaryCounts.lowConfidence !== "number") {
+      if (isVideo) {
+        if (detection.reviewReasons.includes("Low confidence")) lowConfidence++;
+      } else if (detection.lowConfidence === true) {
+        if (
+          !summaryCounts ||
+          (typeof summaryCounts.lowConfidence !== "number" && typeof summaryCounts.lowConfidenceTracks !== "number")
+        ) {
           lowConfidence++;
         }
       }
@@ -635,12 +657,21 @@ function toReportDetection(detection: ImageDetectionSummary, similarityThreshold
   const reviewReasons: ReviewReason[] = [];
   if (detection.lowConfidence === true && qualifiesLowConfidence) reviewReasons.push("Low confidence");
   if (detection.needsReview === true) reviewReasons.push("Engine reported needsReview");
+  // Video only: stretches where the tracker lost the object, so it may not have been redacted there.
+  const gapRanges = qualifiesLowConfidence ? rangesOf(detection, "gapRanges") : [];
+  if (gapRanges.length > 0) reviewReasons.push("Possible redaction gap");
   if (nearThreshold === true) reviewReasons.push("Similarity near whitelist threshold");
 
   const reviewNotes: string[] = [];
   if (detection.lowConfidence === true && qualifiesLowConfidence) {
-    const confStr = typeof detection.confidence === "number" ? ` ${detection.confidence.toFixed(2)}` : "";
-    reviewNotes.push(`low confidence${confStr}`);
+    const lowRanges = rangesOf(detection, "lowConfidenceRanges");
+    if (lowRanges.length > 0) {
+      // A video track's average can look fine; what is low is the stretches below the review threshold.
+      reviewNotes.push(`low confidence at ${lowRanges.map(formatRange).join(", ")}`);
+    } else {
+      const confStr = typeof detection.confidence === "number" ? ` ${detection.confidence.toFixed(2)}` : "";
+      reviewNotes.push(`low confidence${confStr}`);
+    }
   }
   if (nearThreshold === true) {
     const simStr = typeof similarity === "number" ? similarity.toFixed(2) : "0.00";
@@ -653,6 +684,9 @@ function toReportDetection(detection: ImageDetectionSummary, similarityThreshold
   }
   if (detection.needsReview === true) {
     reviewNotes.push("engine flagged for review");
+  }
+  if (gapRanges.length > 0) {
+    reviewNotes.push(`may be unredacted at ${gapRanges.map(formatRange).join(", ")}`);
   }
 
   return {
@@ -668,5 +702,86 @@ function toReportDetection(detection: ImageDetectionSummary, similarityThreshold
     similarityNearThreshold: nearThreshold,
     reviewReasons,
     reviewNotes,
+    ...videoTrackFields(detection),
   };
+}
+
+/**
+ * A tracker flickers: most tracks in a street video last under half a second and dip below the review threshold for
+ * a few frames. Those are not worth a person's time, so a video track is only reviewed when it lasts at least
+ * VIDEO_MIN_TRACK_MS and has a low-confidence or gap stretch of at least VIDEO_MIN_RANGE_MS.
+ */
+export const VIDEO_MIN_TRACK_MS = 500;
+export const VIDEO_MIN_RANGE_MS = 250;
+
+type TrackLike = Record<string, unknown>;
+
+function rangesOf(source: object, key: string): Array<[number, number]> {
+  const value = (source as TrackLike)[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (range): range is [number, number] =>
+      Array.isArray(range) && range.length === 2 && range.every((part) => typeof part === "number"),
+  );
+}
+
+function formatRange([start, end]: [number, number]): string {
+  // Tenths of a second: stretches are often under a second, so whole seconds would print "0:07–0:07".
+  const clock = (ms: number) => {
+    const tenths = Math.floor(ms / 100);
+    return `${Math.floor(tenths / 600)}:${String(Math.floor((tenths % 600) / 10)).padStart(2, "0")}.${tenths % 10}`;
+  };
+  return `${clock(start)}–${clock(end)}`;
+}
+
+/**
+ * Maps the Engine's video tracks onto the image detection shape so the report counts and review rules apply to
+ * video too. A track with low-confidence stretches is "low confidence"; one with gaps (frames where it was lost
+ * and may not be redacted, the biggest video risk) is flagged as needing review.
+ */
+function videoTracksAsDetections(tracks: unknown): ImageDetectionSummary[] {
+  if (!Array.isArray(tracks)) return [];
+  return tracks.map((raw) => {
+    const track = raw as TrackLike;
+    const box =
+      Array.isArray(track.box) && track.box.length === 4 ? (track.box as [number, number, number, number]) : undefined;
+    const lasted =
+      typeof track.endMs === "number" && typeof track.startMs === "number" ? track.endMs - track.startMs : 0;
+    const longRanges = (key: string) =>
+      lasted >= VIDEO_MIN_TRACK_MS ? rangesOf(track, key).filter(([from, to]) => to - from >= VIDEO_MIN_RANGE_MS) : [];
+    const lowConfidenceRanges = longRanges("lowConfidenceRanges");
+    const gapRanges = longRanges("gapRanges");
+    return {
+      label: typeof track.label === "string" ? track.label : undefined,
+      confidence: typeof track.meanConfidence === "number" ? track.meanConfidence : undefined,
+      box,
+      redacted: typeof track.redacted === "boolean" ? track.redacted : undefined,
+      whitelisted: typeof track.whitelisted === "boolean" ? track.whitelisted : undefined,
+      lowConfidence: lowConfidenceRanges.length > 0,
+      similarity: typeof track.similarity === "number" ? track.similarity : undefined,
+      whitelistRef: typeof track.whitelistRef === "number" ? track.whitelistRef : undefined,
+      trackId: track.trackId,
+      startMs: track.startMs,
+      endMs: track.endMs,
+      bestFrameMs: track.bestFrameMs,
+      lowConfidenceRanges,
+      gapRanges,
+    };
+  });
+}
+
+/** Time fields a video track adds to its report detection (absent for images). */
+function videoTrackFields(detection: ImageDetectionSummary): {
+  trackId?: number;
+  startMs?: number;
+  endMs?: number;
+  bestFrameMs?: number;
+} {
+  const source = detection as TrackLike;
+  const out: { trackId?: number; startMs?: number; endMs?: number; bestFrameMs?: number } = {};
+  if (typeof source.bestFrameMs === "number") out.bestFrameMs = source.bestFrameMs;
+  if (typeof source.trackId === "number") out.trackId = source.trackId;
+  if (typeof source.startMs === "number") out.startMs = source.startMs;
+  if (typeof source.endMs === "number") out.endMs = source.endMs;
+  return out;
 }

@@ -28,43 +28,56 @@ export function ChangePasswordForm({ onMessage }: { onMessage?: MessageHandler }
     }
   }
 
+  // Same field and button classes as the "Create an allow list" form, so the dashboard forms look alike.
+  const fields = [
+    {
+      id: "current-password",
+      label: "Current password",
+      value: currentPassword,
+      set: setCurrentPassword,
+      autoComplete: "current-password",
+    },
+    {
+      id: "new-password",
+      label: "New password",
+      value: newPassword,
+      set: setNewPassword,
+      autoComplete: "new-password",
+      minLength: 8,
+    },
+    {
+      id: "confirm-password",
+      label: "Confirm new password",
+      value: confirmPassword,
+      set: setConfirmPassword,
+      autoComplete: "new-password",
+      minLength: 8,
+    },
+  ];
+
   return (
-    <form className="card" onSubmit={submit}>
-      <h3>Change password</h3>
-      <label>
-        Current password
-        <input
-          type="password"
-          autoComplete="current-password"
-          value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
-          required
-        />
-      </label>
-      <label>
-        New password
-        <input
-          type="password"
-          autoComplete="new-password"
-          minLength={8}
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          required
-        />
-      </label>
-      <label>
-        Confirm new password
-        <input
-          type="password"
-          autoComplete="new-password"
-          minLength={8}
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          required
-        />
-      </label>
-      <button className="secondary-button" type="submit" disabled={saving}>
-        {saving ? "Changing..." : "Change password"}
+    <form className="saved-face-lists-form" aria-label="Change password" onSubmit={submit}>
+      <h3 className="saved-face-lists-form-title">Change password</h3>
+      {fields.map((field) => (
+        <div className="batch-name-group" key={field.id}>
+          <label htmlFor={field.id} className="mini-label">
+            {field.label}
+          </label>
+          <input
+            id={field.id}
+            type="password"
+            className="text-input space-above-1"
+            autoComplete={field.autoComplete}
+            minLength={field.minLength}
+            value={field.value}
+            onChange={(e) => field.set(e.target.value)}
+            disabled={saving}
+            required
+          />
+        </div>
+      ))}
+      <button type="submit" className="primary-button saved-face-lists-submit" disabled={saving}>
+        {saving ? "Changing…" : "Change password"}
       </button>
     </form>
   );

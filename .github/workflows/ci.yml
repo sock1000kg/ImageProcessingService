@@ -36,6 +36,9 @@ jobs:
             web:
               - 'web/*'
               - 'web/!(docs)/**'
+              - 'infra/docker-compose.yaml'
+              - 'infra/app/minio/**'
+              - 'infra/app/nats/**'
               - '.github/workflows/ci.yml'
             engine:
               - 'engine/src/**'
@@ -76,6 +79,56 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  web-integration:
+    name: web (service tests on real Postgres, MinIO, NATS)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    env:
+      # The values docker-compose.yaml needs. They match the web's built-in local defaults (config.ts), so the tests
+      # connect to the stack without any extra settings. Throwaway credentials for a runner that is deleted afterwards.
+      POSTGRES_PASSWORD: CHANGE_ME_imgproc_local
+      MINIO_ROOT_USER: imgproclocal
+      MINIO_ROOT_PASSWORD: CHANGE_ME_minio_local
+      DATABASE_URL: postgresql://imgproc:CHANGE_ME_imgproc_local@localhost:5432/imgproc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The same compose file used for local development: waits until Postgres, NATS and MinIO are healthy.
+      - name: Start Postgres, NATS and MinIO
+        run: docker compose -f infra/docker-compose.yaml up -d --wait postgres nats minio
+
+      # One-shot jobs that create the JetStream streams and the buckets; each fails the step if it fails.
+      - name: Create streams and buckets
+        run: |
+          docker compose -f infra/docker-compose.yaml run --rm nats-setup
+          docker compose -f infra/docker-compose.yaml run --rm minio-setup
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      # Also checks the baseline migration on a real, empty database on every change.
+      - name: Apply database migrations
+        working-directory: web
+        run: npx prisma migrate deploy
+
+      - name: Service tests
+        working-directory: web
+        run: npm run test:service
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -f infra/docker-compose.yaml logs --no-color --tail=100
 
   engine:
     name: engine (lint, build on PRs)

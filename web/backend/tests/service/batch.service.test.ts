@@ -1,3 +1,4 @@
+import { PNG_BYTES } from "../helpers/image-bytes";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { connect, JetStreamManager, NatsConnection, StringCodec } from "nats";
@@ -64,7 +65,7 @@ describe("Batch Service Integration Tests", () => {
       encoding: "7bit",
       mimetype: "image/jpeg",
       size: 512,
-      buffer: Buffer.from("dummy-whitelist-face"),
+      buffer: PNG_BYTES,
       stream: null as any,
       destination: "",
       filename: "",
@@ -95,7 +96,7 @@ describe("Batch Service Integration Tests", () => {
       encoding: "7bit",
       mimetype: "image/jpeg",
       size: 1024,
-      buffer: Buffer.from("dummy-jpeg-1"),
+      buffer: PNG_BYTES,
       stream: null as any,
       destination: "",
       filename: "",
@@ -108,7 +109,7 @@ describe("Batch Service Integration Tests", () => {
       encoding: "7bit",
       mimetype: "image/png",
       size: 2048,
-      buffer: Buffer.from("dummy-png-2"),
+      buffer: PNG_BYTES,
       stream: null as any,
       destination: "",
       filename: "",
@@ -121,7 +122,7 @@ describe("Batch Service Integration Tests", () => {
       encoding: "7bit",
       mimetype: "image/webp",
       size: 1536,
-      buffer: Buffer.from("dummy-webp-3"),
+      buffer: PNG_BYTES,
       stream: null as any,
       destination: "",
       filename: "",

@@ -2,7 +2,7 @@
  * Unit tests verifying bad reference photo filename sanitization and error handling (Task 62).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyJobEvent } from "../../src/services/batch.service";
+import { applyJobEvent } from "../../src/services/job-events.service";
 import * as jobRepository from "../../src/repositories/job.repository";
 import { ValidatedJobEvent } from "../../src/dto";
 import { JobStatus } from "../../src/generated/prisma/client";

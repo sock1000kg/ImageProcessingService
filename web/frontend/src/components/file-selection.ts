@@ -6,6 +6,9 @@
 export const MAX_WHITELIST_FILES = 20;
 /** Maximum reference face photos allowed for creating a single saved allow list. */
 export const MAX_FACE_LIST_FILES = 5;
+import { getSizeLimitFor, getUploadLimits } from "../upload-limits";
+import { formatMegabytes } from "../utils/format";
+
 export const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 export const ALLOWED_VIDEO_TYPES = new Set(["video/mp4"]);
 
@@ -46,35 +49,6 @@ export type FolderSelectionResult = {
   };
   folderName: string | null;
 };
-
-export interface WebkitFileEntry {
-  isFile: true;
-  isDirectory: false;
-  name: string;
-  file: (successCallback: (file: File) => void, errorCallback?: (error: unknown) => void) => void;
-}
-
-export interface WebkitDirectoryReader {
-  readEntries: (successCallback: (entries: WebkitEntry[]) => void, errorCallback?: (error: unknown) => void) => void;
-}
-
-export interface WebkitDirectoryEntry {
-  isFile: false;
-  isDirectory: true;
-  name: string;
-  createReader: () => WebkitDirectoryReader;
-}
-
-export type WebkitEntry = WebkitFileEntry | WebkitDirectoryEntry;
-
-export type DropKind = "single-folder" | "files-only" | "mixed";
-
-export interface ClassifiedDrop {
-  kind: DropKind;
-  folderEntry?: WebkitDirectoryEntry;
-  fileEntries?: WebkitFileEntry[];
-  entries: WebkitEntry[];
-}
 
 /**
  * Resolves the relative path or name of a selected file.
@@ -204,15 +178,10 @@ export function getFolderName(files: File[]): string | null {
   return commonTopFolder;
 }
 
-/**
- * Formats byte size into readable megabyte strings.
- */
-export function formatFileSizeMb(bytes: number): string {
-  const mb = bytes / (1024 * 1024);
-  if (Math.abs(mb - Math.round(mb)) < 0.05) {
-    return `${Math.round(mb)} MB`;
-  }
-  return `${Number(mb.toFixed(1))} MB`;
+/** Whether the file is bigger than this deployment's per-file limit (false while the limit is unknown). */
+function isOverUploadLimit(file: File): boolean {
+  const limit = getSizeLimitFor(file);
+  return limit !== null && file.size > limit;
 }
 
 /**
@@ -226,6 +195,11 @@ export function getFileRejectionReason(file: File, isFolder = false): string {
 
   if (isFolder || (file as { isFolder?: boolean }).isFolder === true) {
     return "is a folder: use Choose folder";
+  }
+
+  const limit = getSizeLimitFor(file);
+  if (limit !== null && file.size > limit && getInferredMediaType(file)) {
+    return `${formatMegabytes(file.size)}, over the ${formatMegabytes(limit)} file size limit`;
   }
 
   if (
@@ -282,7 +256,7 @@ export function validateImageFiles(files: File[]): FileSelectionIssue[] {
       return [{ file, reason: getFileRejectionReason(file, true) }];
     }
     const mime = getInferredImageType(file);
-    if (!mime) {
+    if (!mime || isOverUploadLimit(file)) {
       return [{ file, reason: getFileRejectionReason(file, false) }];
     }
     return [];
@@ -297,7 +271,7 @@ export function validateMediaFiles(files: File[]): FileSelectionIssue[] {
       return [{ file, reason: getFileRejectionReason(file, true) }];
     }
     const mime = getInferredMediaType(file);
-    if (!mime) {
+    if (!mime || isOverUploadLimit(file)) {
       return [{ file, reason: getFileRejectionReason(file) }];
     }
     return [];
@@ -322,6 +296,11 @@ export function selectFolderFiles(files: File[]): FolderSelectionResult {
     const mime = getInferredMediaType(file);
     if (!mime) {
       unsupported++;
+      continue;
+    }
+
+    if (isOverUploadLimit(file)) {
+      tooLarge.push(file);
       continue;
     }
 
@@ -358,150 +337,33 @@ export function formatFolderSummary(result: FolderSelectionResult): string {
       .map((f) => f.name)
       .join(", ");
     const more = k > 5 ? `, +${k - 5} more` : "";
-    text += `, ${k} over the deployment limit: ${shown}${more}`;
+    const limits = getUploadLimits();
+    const label = limits
+      ? ` (${formatMegabytes(limits.imageUploadMaxBytes)} for photos, ${formatMegabytes(limits.videoUploadMaxBytes)} for videos)`
+      : "";
+    text += `, ${k} over the file size limit${label}: ${shown}${more}`;
   }
   return text;
 }
 
 /**
- * Checks whether an unknown dropped file item is a folder by probing slice readability.
+ * Sorts the files react-dropzone read from a drop into "one folder" or "anything else".
+ *
+ * react-dropzone (via file-selector) already walks folders and gives each file a `path`: "/photos/a.jpg" for a file
+ * inside a dropped folder "photos", and "/a.jpg" or "./a.jpg" for a loose file. When every file sits under the same
+ * single top folder the drop is a folder drop, and each file gets that path as its relative path so the folder name and
+ * sub-folders show up in the list. Hidden files inside the folder are kept so the folder summary can count them; hidden
+ * files dropped on their own are ignored.
  */
-export async function isFolderFile(file: File): Promise<boolean> {
-  if ((file as { isFolder?: boolean }).isFolder === true) {
-    return true;
-  }
-  // Browsers give a dropped folder an empty type and throw when its bytes are read, so a real file with a type
-  // is never a folder and an untyped one is tested by trying to read a single byte.
-  if (file.type !== "") {
-    return false;
-  }
-  if (typeof file.slice === "function") {
-    try {
-      const slice = file.slice(0, 1);
-      if (typeof slice.arrayBuffer === "function") {
-        await slice.arrayBuffer();
-        return false;
-      }
-    } catch {
-      return true;
-    }
-  }
-  return false;
-}
+export function readDroppedFiles(dropped: File[]): { folderFiles: File[] | null; otherFiles: File[] } {
+  const paths = dropped.map((file) => ((file as File & { path?: string }).path ?? file.name).replace(/^\.?\//, ""));
+  const topFolders = new Set(paths.map((path) => (path.includes("/") ? path.split("/")[0] : "")));
+  const isOneFolder = dropped.length > 0 && topFolders.size === 1 && !topFolders.has("");
 
-/**
- * Asynchronously extracts a standard File instance from a WebKit file entry.
- */
-export async function readFileEntry(entry: WebkitFileEntry): Promise<File> {
-  return new Promise<File>((resolve, reject) => {
-    entry.file(resolve, reject);
-  });
-}
-
-/**
- * Exhaustively reads all entries from a WebKit directory reader.
- */
-export async function readDirectoryEntries(dirEntry: WebkitDirectoryEntry): Promise<WebkitEntry[]> {
-  const reader = dirEntry.createReader();
-  const allEntries: WebkitEntry[] = [];
-  // The FileSystemDirectoryReader spec and browser engines (Chromium) return directory entries
-  // in successive batches of variable size (typically 100 entries). Calling readEntries once
-  // does not guarantee all files are listed; we loop until an empty array signals EOF.
-  while (true) {
-    const batch = await new Promise<WebkitEntry[]>((resolve, reject) => {
-      reader.readEntries(resolve, reject);
-    });
-    if (!batch || batch.length === 0) {
-      break;
-    }
-    allEntries.push(...batch);
+  if (isOneFolder) {
+    return { folderFiles: dropped.map((file, index) => attachRelativePath(file, paths[index])), otherFiles: [] };
   }
-  return allEntries;
-}
-
-/**
- * Recursively walks a WebKit directory entry yielding all contained files with relative paths.
- */
-export async function walkDirectory(dirEntry: WebkitDirectoryEntry, parentPath = dirEntry.name): Promise<File[]> {
-  const entries = await readDirectoryEntries(dirEntry);
-  const files: File[] = [];
-
-  for (const entry of entries) {
-    const entryPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
-    if (entry.isDirectory) {
-      try {
-        const subFiles = await walkDirectory(entry, entryPath);
-        files.push(...subFiles);
-      } catch (err) {
-        // An unreadable folder becomes an empty placeholder carrying `errorReason`, so validation lists it as
-        // rejected with that message and the rest of the drop still goes through.
-        const errFile = new File([], entry.name, { type: "" });
-        attachRelativePath(errFile, entryPath);
-        Object.defineProperty(errFile, "errorReason", {
-          value: `Could not read folder: ${err instanceof Error ? err.message : "error"}`,
-          configurable: true,
-        });
-        files.push(errFile);
-      }
-    } else if (entry.isFile && typeof entry.file === "function") {
-      try {
-        const file = await readFileEntry(entry);
-        attachRelativePath(file, entryPath);
-        files.push(file);
-      } catch (err) {
-        const errFile = new File([], entry.name, { type: "" });
-        attachRelativePath(errFile, entryPath);
-        Object.defineProperty(errFile, "errorReason", {
-          value: `Could not read file: ${err instanceof Error ? err.message : "error"}`,
-          configurable: true,
-        });
-        files.push(errFile);
-      }
-    }
-  }
-
-  return files;
-}
-
-/**
- * Traverses an array of WebKit entries collecting all underlying files.
- */
-export async function walkEntries(entries: WebkitEntry[]): Promise<File[]> {
-  const files: File[] = [];
-  for (const entry of entries) {
-    if (entry.isDirectory) {
-      const subFiles = await walkDirectory(entry, entry.name);
-      files.push(...subFiles);
-    } else if (entry.isFile && typeof entry.file === "function") {
-      const file = await readFileEntry(entry);
-      files.push(file);
-    }
-  }
-  return files;
-}
-
-/**
- * Inspects dropped entries to determine whether the drop represents a single directory, files, or a mix.
- */
-export function classifyDrop(entries: WebkitEntry[]): ClassifiedDrop {
-  if (entries.length === 1 && entries[0].isDirectory) {
-    return {
-      kind: "single-folder",
-      folderEntry: entries[0] as WebkitDirectoryEntry,
-      entries,
-    };
-  }
-  if (entries.length > 0 && entries.every((e) => e.isFile)) {
-    return {
-      kind: "files-only",
-      fileEntries: entries as WebkitFileEntry[],
-      entries,
-    };
-  }
-  return {
-    kind: "mixed",
-    entries,
-  };
+  return { folderFiles: null, otherFiles: dropped.filter((file) => !isHiddenOrSystemFile(file)) };
 }
 
 /**

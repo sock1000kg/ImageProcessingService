@@ -1,9 +1,11 @@
+import { PNG_BYTES } from "../helpers/image-bytes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { rerunBatch } from "../../src/services/batch.service";
 import * as jobRepository from "../../src/repositories/job.repository";
 import * as messaging from "../../src/messaging";
 import { storage, UPLOADS_BUCKET } from "../../src/storage";
 import { JobStatus } from "../../src/generated/prisma/client";
+import { prisma } from "../../src/db/prisma";
 import { rerunBatchHandler } from "../../src/controllers/batches.controller";
 
 describe("Batch Rerun Unit Tests (Task 38)", () => {
@@ -210,7 +212,7 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
       encoding: "7bit",
       mimetype: "image/png",
       size: 1024,
-      buffer: Buffer.from("whitelist-image"),
+      buffer: PNG_BYTES,
       destination: "",
       filename: "",
       path: "",
@@ -268,6 +270,8 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
     vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue(validSourceBatch as any);
     // objectExists returns false -> all originals missing
     vi.spyOn(storage, "objectExists").mockResolvedValue(false);
+    vi.spyOn(prisma.uploadSession, "findMany").mockResolvedValue([]);
+    vi.spyOn(jobRepository, "batchHasActiveJobs").mockResolvedValue(false);
     const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockResolvedValue(undefined);
     const deleteRowSpy = vi.spyOn(jobRepository, "deleteBatchRowOwnedByUser").mockResolvedValue(true);
 

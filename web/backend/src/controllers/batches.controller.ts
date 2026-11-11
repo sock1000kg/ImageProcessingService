@@ -11,12 +11,12 @@ import {
   deleteBatchById,
   getBatchById,
   getBatchReportById,
-  getBatchWhitelistPresignedUrl,
   listBatches,
   renameBatch,
   rerunBatch,
   startBatch,
 } from "../services/batch.service";
+import { getBatchWhitelistPresignedUrl } from "../services/presign.service";
 import { notFound, unauthorized } from "../errors";
 import { listBatchesQuerySchema, parseFaceListIds, patchBatchBodySchema, validateIdParam } from "../dto";
 import { createBatchDownloadToken, verifyBatchDownloadToken } from "../auth";

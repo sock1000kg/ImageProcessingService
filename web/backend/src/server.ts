@@ -6,7 +6,8 @@ import { config } from "./config";
 import { closeDatabase, pendingMigrations, verifyDatabase } from "./db";
 import { closeMessaging, connectMessaging } from "./messaging";
 import { verifyBuckets } from "./storage";
-import { cleanupExpiredBatches, retryPendingWhitelistCleanups } from "./services/batch.service";
+import { cleanupAbandonedUploads } from "./services/upload-cleanup.service";
+import { cleanupExpiredBatches, retryPendingWhitelistCleanups } from "./services/retention.service";
 
 let cleanupTimer: NodeJS.Timeout | null = null;
 
@@ -17,6 +18,9 @@ function startCleanupTimer(): void {
     });
     retryPendingWhitelistCleanups().catch((error) => {
       console.error("Retry pending whitelist cleanups failed", error);
+    });
+    cleanupAbandonedUploads().catch((error) => {
+      console.error("Cleanup abandoned uploads failed", error);
     });
   }, config.CLEANUP_INTERVAL_MS);
 }

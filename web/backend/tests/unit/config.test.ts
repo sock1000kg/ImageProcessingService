@@ -73,15 +73,23 @@ describe("Batch Config Schema and Defaults", () => {
   });
 
   it("uses detection mode defaults unless thresholds are explicitly supplied", () => {
-    expect(parseBatchConfig({ detectionMode: "accurate" })).toMatchObject({
-      detectionMode: "accurate",
-      faceConfidenceThreshold: 0.13,
-      plateConfidenceThreshold: 0.09,
+    expect(parseBatchConfig({ detectionMode: "max_privacy" })).toMatchObject({
+      detectionMode: "max_privacy",
+      faceConfidenceThreshold: 0.06,
+      plateConfidenceThreshold: 0.05,
     });
     expect(parseBatchConfig({ detectionMode: "max_privacy", faceConfidenceThreshold: 0.2 })).toMatchObject({
       detectionMode: "max_privacy",
       faceConfidenceThreshold: 0.2,
       plateConfidenceThreshold: 0.05,
+    });
+  });
+
+  it("treats a retired detection mode in a stored config as fast", () => {
+    expect(parseBatchConfig({ detectionMode: "accurate" })).toMatchObject({
+      detectionMode: "fast",
+      faceConfidenceThreshold: 0.17,
+      plateConfidenceThreshold: 0.11,
     });
   });
 

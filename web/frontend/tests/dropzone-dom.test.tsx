@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, fireEvent, within } from "@testing-library/react";
+import { cleanup, render, fireEvent, within, waitFor } from "@testing-library/react";
 
 afterEach(() => {
   cleanup();
@@ -96,5 +96,87 @@ describe("RejectedFilesNotice reusable component", () => {
     // 10 items + 1 more item
     const items = within(getByRole("list")).getAllByRole("listitem");
     expect(items).toHaveLength(11);
+  });
+});
+
+describe("Dropping folders and files", () => {
+  /** A fake dropped file entry, as the browser's webkitGetAsEntry gives it. */
+  function fileEntry(name: string, fullPath: string) {
+    return {
+      name,
+      fullPath,
+      isFile: true,
+      isDirectory: false,
+      file: (done: (file: File) => void) => done(new File([new Uint8Array(10)], name, { type: "image/jpeg" })),
+    };
+  }
+
+  /** A fake dropped folder whose entries are handed out in two chunks, like Chromium does. */
+  function folderEntry(name: string, children: unknown[]) {
+    return {
+      name,
+      fullPath: `/${name}`,
+      isFile: false,
+      isDirectory: true,
+      createReader: () => {
+        let call = 0;
+        return {
+          readEntries: (done: (entries: unknown[]) => void) => {
+            call++;
+            done(call === 1 ? children.slice(0, 1) : call === 2 ? children.slice(1) : []);
+          },
+        };
+      },
+    };
+  }
+
+  function dropOn(zone: HTMLElement, entries: Array<{ isFile: boolean; name: string }>) {
+    // Like a browser: a dropped file can be read directly, a dropped folder only through its entry.
+    const items = entries.map((entry) => ({
+      kind: "file",
+      webkitGetAsEntry: () => entry,
+      getAsFile: () => (entry.isFile ? new File([new Uint8Array(10)], entry.name, { type: "image/jpeg" }) : null),
+    }));
+    fireEvent.drop(zone, { dataTransfer: { items, files: [], types: ["Files"] } });
+  }
+
+  it("sends one dropped folder, with its sub-folders, to the folder handler with relative paths", async () => {
+    const onFiles = vi.fn();
+    const onFolderFiles = vi.fn();
+    const { getByRole } = render(
+      <FileDropzone files={[]} errors={{}} onFiles={onFiles} onFolderFiles={onFolderFiles} />,
+    );
+
+    dropOn(getByRole("button", { name: /choose images|drop/i }), [
+      folderEntry("trip", [
+        fileEntry("a.jpg", "/trip/a.jpg"),
+        folderEntry("day2", [fileEntry("b.jpg", "/trip/day2/b.jpg")]),
+      ]),
+    ]);
+
+    await waitFor(() => expect(onFolderFiles).toHaveBeenCalledTimes(1));
+    const received = onFolderFiles.mock.calls[0][0] as File[];
+    expect(received.map((file) => (file as File & { webkitRelativePath: string }).webkitRelativePath).sort()).toEqual([
+      "trip/a.jpg",
+      "trip/day2/b.jpg",
+    ]);
+    expect(onFiles).not.toHaveBeenCalled();
+  });
+
+  it("sends loose dropped files to the file handler", async () => {
+    const onFiles = vi.fn();
+    const onFolderFiles = vi.fn();
+    const { getByRole } = render(
+      <FileDropzone files={[]} errors={{}} onFiles={onFiles} onFolderFiles={onFolderFiles} />,
+    );
+
+    dropOn(getByRole("button", { name: /choose images|drop/i }), [
+      fileEntry("a.jpg", "/a.jpg"),
+      fileEntry("b.jpg", "/b.jpg"),
+    ]);
+
+    await waitFor(() => expect(onFiles).toHaveBeenCalledTimes(1));
+    expect((onFiles.mock.calls[0][0] as File[]).map((file) => file.name)).toEqual(["a.jpg", "b.jpg"]);
+    expect(onFolderFiles).not.toHaveBeenCalled();
   });
 });

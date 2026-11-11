@@ -117,11 +117,12 @@ model UploadSession {
   contentType String  @map("content_type")
   totalBytes Int      @map("total_bytes")
   uploadId   String   @map("upload_id")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  // Moves forward each time a part arrives, so the cleanup can tell an upload still in progress from a dead one.
+  lastActivityAt DateTime @default(now()) @map("last_activity_at") @db.Timestamptz
 
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   batch      Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
-  @@index([userId, createdAt])
+  @@index([lastActivityAt])
   @@map("upload_sessions")
 }

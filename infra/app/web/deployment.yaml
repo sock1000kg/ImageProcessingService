@@ -116,15 +116,53 @@ spec:
             # The public site is HTTPS only (Cloudflare), so the refresh cookie must be Secure.
             - name: COOKIE_SECURE
               value: "true"
-            # Requests arrive through cloudflared + Traefik; Cloudflare sets the real client IP here.
+            # Header holding the real client IP: requests arrive through cloudflared + Traefik, and Cloudflare sets it.
+            - name: CLIENT_IP_HEADER
+              value: cf-connecting-ip
+            # Everything below is a tunable that the lab sets explicitly so the deployment is declarative, even where
+            # the value equals the web's built-in default.
+            # Login lifetime: access token 15 min, refresh token 7 days (seconds).
+            - name: JWT_ACCESS_TTL
+              value: "900"
+            - name: JWT_REFRESH_TTL
+              value: "604800"
+            # Multipliers on the per-minute rate limits (login/register; batch create, uploads and zip downloads).
             - name: RATE_LIMIT_MULTIPLIER
               value: "1"
             - name: TRANSFER_RATE_LIMIT_MULTIPLIER
               value: "1"
+            # Largest accepted photo (50 MB). A photo travels in one request, so this stays under Cloudflare's 100 MB.
+            - name: IMAGE_UPLOAD_MAX_BYTES
+              value: "52428800"
+            # Largest accepted video (200 MB). Videos are sent in chunks, so this is not bound by Cloudflare's limit.
+            - name: VIDEO_UPLOAD_MAX_BYTES
+              value: "209715200"
+            # Size of each video chunk (8 MB): at least 5 MB (S3 minimum), under Cloudflare's 100 MB per request, and
+            # VIDEO_UPLOAD_MAX_BYTES / this must stay within S3's 10,000 parts.
+            - name: UPLOAD_CHUNK_BYTES
+              value: "8388608"
+            # Most files in one batch.
             - name: BATCH_MAX_FILES
               value: "1000"
-            - name: CLIENT_IP_HEADER
-              value: cf-connecting-ip
+            # Accepted video length in seconds.
+            - name: VIDEO_MIN_DURATION_SECONDS
+              value: "15"
+            - name: VIDEO_MAX_DURATION_SECONDS
+              value: "60"
+            # ffprobe binary used to check uploaded videos (installed in the web image).
+            - name: FFPROBE_BIN
+              value: ffprobe
+            # Lifetime in seconds of download links: results (1 h) and private originals / allow-list faces (5 min).
+            - name: PRESIGN_RESULT_TTL_SECONDS
+              value: "3600"
+            - name: PRESIGN_PRIVATE_TTL_SECONDS
+              value: "300"
+            # How often (ms, 10 min) the web deletes expired batches, abandoned drafts and unfinished uploads.
+            - name: CLEANUP_INTERVAL_MS
+              value: "600000"
+            # Days a batch is kept before deletion. Empty = keep until the user deletes it.
+            - name: RETENTION_DAYS
+              value: ""
       volumes:
         - name: tmp
           emptyDir: {}

@@ -1,15 +1,15 @@
+import { PNG_BYTES } from "../helpers/image-bytes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addBatchFile,
   deleteBatchById,
   getBatchById,
   getBatchReportById,
-  getJobById,
   renameBatch,
   rerunBatch,
-  retryFailedJob,
   startBatch,
 } from "../../src/services/batch.service";
+import { getJobById, retryFailedJob } from "../../src/services/job.service";
 import * as jobRepository from "../../src/repositories/job.repository";
 
 describe("Batch and Job Owner Scoping Unit Tests (Task 90)", () => {
@@ -85,7 +85,7 @@ describe("Batch and Job Owner Scoping Unit Tests (Task 90)", () => {
       encoding: "7bit",
       mimetype: "image/jpeg",
       size: 100,
-      buffer: Buffer.from("test"),
+      buffer: PNG_BYTES,
       stream: null as any,
       destination: "",
       filename: "",

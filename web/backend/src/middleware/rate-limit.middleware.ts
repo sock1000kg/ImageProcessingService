@@ -1,11 +1,10 @@
 /**
- * Fixed-window, in-memory rate limiting. Enough for one web pod; counters reset when the pod restarts.
+ * Per-minute rate limiting with the app's multipliers. In memory: enough for one web pod, counters reset on restart.
  */
 import { NextFunction, Request, Response } from "express";
+import expressRateLimit from "express-rate-limit";
 import { config } from "../config";
 import { tooManyRequests } from "../errors";
-
-type Bucket = { count: number; resetAt: number };
 
 /**
  * Scales a base per-minute limit using the global RATE_LIMIT_MULTIPLIER.
@@ -51,85 +50,32 @@ export function clientIp(request: Request): string {
 }
 
 /**
- * Limits each key to `max` requests per window.
+ * Limits each key to `base` requests per minute, scaled by the multiplier of its group ("general" by default, or
+ * "transfer" for uploads and downloads), and answers over-limit requests with the app's 429 error.
  *
- * Supports two calling conventions:
- * 1. `rateLimit(base, keyOf?, group?)`: builds a 60-second limiter using a base per-minute limit scaled by
- *    RATE_LIMIT_MULTIPLIER ("general") or TRANSFER_RATE_LIMIT_MULTIPLIER ("transfer").
- * 2. `rateLimit(windowMs, max, keyOf?)`: builds a limiter with explicit windowMs and max count.
- *    Used for tests or custom window configurations.
+ * Counting is done by `express-rate-limit` (fixed window, in memory). `limit` is a function so the multiplier is read on
+ * every request, which lets it be changed at runtime and keeps tests simple.
  */
 export function rateLimit(
   base: number,
-  keyOf?: (request: Request) => string,
-  group?: RateLimitGroup,
-): (request: Request, response: Response, next: NextFunction) => void;
-export function rateLimit(
-  windowMs: number,
-  max: number,
-  keyOf?: (request: Request) => string,
-): (request: Request, response: Response, next: NextFunction) => void;
-export function rateLimit(
-  baseOrWindowMs: number,
-  maxOrKeyOf?: number | ((request: Request) => string),
-  keyOfOrGroup?: ((request: Request) => string) | RateLimitGroup,
-  _maybeGroup?: RateLimitGroup,
-): (request: Request, response: Response, next: NextFunction) => void {
-  // Two call shapes share one implementation. Explicit: (windowMs, max, keyOf?) uses the numbers as given and
-  // ignores the multipliers. Scaled: (base, keyOf?, group?) uses a 60 s window and scales `base` by the
-  // multiplier of its group. The type of the second argument tells them apart.
-  const isExplicit = typeof maxOrKeyOf === "number";
-  const windowMs = isExplicit ? baseOrWindowMs : 60_000;
-  const keyOf = isExplicit
-    ? typeof keyOfOrGroup === "function"
-      ? keyOfOrGroup
-      : clientIp
-    : typeof maxOrKeyOf === "function"
-      ? maxOrKeyOf
-      : clientIp;
-  const group: RateLimitGroup = !isExplicit && typeof keyOfOrGroup === "string" ? keyOfOrGroup : "general";
-
-  // Fixed-window counter per key: the first request opens a window, later ones add to its count until it ends.
-  const buckets = new Map<string, Bucket>();
-  let nextSweep = Date.now() + windowMs;
-
-  return (request: Request, response: Response, next: NextFunction): void => {
-    const now = Date.now();
-    // Drop finished windows once per window so the map does not grow with every IP ever seen.
-    if (now >= nextSweep) {
-      for (const [key, bucket] of buckets) {
-        if (bucket.resetAt <= now) buckets.delete(key);
-      }
-      nextSweep = now + windowMs;
-    }
-
-    const multiplier = group === "transfer" ? config.TRANSFER_RATE_LIMIT_MULTIPLIER : config.RATE_LIMIT_MULTIPLIER;
-    const max = isExplicit ? maxOrKeyOf : scaleLimit(baseOrWindowMs, multiplier);
-    const key = keyOf(request);
-    const current = buckets.get(key);
-    const bucket = !current || current.resetAt <= now ? { count: 0, resetAt: now + windowMs } : current;
-    bucket.count += 1;
-    buckets.set(key, bucket);
-    if (bucket.count > max) {
-      response.setHeader("Retry-After", Math.ceil((bucket.resetAt - now) / 1000));
-      next(tooManyRequests("Too many requests", "RATE_LIMITED"));
-      return;
-    }
-    next();
-  };
-}
-
-/** Helper that builds a per-minute rate limiter with RATE_LIMIT_MULTIPLIER applied. */
-export function buildRateLimiter(
-  base: number,
   keyOf: (request: Request) => string = clientIp,
-  windowMs = 60_000,
-  multiplier: number = config.RATE_LIMIT_MULTIPLIER,
+  group: RateLimitGroup = "general",
 ) {
-  return rateLimit(windowMs, scaleLimit(base, multiplier), keyOf);
+  return expressRateLimit({
+    windowMs: 60_000,
+    limit: () =>
+      scaleLimit(base, group === "transfer" ? config.TRANSFER_RATE_LIMIT_MULTIPLIER : config.RATE_LIMIT_MULTIPLIER),
+    keyGenerator: keyOf,
+    // Sends Retry-After on a 429 (the browser's upload workers wait on it); no other rate-limit headers are needed.
+    legacyHeaders: false,
+    standardHeaders: true,
+    handler: (_request: Request, _response: Response, next: NextFunction) =>
+      next(tooManyRequests("Too many requests", "RATE_LIMITED")),
+    // The client IP comes from CLIENT_IP_HEADER (see clientIp), not from Express's proxy settings, so the library's
+    // checks of those settings do not apply.
+    validate: { trustProxy: false, xForwardedForHeader: false, keyGeneratorIpFallback: false },
+  });
 }
-
-export const createRateLimiter = buildRateLimiter;
 
 /** Key for routes behind requireAuth: limit per account, falling back to the IP. */
 export function userKey(request: Request): string {

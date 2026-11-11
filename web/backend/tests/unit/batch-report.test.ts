@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { toReportResponse } from "../../src/dto/batch.dto";
+import { toReportResponse } from "../../src/dto/report.dto";
 
 function reportInput(summary: unknown, status = "COMPLETED", extra: Record<string, unknown> = {}) {
   return {

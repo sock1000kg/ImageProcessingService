@@ -284,6 +284,14 @@ export async function getJobsByBatchId(batchId: string) {
   });
 }
 
+/** True while any job of the batch is queued or being processed by the Engine. */
+export async function batchHasActiveJobs(batchId: string): Promise<boolean> {
+  const active = await prisma.job.count({
+    where: { batchId, status: { in: [JobStatus.QUEUED, JobStatus.PROCESSING] } },
+  });
+  return active > 0;
+}
+
 export async function deleteBatchRow(id: string): Promise<boolean> {
   const result = await prisma.batch.deleteMany({
     where: { id },

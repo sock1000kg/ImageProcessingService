@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { Request, Response } from "express";
-import { applyJobEvent, editJob, retryFailedJob } from "../../src/services/batch.service";
+import { applyJobEvent } from "../../src/services/job-events.service";
+import { editJob, retryFailedJob } from "../../src/services/job.service";
 import * as jobRepository from "../../src/repositories/job.repository";
 import * as messaging from "../../src/messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../../src/storage";

@@ -1,19 +1,12 @@
 /**
- * Drag-and-drop file and directory intake zone supporting folder traversal and click selection.
+ * Drag-and-drop file and folder intake zone, plus the click-to-browse and "Choose folder" buttons.
  */
-import { DragEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useDropzone } from "react-dropzone";
 import { UploadSimpleIcon } from "@phosphor-icons/react";
-import {
-  ClassifiedDrop,
-  classifyDrop,
-  isFolderFile,
-  isHiddenOrSystemFile,
-  readFileEntry,
-  walkDirectory,
-  walkEntries,
-  WebkitEntry,
-  WebkitFileEntry,
-} from "./file-selection";
+import { useUploadLimits } from "../hooks/useUploadLimits";
+import { formatMegabytes } from "../utils/format";
+import { readDroppedFiles } from "./file-selection";
 
 export interface FileDropzoneProps {
   files: File[];
@@ -23,12 +16,11 @@ export interface FileDropzoneProps {
 }
 
 /**
- * Dropzone component accepting individual image drops, folder drops via webkitGetAsEntry,
- * or standard button file pickers.
+ * Dropzone accepting dropped files and folders (react-dropzone reads inside folders for us) or the browse buttons.
+ * A drop of exactly one folder goes to `onFolderFiles` (folder mode); anything else goes to `onFiles`.
  */
 export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDropzoneProps) {
-  const [dragging, setDragging] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const limits = useUploadLimits();
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [folderSelectionSupported, setFolderSelectionSupported] = useState(true);
 
@@ -40,100 +32,28 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
     if (supported) input.setAttribute("webkitdirectory", "");
   }, []);
 
-  const accept = (incoming: File[]) => onFiles(incoming);
+  const sendFolderFiles = (selected: File[]) => (onFolderFiles ?? onFiles)(selected);
 
-  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setDragging(false);
-
-    try {
-      // Two ways to read a drop. `items` + webkitGetAsEntry can see inside folders, so it is tried first;
-      // `dataTransfer.files` (the fallback at the bottom) lists a dropped folder as one odd, empty "file".
-      const items = event.dataTransfer.items;
-      const rawEntries: (WebkitEntry | null)[] = [];
-      let hasWebkitGetAsEntry = false;
-
-      if (items && items.length > 0) {
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          if (typeof item.webkitGetAsEntry === "function") {
-            hasWebkitGetAsEntry = true;
-            rawEntries.push(item.webkitGetAsEntry() as WebkitEntry | null);
-          }
-        }
-      }
-
-      if (hasWebkitGetAsEntry) {
-        const entries = rawEntries.filter((entry): entry is WebkitEntry => entry !== null);
-        if (entries.length > 0) {
-          // One folder → folder mode (replaces the selection); only files → plain add; a mix → flatten everything.
-          const drop: ClassifiedDrop = classifyDrop(entries);
-          if (drop.kind === "single-folder" && drop.folderEntry) {
-            const folderFiles = await walkDirectory(drop.folderEntry, drop.folderEntry.name);
-            if (onFolderFiles) {
-              onFolderFiles(folderFiles);
-            } else {
-              onFiles(folderFiles);
-            }
-            return;
-          }
-
-          if (drop.kind === "files-only") {
-            const filesOnly: File[] = [];
-            for (const entry of entries) {
-              if (entry.isFile && typeof entry.file === "function") {
-                const file = await readFileEntry(entry as WebkitFileEntry);
-                filesOnly.push(file);
-              }
-            }
-            accept(filesOnly);
-            return;
-          }
-
-          const allFiles = await walkEntries(entries);
-          const filtered = allFiles.filter((f) => !isHiddenOrSystemFile(f));
-          accept(filtered);
-          return;
-        }
-      }
-
-      // Fallback for browsers without webkitGetAsEntry: mark folders so the list can say "use Choose folder".
-      const rawFiles = Array.from(event.dataTransfer.files ?? []);
-      const detectedFiles = await Promise.all(
-        rawFiles.map(async (file) => {
-          const isFolder = await isFolderFile(file);
-          if (isFolder) {
-            Object.defineProperty(file, "isFolder", { value: true, configurable: true });
-          }
-          return file;
-        }),
-      );
-      accept(detectedFiles);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Failed to read dropped files.";
-      // A failed read is shown as a rejected placeholder file in the list instead of being lost silently.
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
+    onDrop: (dropped) => {
+      const { folderFiles, otherFiles } = readDroppedFiles(dropped);
+      if (folderFiles) sendFolderFiles(folderFiles);
+      else onFiles(otherFiles);
+    },
+    // A failed read is shown as a rejected placeholder file in the list instead of being lost silently.
+    onError: (error) => {
       const errorFile = new File([], "drop", { type: "" });
       Object.defineProperty(errorFile, "errorReason", {
-        value: `Could not read dropped files: ${msg}`,
+        value: `Could not read dropped files: ${error.message || "error"}`,
         configurable: true,
       });
-      accept([errorFile]);
-    }
-  };
+      onFiles([errorFile]);
+    },
+  });
 
   return (
     <div className="dropzone-wrapper">
-      <input
-        ref={inputRef}
-        hidden
-        type="file"
-        multiple
-        accept="image/jpeg,image/png,image/webp,video/mp4"
-        onChange={(event) => {
-          accept(Array.from(event.target.files ?? []));
-          event.currentTarget.value = "";
-        }}
-      />
+      <input {...getInputProps({ accept: "image/jpeg,image/png,image/webp,video/mp4" })} />
       <input
         ref={folderInputRef}
         hidden
@@ -151,20 +71,11 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
         }}
       />
       <div
-        className={`dropzone ${dragging ? "is-dragging" : ""}`}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(event) => void handleDrop(event)}
-        onClick={() => inputRef.current?.click()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") inputRef.current?.click();
-        }}
-        role="button"
-        tabIndex={0}
-        aria-label="Choose images to redact"
+        {...getRootProps({
+          className: `dropzone ${isDragActive ? "is-dragging" : ""}`,
+          role: "button",
+          "aria-label": "Choose images to redact",
+        })}
       >
         <span className="dropzone-icon">
           <UploadSimpleIcon aria-hidden />
@@ -174,14 +85,18 @@ export function FileDropzone({ files, errors, onFiles, onFolderFiles }: FileDrop
             ? `${files.length} image${files.length === 1 ? "" : "s"} selected`
             : "Drop images or MP4 videos here or browse"}
         </strong>
-        <span>JPG, PNG, WEBP or MP4</span>
+        <span>
+          JPG, PNG, WEBP or MP4
+          {limits &&
+            ` · photos up to ${formatMegabytes(limits.imageUploadMaxBytes)}, videos up to ${formatMegabytes(limits.videoUploadMaxBytes)}`}
+        </span>
         <div className="dropzone-actions">
           <button
             type="button"
             className="secondary-button"
             onClick={(event) => {
               event.stopPropagation();
-              inputRef.current?.click();
+              open();
             }}
           >
             Choose files

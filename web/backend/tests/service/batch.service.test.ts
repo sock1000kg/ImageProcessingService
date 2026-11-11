@@ -6,14 +6,14 @@ import { closeDatabase, prisma } from "../../src/db";
 import { storage } from "../../src/storage";
 import {
   addBatchFile,
-  applyJobEvent,
-  checkAndCleanBatchWhitelist,
   createDraftBatch,
   deleteBatchById,
   getBatchById,
   renameBatch,
   startBatch,
 } from "../../src/services/batch.service";
+import { applyJobEvent } from "../../src/services/job-events.service";
+import { checkAndCleanBatchWhitelist } from "../../src/services/retention.service";
 import { connectMessaging, closeMessaging } from "../../src/messaging";
 
 describe("Batch Service Integration Tests", () => {

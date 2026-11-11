@@ -1,14 +1,8 @@
-import {
-  createHash,
-  createHmac,
-  randomBytes,
-  randomUUID,
-  scrypt as scryptCallback,
-  timingSafeEqual,
-} from "node:crypto";
+import jwt from "jsonwebtoken";
+import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { config } from "./config";
-import { badRequest, conflict, unauthorized } from "./errors";
+import { AppError, badRequest, conflict, unauthorized } from "./errors";
 import { prisma } from "./db/prisma";
 
 const scrypt = promisify(scryptCallback);
@@ -49,45 +43,29 @@ export async function verifyPassword(password: string, encoded: string): Promise
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-function encode(value: string): string {
-  return Buffer.from(value).toString("base64url");
-}
-
 function signJwt(payload: Record<string, string | number>): string {
-  const header = encode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const body = encode(JSON.stringify(payload));
-  const input = `${header}.${body}`;
-  const signature = createHmac("sha256", requireJwtSecret()).update(input).digest("base64url");
-  return `${input}.${signature}`;
+  return jwt.sign(payload, requireJwtSecret(), { algorithm: "HS256" });
 }
 
-/** General JWT token verifier: verifies HS256 signature, structure, and expiration. */
+/** General JWT token verifier: verifies the HS256 signature, structure and expiration. */
 export function verifyJwt<T extends Record<string, unknown>>(
   token: string,
   errorMessage = "Invalid token",
   errorCode = "INVALID_TOKEN",
 ): T {
-  const parts = token.split(".");
-  if (parts.length !== 3) throw unauthorized(errorMessage, errorCode);
-  const input = `${parts[0]}.${parts[1]}`;
-  const expected = createHmac("sha256", requireJwtSecret()).update(input).digest();
-  const received = Buffer.from(parts[2], "base64url");
-  if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
-    throw unauthorized(errorMessage, errorCode);
-  }
-  let payload: T;
+  const secret = requireJwtSecret();
   try {
-    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as T;
-  } catch {
+    // Pinning the algorithm stops a token that names another one (such as "none") from being accepted.
+    const payload = jwt.verify(token, secret, { algorithms: ["HS256"] });
+    if (typeof payload === "string" || typeof payload.exp !== "number") {
+      throw unauthorized(errorMessage, errorCode);
+    }
+    return payload as T;
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) throw unauthorized("Token expired or invalid", errorCode);
+    if (error instanceof AppError) throw error;
     throw unauthorized(errorMessage, errorCode);
   }
-  if (
-    typeof (payload as { exp?: unknown }).exp !== "number" ||
-    (payload as unknown as { exp: number }).exp <= Math.floor(Date.now() / 1000)
-  ) {
-    throw unauthorized("Token expired or invalid", errorCode);
-  }
-  return payload;
 }
 
 export function createAccessToken(user: AuthUser): string {

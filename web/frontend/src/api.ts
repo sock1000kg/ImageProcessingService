@@ -171,7 +171,8 @@ export async function uploadFileToBatch(batchId: string, file: File): Promise<{ 
   return request(`/api/batches/${batchId}/files`, { method: "POST", body: form });
 }
 
-const MULTIPART_CHUNK_BYTES = 8 * 1024 * 1024;
+/** Used only if the server does not say which chunk size to use (it normally does, in the start response). */
+const UPLOAD_MULTI_CHUNK_SIZE = 8 * 1024 * 1024;
 
 async function uploadVideoToBatch(
   batchId: string,
@@ -183,7 +184,7 @@ async function uploadVideoToBatch(
     body: JSON.stringify({ batchId, filename: file.name, contentType: file.type, totalBytes: file.size }),
     headers: { "Content-Type": "application/json" },
   });
-  const chunkBytes = started.chunkBytes || MULTIPART_CHUNK_BYTES;
+  const chunkBytes = started.chunkBytes || UPLOAD_MULTI_CHUNK_SIZE;
   // Multipart upload: the file is sent in fixed-size chunks (one PUT each, retried once), the server returns an
   // ETag per chunk, and `complete` hands back the ordered list so storage can assemble them. Any failure cancels
   // the session so no partial object is left behind.
@@ -218,6 +219,17 @@ async function uploadVideoToBatch(
     await request(`/api/uploads/${started.uploadId}`, { method: "DELETE" }).catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * Reads this deployment's upload limits (max bytes per file, max files per batch).
+ */
+export function getLimits(): Promise<{
+  imageUploadMaxBytes: number;
+  videoUploadMaxBytes: number;
+  batchMaxFiles: number;
+}> {
+  return request("/api/limits");
 }
 
 /**

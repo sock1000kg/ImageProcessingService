@@ -265,7 +265,7 @@ describe("DTO Validation and Schemas (Task 26)", () => {
         buffer: Buffer.from(""),
       } as Express.Multer.File;
 
-      expect(() => validateUploadFiles({ files: [bigFile] })).toThrow(/exceeds limit/);
+      expect(() => validateUploadFiles({ files: [bigFile] })).toThrow(/file size limit of 50 MB/);
     });
   });
 

@@ -24,12 +24,30 @@ export const configSchema = z.object({
   PRESIGN_RESULT_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
   // Lifetime in seconds for presigned URLs granting access to private originals/whitelist faces (default: 5 min).
   PRESIGN_PRIVATE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
-  UPLOAD_MAX_BYTES: z.coerce
+  IMAGE_UPLOAD_MAX_BYTES: z.coerce
     .number()
     .int()
     .positive()
     .default(50 * 1024 * 1024),
   BATCH_MAX_FILES: z.coerce.number().int().positive().default(1000),
+  // Per-video size limit. Separate from IMAGE_UPLOAD_MAX_BYTES because videos are sent in chunks (each request stays small),
+  // so they can be much larger than a photo, which travels in a single request.
+  VIDEO_UPLOAD_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(200 * 1024 * 1024),
+  // Size of each chunk the browser sends when uploading a video. Must be at least 5 MB (S3's minimum for every part but
+  // the last) and, behind Cloudflare's free plan, well under 100 MB (its per-request limit). Without such a proxy it can
+  // be raised so very large videos stay under S3's 10,000-part ceiling (checked below).
+  UPLOAD_CHUNK_BYTES: z.coerce
+    .number()
+    .int()
+    .min(5 * 1024 * 1024)
+    .default(8 * 1024 * 1024),
+  // Accepted video length. A cap on duration (not bytes) because processing time grows with the number of frames.
+  VIDEO_MIN_DURATION_SECONDS: z.coerce.number().positive().default(15),
+  VIDEO_MAX_DURATION_SECONDS: z.coerce.number().positive().default(60),
   // General multiplier scaling login, refresh, and allow list creation per-minute base limits.
   RATE_LIMIT_MULTIPLIER: z.coerce.number().positive().default(1),
   // Multiplier scaling transfer-heavy per-minute base limits (batch create, file uploads, zip downloads).
@@ -67,9 +85,22 @@ export const configSchema = z.object({
     .transform((value) => value.trim().toLowerCase()),
 });
 
-const parsed = configSchema.safeParse(process.env);
+// S3 allows at most 10,000 parts per multipart upload, so the biggest accepted video must fit in that many chunks.
+export const S3_MAX_PARTS = 10_000;
+
+const parsed = configSchema
+  .refine((env) => Math.ceil(env.VIDEO_UPLOAD_MAX_BYTES / env.UPLOAD_CHUNK_BYTES) <= S3_MAX_PARTS, {
+    message: `VIDEO_UPLOAD_MAX_BYTES / UPLOAD_CHUNK_BYTES must not exceed ${S3_MAX_PARTS} parts (S3's limit); raise UPLOAD_CHUNK_BYTES`,
+  })
+  .safeParse(process.env);
 if (!parsed.success) {
   throw new Error(`Invalid environment configuration: ${parsed.error.message}`);
 }
 
 export const config = parsed.data;
+
+/** A size limit as people read it, e.g. "50 MB", for error messages (defaults to the photo limit). */
+export function uploadLimitLabel(bytes: number = config.IMAGE_UPLOAD_MAX_BYTES): string {
+  const mb = bytes / (1024 * 1024);
+  return `${Number(mb.toFixed(1))} MB`;
+}

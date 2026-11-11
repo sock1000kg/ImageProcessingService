@@ -31,7 +31,7 @@ The exact selection of 100 images is committed in [`images.txt`](dataset/images.
 1. **WIDER FACE (70 picks)**:
    - From the 3,226 JPEG images in `WIDER_val.zip`, sort lexicographically by file path across all 61 event categories (from `0--Parade` through `61--Street_Battle`).
    - Pick every $k$-th file with step $k = \lfloor 3226 / 70 \rfloor = 46$ (indices $0, 46, 92, \ldots, 3174$).
-   - This ensures a uniform spread across scene types, crowds, and group sizes. All selected files are well below the 50 MB upload limit (`UPLOAD_MAX_BYTES`).
+   - This ensures a uniform spread across scene types, crowds, and group sizes. All selected files are well below the 50 MB upload limit (`IMAGE_UPLOAD_MAX_BYTES`).
 2. **Vietnamese License Plates (30 picks)**:
    - From the 400 vehicle images in `Dataset/Test/`, sort lexicographically.
    - Pick every $k$-th file with step $k = \lfloor 400 / 30 \rfloor = 13$ (indices $0, 13, 26, \ldots, 377$).

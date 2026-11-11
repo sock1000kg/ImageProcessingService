@@ -196,9 +196,9 @@ describe("Step 3: WhitelistUploader integration DOM tests", () => {
 });
 
 describe("Step 4: BatchCreateForm Clear all behavior", () => {
-  it("clears files, errors, folder summary and folder default name, but preserves user typed name", () => {
+  it("clears files, errors, folder summary and folder default name, but preserves user typed name", async () => {
     const onSubmit = vi.fn();
-    const { container, getByText, queryByText, getByRole, queryByRole } = render(
+    const { container, getByText, findByText, queryByText, getByRole, queryByRole } = render(
       <BatchCreateForm busy={false} error="" onSubmit={onSubmit} />,
     );
 
@@ -213,7 +213,7 @@ describe("Step 4: BatchCreateForm Clear all behavior", () => {
     const file2 = makeFile("img2.jpg");
     fireEvent.change(dropzoneInput, { target: { files: [file1, file2] } });
 
-    expect(getByText("img1.jpg")).toBeDefined();
+    expect(await findByText("img1.jpg")).toBeDefined();
     expect(getByText("img2.jpg")).toBeDefined();
     expect(getByRole("button", { name: /clear/i })).toBeDefined();
 

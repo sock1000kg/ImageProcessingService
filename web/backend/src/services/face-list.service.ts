@@ -5,6 +5,7 @@
  * to persist. Unlike temporary batch whitelist files which are purged when jobs finish, saved face lists
  * remain until the user explicitly requests their deletion. Deletion removes the storage objects immediately.
  */
+import { assertImageContents } from "../media-types";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { config } from "../config";
@@ -119,6 +120,7 @@ export async function createFaceList(
 ): Promise<FaceListItemDTO> {
   const name = parseFaceListName(rawName);
   validateFaceListFiles(files);
+  await assertImageContents(files, "Face file");
 
   const listId = randomUUID();
   const keys: string[] = [];
@@ -253,6 +255,7 @@ export async function addFacesToList(
   }
 
   validateFaceListFiles(files);
+  await assertImageContents(files, "Face file");
 
   if (existing.keys.length + files.length > MAX_FACE_LIST_FILES) {
     throw conflict(`Allow list cannot exceed ${MAX_FACE_LIST_FILES} faces`, "FACE_LIST_FULL");

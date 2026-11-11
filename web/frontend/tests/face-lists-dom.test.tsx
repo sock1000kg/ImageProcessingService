@@ -1803,6 +1803,7 @@ describe("Face Lists Frontend DOM Tests (Task 39)", () => {
       const dropzone = container.querySelectorAll("input[type='file']")[0] as HTMLInputElement;
       const img = makeFile("batch-input.jpg");
       fireEvent.change(dropzone, { target: { files: [img] } });
+      await screen.findByText("batch-input.jpg");
 
       // Add 6 references (allowed for batch, but exceeds allow list cap of 5)
       const whitelistInput = screen.getByLabelText(/references/i) as HTMLInputElement;

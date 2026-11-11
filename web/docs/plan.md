@@ -44,7 +44,7 @@ Ký hiệu trong task:
   - [x] Xem batch: thông tin batch + danh sách job (trạng thái, `counts`, `resultUrl`).
   - [x] **[Đạt]** **Upload từng ảnh một request** (thay cho một multipart cả batch, trước đây bị giới hạn 20 ảnh/90MB và dồn hết vào RAM pod). 3 bước:
     - `POST /api/batches` (`config` + 0..5 ảnh whitelist + `name` tuỳ chọn) → batch ở trạng thái `DRAFT`.
-    - `POST /api/batches/:id/files`: một ảnh mỗi request (≤ `UPLOAD_MAX_BYTES`), tạo job `PENDING`. Tối đa `BATCH_MAX_FILES` (mặc định 1000). Sau `start` → 409.
+    - `POST /api/batches/:id/files`: một ảnh mỗi request (≤ `IMAGE_UPLOAD_MAX_BYTES`), tạo job `PENDING`. Tối đa `BATCH_MAX_FILES` (mặc định 1000). Sau `start` → 409.
     - `POST /api/batches/:id/start`: publish các job `PENDING` lên `jobs.image`. Gọi lại không publish trùng; publish lỗi thì gọi lại để gửi phần còn thiếu.
     - Bỏ `BATCH_MAX_BYTES`. UI tải lần lượt từng ảnh, có tiến độ từng file và thử lại file lỗi. Batch `DRAFT` quá 24h bị dọn như batch thường. Việc xử lý vẫn là **một job mỗi ảnh** (contract §1), không đổi.
     - Là nền cho upload video chia nhỏ (chunked, S3 multipart) ở Phase 2.
@@ -77,7 +77,7 @@ Ký hiệu trong task:
 - **Tasks:**
   - [x] **[Cần Infra]** Deploy web lên `imgproc`: Deployment + Service + HTTPRoute `/` và `/api` (giữ `/results/` → MinIO), Secret (`DATABASE_URL`, MinIO credentials), memory limit. Image `socknot1000kg/imgproc-web` do CI build theo SHA. (Infra, 24/10)
   - [x] Toàn bộ cấu hình qua env. Liệt kê biến env trong `web/README.md`.
-  - [x] Giới hạn upload dưới giới hạn body của Cloudflare (100MB/request ở gói free): mỗi request một ảnh ≤ `UPLOAD_MAX_BYTES` (50MB), `BATCH_MAX_FILES` ảnh mỗi batch. Traefik không giới hạn thêm.
+  - [x] Giới hạn upload dưới giới hạn body của Cloudflare (100MB/request ở gói free): mỗi request một ảnh ≤ `IMAGE_UPLOAD_MAX_BYTES` (50MB), `BATCH_MAX_FILES` ảnh mỗi batch. Traefik không giới hạn thêm.
   - [x] **[Đạt + Đức Huy]** **[Cần Engine]** Chạy luồng thật với worker engine trên lab. Ghi lại chỗ lệch contract và sửa ở phía chịu trách nhiệm (contract §6).
 - **Kiểm chứng:** demo trọn luồng trên hostname public với bộ ảnh mẫu 20 ảnh. Không ảnh nào kẹt ở `QUEUED`/`PROCESSING`.
 
@@ -128,7 +128,7 @@ Tier: **[Must]** tính năng cốt lõi, thiếu thì app hỏng hoặc quá ph�
   - **Thứ tự deploy:** backend trước, sau đó mới bỏ anonymous policy của bucket `results`. Sửa `infra/smoke-test.sh` vì script đang kiểm tra truy cập ẩn danh.
 - [x] **[Đức Huy]** **[Must, làm trước task Video]** **Upload theo từng phần (chunked) và giới hạn dung lượng theo deployment.** Clip điện thoại 60 giây khoảng 100–130MB ở 1080p và vài trăm MB ở 4K, vượt giới hạn 100MB mỗi request của Cloudflare (gói Free/Pro), kể cả khi gửi thẳng tới hostname của MinIO. Vì vậy upload theo phần với S3 multipart: mỗi phần nhỏ hơn giới hạn, MinIO ghép lại, mất mạng thì chỉ gửi lại phần còn thiếu. Route upload từng file hiện có đã được làm để làm nền cho việc này.
   - **Cách làm (đã chọn):** trình duyệt gửi từng phần tới backend (cùng origin, không cần CORS, kiểm tra quyền như mọi API khác), backend stream phần đó vào multipart của MinIO. Dựa trên route upload từng file hiện có. Không gửi thẳng tới MinIO bằng URL ký, vì cách đó cần CORS trên MinIO và chỉ đáng khi nhiều người cùng upload video lớn.
-  - `UPLOAD_MAX_BYTES` (env có sẵn, mặc định 50MB) là giới hạn mỗi file của từng deployment. Backend từ chối ngay khi bắt đầu nếu dung lượng khai báo vượt mức, và kiểm tra lại dung lượng thật khi hoàn tất.
+  - `IMAGE_UPLOAD_MAX_BYTES` (env có sẵn, mặc định 50MB) là giới hạn mỗi file của từng deployment. Backend từ chối ngay khi bắt đầu nếu dung lượng khai báo vượt mức, và kiểm tra lại dung lượng thật khi hoàn tất.
   - Bỏ hard-code `MAX_FILE_BYTES` (50MB) trong `file-selection.ts` và `FileDropzone.tsx`, giống như đã bỏ giới hạn số file: frontend hiện lý do backend trả về.
   - Không buffer cả file bằng `multer.memoryStorage()`: `web` chỉ có 512Mi. Mỗi lúc chỉ giữ tối đa một phần trong bộ nhớ, nên kích thước phần cần nhỏ (ví dụ 8–16MB).
   - Thông báo lỗi nói rõ dung lượng tối đa và gợi ý cắt ngắn hoặc nén lại.

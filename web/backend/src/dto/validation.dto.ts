@@ -2,7 +2,8 @@
  * Input request validation utilities, UUID validators, and batch naming constraints.
  */
 import { z } from "zod";
-import { config } from "../config";
+import { config, uploadLimitLabel } from "../config";
+import { ALLOWED_IMAGE_MIME_TYPES } from "../media-types";
 import { badRequest, notFound, payloadTooLarge } from "../errors";
 import { redactionStyleSchema } from "./batch-config.dto";
 
@@ -64,8 +65,6 @@ export const patchBatchBodySchema = z
 
 export const MAX_WHITELIST_FILES = 20;
 export const MAX_FACE_LIST_FILES = 5;
-
-const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 /**
  * Extracts and deduplicates faceListIds from request body or options.
@@ -143,13 +142,13 @@ export function validateBatchCreation(options: {
   }
 
   for (const file of whitelist) {
-    if (file.size > config.UPLOAD_MAX_BYTES) {
+    if (file.size > config.IMAGE_UPLOAD_MAX_BYTES) {
       throw payloadTooLarge(
-        `Whitelist file ${file.originalname} exceeds limit of ${config.UPLOAD_MAX_BYTES} bytes`,
+        `Whitelist file ${file.originalname} exceeds the file size limit of ${uploadLimitLabel()}`,
         "FILE_TOO_LARGE",
       );
     }
-    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
       throw badRequest(
         `Whitelist file ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
       );
@@ -161,13 +160,13 @@ export function validateSingleUploadFile(file?: Express.Multer.File): Express.Mu
   if (!file) {
     throw badRequest("File is required in field 'file'");
   }
-  if (file.size > config.UPLOAD_MAX_BYTES) {
+  if (file.size > config.IMAGE_UPLOAD_MAX_BYTES) {
     throw payloadTooLarge(
-      `File ${file.originalname} exceeds limit of ${config.UPLOAD_MAX_BYTES} bytes`,
+      `File ${file.originalname} exceeds the file size limit of ${uploadLimitLabel()}`,
       "FILE_TOO_LARGE",
     );
   }
-  if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+  if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
     throw badRequest(`File ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`);
   }
   return file;
@@ -190,13 +189,13 @@ export function validateUploadFiles(options: {
   }
 
   for (const file of files) {
-    if (file.size > config.UPLOAD_MAX_BYTES) {
+    if (file.size > config.IMAGE_UPLOAD_MAX_BYTES) {
       throw payloadTooLarge(
-        `File ${file.originalname} exceeds limit of ${config.UPLOAD_MAX_BYTES} bytes`,
+        `File ${file.originalname} exceeds the file size limit of ${uploadLimitLabel()}`,
         "FILE_TOO_LARGE",
       );
     }
-    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
       throw badRequest(
         `File ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
       );
@@ -204,13 +203,13 @@ export function validateUploadFiles(options: {
   }
 
   for (const file of whitelist) {
-    if (file.size > config.UPLOAD_MAX_BYTES) {
+    if (file.size > config.IMAGE_UPLOAD_MAX_BYTES) {
       throw payloadTooLarge(
-        `Whitelist file ${file.originalname} exceeds limit of ${config.UPLOAD_MAX_BYTES} bytes`,
+        `Whitelist file ${file.originalname} exceeds the file size limit of ${uploadLimitLabel()}`,
         "FILE_TOO_LARGE",
       );
     }
-    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
       throw badRequest(
         `Whitelist file ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
       );

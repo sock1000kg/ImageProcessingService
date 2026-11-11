@@ -13,6 +13,12 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+/** A size in whole or one-decimal megabytes, e.g. "50 MB" or "62.5 MB". */
+export function formatMegabytes(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  return Number.isInteger(Math.round(mb * 10) / 10) ? `${Math.round(mb)} MB` : `${Number(mb.toFixed(1))} MB`;
+}
+
 /**
  * Resolves a human-readable failure message for a job, replacing internal storage keys
  * with a generic fallback line for older unmigrated records.

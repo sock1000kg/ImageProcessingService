@@ -2,11 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkAndCleanBatchWhitelist,
   cleanupExpiredBatches,
-  deleteJobById,
-  listBatches,
-  retryFailedJob,
   retryPendingWhitelistCleanups,
-} from "../../src/services/batch.service";
+} from "../../src/services/retention.service";
+import { deleteJobById, retryFailedJob } from "../../src/services/job.service";
+import { deleteBatchById, listBatches } from "../../src/services/batch.service";
 import * as jobRepository from "../../src/repositories/job.repository";
 import * as messaging from "../../src/messaging";
 import { storage, UPLOADS_BUCKET, RESULTS_BUCKET } from "../../src/storage";
@@ -206,6 +205,8 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
 
       vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue({ id: batchId, userId } as any);
       vi.spyOn(storage, "deleteObject").mockResolvedValue();
+      vi.spyOn(prisma.uploadSession, "findMany").mockResolvedValue([]);
+      vi.spyOn(jobRepository, "batchHasActiveJobs").mockResolvedValue(false);
       const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockResolvedValue();
       vi.spyOn(jobRepository, "countJobsByBatchId").mockResolvedValue(1);
       const deleteBatchRowSpy = vi.spyOn(jobRepository, "deleteBatchRowOwnedByUser").mockResolvedValue(true);
@@ -215,6 +216,17 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       expect(deletePrefixSpy).toHaveBeenCalledWith("uploads", `${batchId}/`);
       expect(deletePrefixSpy).toHaveBeenCalledWith("results", `${batchId}/`);
       expect(deleteBatchRowSpy).toHaveBeenCalledWith(batchId, userId);
+    });
+  });
+
+  describe("DELETE /api/batches/:id (deleteBatchById)", () => {
+    it("refuses to delete a batch while a job is queued or processing, and touches no files", async () => {
+      vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue({ id: batchId, userId } as any);
+      vi.spyOn(jobRepository, "batchHasActiveJobs").mockResolvedValue(true);
+      const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockResolvedValue();
+
+      await expect(deleteBatchById(batchId, userId)).rejects.toMatchObject({ status: 409, code: "BATCH_ACTIVE" });
+      expect(deletePrefixSpy).not.toHaveBeenCalled();
     });
   });
 

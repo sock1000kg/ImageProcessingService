@@ -3,6 +3,7 @@
  */
 import { FormEvent, useEffect, useState } from "react";
 import { FileDropzone } from "./FileDropzone";
+import { useUploadLimits } from "../hooks/useUploadLimits";
 import { PlateAllowList } from "./PlateAllowList";
 import { FilePreviewList } from "./FilePreviewList";
 import { PreviewCanvas } from "./PreviewCanvas";
@@ -68,6 +69,7 @@ export function BatchCreateForm({
   onRerunSubmit,
 }: BatchCreateFormProps) {
   useWarnBeforeUnload(busy);
+  const limits = useUploadLimits();
 
   const [files, setFiles] = useState<File[]>([]);
   const [whitelist, setWhitelist] = useState<File[]>([]);
@@ -120,9 +122,24 @@ export function BatchCreateForm({
       return mime ? ensureFileType(file, mime) : file;
     });
 
-    setRejectedFiles(issues);
-    setFileErrors(Object.fromEntries(issues.map((issue) => [getFileIdentity(issue.file), issue.reason])));
-    setFiles((current) => [...current, ...normalized]);
+    // Same limit the backend enforces per batch: keep what fits, list the rest as rejected with the reason.
+    const room = roomForFiles(files.length);
+    const accepted = normalized.slice(0, room);
+    const overLimit = normalized.slice(room).map((file) => ({
+      file,
+      reason: `over the ${limits?.batchMaxFiles} file batch limit`,
+    }));
+    const rejected = [...issues, ...overLimit];
+
+    setRejectedFiles(rejected);
+    setFileErrors(Object.fromEntries(rejected.map((issue) => [getFileIdentity(issue.file), issue.reason])));
+    setFiles((current) => [...current, ...accepted]);
+  };
+
+  /** How many more files fit in the batch: its limit minus the images a rerun already carries and those selected. */
+  const roomForFiles = (selected: number): number => {
+    if (!limits) return Number.POSITIVE_INFINITY;
+    return Math.max(0, limits.batchMaxFiles - (rerunSource?.imageCount ?? 0) - selected);
   };
 
   const handleFolderFiles = (incoming: File[]) => {
@@ -142,11 +159,18 @@ export function BatchCreateForm({
 
     const result = selectFolderFiles(incoming);
 
-    setFiles(result.images);
+    const room = roomForFiles(0);
+    const kept = result.images.slice(0, room);
+    const dropped = result.images.length - kept.length;
+
+    setFiles(kept);
     setFolderName(result.folderName);
     setFileErrors({});
     setRejectedFiles([]);
-    setFolderSummary(formatFolderSummary(result));
+    setFolderSummary(
+      formatFolderSummary(result) +
+        (dropped > 0 ? `, ${dropped} not added (over the ${limits?.batchMaxFiles} file batch limit)` : ""),
+    );
   };
 
   const handleRemoveFile = (index: number) => {

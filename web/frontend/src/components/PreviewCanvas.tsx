@@ -96,7 +96,7 @@ export function PreviewCanvas({ style, strength, targets = ["face", "plate"], pa
           width={640}
           height={400}
           aria-busy={imageState === "loading"}
-          aria-label="Local redaction preview using a real street photo"
+          aria-label="Local redaction preview using a sample image"
         />
       </div>
       {imageState === "error" && (
@@ -105,7 +105,7 @@ export function PreviewCanvas({ style, strength, targets = ["face", "plate"], pa
         </p>
       )}
       <p className="preview-note">
-        Real street photo: Jorge Láscar,{" "}
+        Photo: Jorge Láscar,{" "}
         <a href={SAMPLE_CREDIT_URL} target="_blank" rel="noreferrer">
           CC BY 2.0
         </a>

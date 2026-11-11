@@ -46,7 +46,7 @@ describe("BatchCreateForm limit handling and rate-limit pause status", () => {
     fireEvent.change(dropzoneInput, { target: { files } });
 
     // Expect 110 files to be accepted
-    expect(screen.getAllByText("110 images selected").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("110 images selected")).length).toBeGreaterThan(0);
     // No limit error message is displayed
     expect(screen.queryByText(/limit/i)).toBeNull();
     expect(screen.queryByText(/exceed/i)).toBeNull();
@@ -73,6 +73,7 @@ describe("BatchCreateForm limit handling and rate-limit pause status", () => {
     // Select files
     const dropzoneInput = container.querySelector("input[type='file']") as HTMLInputElement;
     fireEvent.change(dropzoneInput, { target: { files: [file1, file2, file3] } });
+    await screen.findByText("photo3.jpg");
 
     // Submit form
     const form = screen.getByRole("form", { name: /batch/i });
@@ -116,6 +117,7 @@ describe("BatchCreateForm limit handling and rate-limit pause status", () => {
     // Select file and submit
     const dropzoneInput = container.querySelector("input[type='file']") as HTMLInputElement;
     fireEvent.change(dropzoneInput, { target: { files: [file] } });
+    await screen.findByText("sample.jpg");
 
     const form = screen.getByRole("form", { name: /batch/i });
     fireEvent.submit(form);

@@ -9,13 +9,7 @@ import {
   getFileRejectionReason,
   formatFileRejection,
   formatValidationTitle,
-  classifyDrop,
-  walkDirectory,
-  walkEntries,
-  isFolderFile,
-  WebkitDirectoryEntry,
-  WebkitFileEntry,
-  WebkitEntry,
+  readDroppedFiles,
 } from "../src/components/file-selection";
 
 function makeFile(name: string, relativePath: string, type = "", size = 1000): File {
@@ -291,211 +285,40 @@ describe("Step 2 & 4: Rejection reason builder", () => {
   });
 });
 
-describe("Step 1 & 4: Classification of a drop", () => {
-  it("classifies exactly one folder as single-folder", () => {
-    const dirEntry: WebkitDirectoryEntry = {
-      name: "vacation",
-      isDirectory: true,
-      isFile: false,
-      createReader: () => ({ readEntries: () => {} }),
-    };
-    const result = classifyDrop([dirEntry]);
-    expect(result.kind).toBe("single-folder");
-    expect(result.folderEntry).toBe(dirEntry);
+describe("readDroppedFiles", () => {
+  function dropped(name: string, path: string): File {
+    const file = new File([new Uint8Array(10)], name, { type: "image/jpeg" });
+    Object.defineProperty(file, "path", { value: path, configurable: true });
+    return file;
+  }
+
+  it("treats files that share one top folder as a folder drop and gives them relative paths", () => {
+    const result = readDroppedFiles([dropped("a.jpg", "/trip/a.jpg"), dropped("b.jpg", "/trip/day2/b.jpg")]);
+
+    expect(
+      result.folderFiles?.map((file) => (file as File & { webkitRelativePath: string }).webkitRelativePath),
+    ).toEqual(["trip/a.jpg", "trip/day2/b.jpg"]);
+    expect(result.otherFiles).toEqual([]);
   });
 
-  it("classifies files only as files-only", () => {
-    const file1: WebkitFileEntry = {
-      name: "a.jpg",
-      isDirectory: false,
-      isFile: true,
-      file: () => {},
-    };
-    const file2: WebkitFileEntry = {
-      name: "b.png",
-      isDirectory: false,
-      isFile: true,
-      file: () => {},
-    };
-    const result = classifyDrop([file1, file2]);
-    expect(result.kind).toBe("files-only");
-    expect(result.fileEntries).toEqual([file1, file2]);
+  it("keeps hidden files inside a dropped folder so the folder summary can count them", () => {
+    const result = readDroppedFiles([dropped("a.jpg", "/trip/a.jpg"), dropped(".hidden", "/trip/.hidden")]);
+
+    expect(result.folderFiles).toHaveLength(2);
   });
 
-  it("classifies mix of loose images and a folder as mixed", () => {
-    const file: WebkitFileEntry = {
-      name: "a.jpg",
-      isDirectory: false,
-      isFile: true,
-      file: () => {},
-    };
-    const dir: WebkitDirectoryEntry = {
-      name: "photos",
-      isDirectory: true,
-      isFile: false,
-      createReader: () => ({ readEntries: () => {} }),
-    };
-    const result = classifyDrop([file, dir]);
-    expect(result.kind).toBe("mixed");
+  it("treats loose files as a plain drop and ignores hidden ones", () => {
+    const result = readDroppedFiles([dropped("a.jpg", "/a.jpg"), dropped(".secret", "./.secret")]);
+
+    expect(result.folderFiles).toBeNull();
+    expect(result.otherFiles.map((file) => file.name)).toEqual(["a.jpg"]);
   });
 
-  it("classifies multiple folders as mixed", () => {
-    const dir1: WebkitDirectoryEntry = {
-      name: "folder1",
-      isDirectory: true,
-      isFile: false,
-      createReader: () => ({ readEntries: () => {} }),
-    };
-    const dir2: WebkitDirectoryEntry = {
-      name: "folder2",
-      isDirectory: true,
-      isFile: false,
-      createReader: () => ({ readEntries: () => {} }),
-    };
-    const result = classifyDrop([dir1, dir2]);
-    expect(result.kind).toBe("mixed");
-  });
-});
+  it("treats two folders, or a folder plus a loose file, as a plain drop", () => {
+    const twoFolders = readDroppedFiles([dropped("a.jpg", "/one/a.jpg"), dropped("b.jpg", "/two/b.jpg")]);
+    const mixed = readDroppedFiles([dropped("a.jpg", "/one/a.jpg"), dropped("b.jpg", "/b.jpg")]);
 
-describe("Step 1 & 4: Directory walker with mocked FileSystemDirectoryEntry/readEntries", () => {
-  it("walks directories recursively with nested folders, readEntries in two chunks, and relative paths", async () => {
-    // Structure:
-    // root/
-    //   chunk1_file.jpg
-    //   chunk2_file.png
-    //   sub/
-    //     nested.webp
-
-    function createMockFileEntry(name: string, size = 100): WebkitFileEntry {
-      return {
-        name,
-        isFile: true,
-        isDirectory: false,
-        file: (success) => {
-          const file = new File([new Uint8Array(size)], name, { type: "image/jpeg" });
-          success(file);
-        },
-      };
-    }
-
-    const nestedFileEntry = createMockFileEntry("nested.webp");
-    const subDirEntry: WebkitDirectoryEntry = {
-      name: "sub",
-      isFile: false,
-      isDirectory: true,
-      createReader: () => {
-        let readCount = 0;
-        return {
-          readEntries: (success) => {
-            readCount++;
-            if (readCount === 1) {
-              success([nestedFileEntry]);
-            } else {
-              success([]);
-            }
-          },
-        };
-      },
-    };
-
-    const chunk1Entry = createMockFileEntry("chunk1_file.jpg");
-    const chunk2Entry = createMockFileEntry("chunk2_file.png");
-
-    const rootDirEntry: WebkitDirectoryEntry = {
-      name: "root",
-      isFile: false,
-      isDirectory: true,
-      createReader: () => {
-        let chunk = 0;
-        return {
-          readEntries: (success) => {
-            chunk++;
-            if (chunk === 1) {
-              // First chunk: chunk1Entry, subDirEntry
-              success([chunk1Entry, subDirEntry]);
-            } else if (chunk === 2) {
-              // Second chunk: chunk2Entry
-              success([chunk2Entry]);
-            } else {
-              // Finished
-              success([]);
-            }
-          },
-        };
-      },
-    };
-
-    const files = await walkDirectory(rootDirEntry, "root");
-
-    expect(files).toHaveLength(3);
-    expect(files.map((f) => f.name)).toEqual(["chunk1_file.jpg", "nested.webp", "chunk2_file.png"]);
-    expect(files.map((f) => (f as any).webkitRelativePath)).toEqual([
-      "root/chunk1_file.jpg",
-      "root/sub/nested.webp",
-      "root/chunk2_file.png",
-    ]);
-  });
-
-  it("handles unreadable/vanished files gracefully during directory walking", async () => {
-    const brokenEntry: WebkitFileEntry = {
-      name: "vanished.jpg",
-      isFile: true,
-      isDirectory: false,
-      file: (_success, error) => {
-        if (error) error(new Error("File vanished or permission denied"));
-      },
-    };
-
-    let called = false;
-    const dirEntry: WebkitDirectoryEntry = {
-      name: "faulty",
-      isFile: false,
-      isDirectory: true,
-      createReader: () => ({
-        readEntries: (success) => {
-          if (!called) {
-            called = true;
-            success([brokenEntry]);
-          } else {
-            success([]);
-          }
-        },
-      }),
-    };
-
-    const files = await walkDirectory(dirEntry, "faulty");
-    expect(files).toHaveLength(1);
-    expect(files[0].name).toBe("vanished.jpg");
-    expect((files[0] as any).errorReason).toContain("Could not read file");
-
-    const issues = validateImageFiles(files);
-    expect(issues).toHaveLength(1);
-    expect(issues[0].reason).toContain("Could not read file");
-  });
-});
-
-describe("Step 1: Fallback folder detection via isFolderFile", () => {
-  it("detects a folder entry when type is empty and slice().arrayBuffer() rejects", async () => {
-    const folderFile = new File([new Uint8Array(0)], "images", { type: "" });
-    // Mock slice().arrayBuffer() to reject
-    folderFile.slice = () =>
-      ({
-        arrayBuffer: () => Promise.reject(new Error("Cannot read folder")),
-      }) as any;
-
-    const isFolder = await isFolderFile(folderFile);
-    expect(isFolder).toBe(true);
-  });
-
-  it("does not detect a regular file with empty type as a folder if arrayBuffer succeeds", async () => {
-    const regularFile = new File([new Uint8Array(10)], "file_no_type", { type: "" });
-    const isFolder = await isFolderFile(regularFile);
-    expect(isFolder).toBe(false);
-  });
-
-  it("does not detect a file with non-empty type as a folder", async () => {
-    const regularFile = new File([new Uint8Array(10)], "photo.jpg", { type: "image/jpeg" });
-    const isFolder = await isFolderFile(regularFile);
-    expect(isFolder).toBe(false);
+    expect(twoFolders.folderFiles).toBeNull();
+    expect(mixed.folderFiles).toBeNull();
   });
 });

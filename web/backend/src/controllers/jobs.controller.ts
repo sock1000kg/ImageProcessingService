@@ -2,14 +2,8 @@
  * HTTP request controllers for single-job inspection, stream downloads, and retries.
  */
 import { NextFunction, Request, Response } from "express";
-import {
-  deleteJobById,
-  editJob,
-  getJobById,
-  getJobOriginalPresignedUrl,
-  getJobResultPresignedUrl,
-  retryFailedJob,
-} from "../services/batch.service";
+import { deleteJobById, editJob, getJobById, retryFailedJob } from "../services/job.service";
+import { getJobOriginalPresignedUrl, getJobResultPresignedUrl } from "../services/presign.service";
 import { notFound } from "../errors";
 import { editJobBodySchema, validateIdParam } from "../dto";
 

@@ -36,7 +36,17 @@ export type FormConfig = {
   reviewThreshold: number;
   similarityThreshold: number;
   whitelistPlates: string[];
-  detectionMode: "fast" | "accurate" | "max_privacy";
+  detectionMode: "fast" | "max_privacy";
+};
+
+/**
+ * Confidence thresholds each detection mode starts from (same table as the backend's `DETECTION_MODE_THRESHOLDS`).
+ * Picking a mode fills these into the form, where Advanced thresholds can still change them; the form always sends
+ * both thresholds, so without this the mode would not change what is sent.
+ */
+export const MODE_THRESHOLDS: Record<FormConfig["detectionMode"], { face: number; plate: number }> = {
+  fast: { face: 0.17, plate: 0.11 },
+  max_privacy: { face: 0.06, plate: 0.05 },
 };
 
 export const DEFAULT_FORM_CONFIG: FormConfig = {
@@ -102,7 +112,7 @@ export function batchConfigToFormConfig(raw?: Record<string, unknown> | null): F
   const whitelistPlates = Array.isArray(c.whitelistPlates)
     ? c.whitelistPlates.filter((value): value is string => typeof value === "string")
     : DEFAULT_FORM_CONFIG.whitelistPlates;
-  const detectionMode = c.detectionMode === "accurate" || c.detectionMode === "max_privacy" ? c.detectionMode : "fast";
+  const detectionMode = c.detectionMode === "max_privacy" ? "max_privacy" : "fast";
 
   return {
     targets: targets.length > 0 ? targets : [...DEFAULT_FORM_CONFIG.targets],
@@ -138,8 +148,8 @@ const THRESHOLD_FIELDS = [
   },
   {
     key: "similarityThreshold",
-    label: "Similarity Threshold",
-    hint: "how closely a face must match the allow list",
+    label: "Face similarity threshold",
+    hint: "how closely a face must match the face allow list (plates are matched by their text)",
   },
 ] as const;
 
@@ -154,6 +164,13 @@ export interface RedactionConfigFormProps {
 export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormProps) {
   const update = (key: keyof FormConfig, value: string | number | string[]) =>
     setConfig((current) => ({ ...current, [key]: value }));
+  const selectMode = (detectionMode: FormConfig["detectionMode"]) =>
+    setConfig((current) => ({
+      ...current,
+      detectionMode,
+      faceConfidenceThreshold: MODE_THRESHOLDS[detectionMode].face,
+      plateConfidenceThreshold: MODE_THRESHOLDS[detectionMode].plate,
+    }));
 
   return (
     <div className="config-panel">
@@ -219,12 +236,16 @@ export function RedactionConfigForm({ config, setConfig }: RedactionConfigFormPr
         Detection mode
         <select
           value={config.detectionMode}
-          onChange={(event) => update("detectionMode", event.target.value as FormConfig["detectionMode"])}
+          onChange={(event) => selectMode(event.target.value as FormConfig["detectionMode"])}
         >
           <option value="fast">Fast</option>
-          <option value="accurate">Accurate</option>
           <option value="max_privacy">Maximum privacy</option>
         </select>
+        <small className="preview-note">
+          {config.detectionMode === "max_privacy"
+            ? "Redacts anything that might be a face or plate, so some extra boxes. For when you want to be sure."
+            : "Quick and good for everyday photos and videos."}
+        </small>
       </label>
 
       <details className="advanced-settings">

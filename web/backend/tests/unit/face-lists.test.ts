@@ -1,3 +1,4 @@
+import { PNG_BYTES } from "../helpers/image-bytes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Readable } from "node:stream";
 import {
@@ -45,7 +46,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
     encoding: "7bit",
     mimetype,
     size,
-    buffer: Buffer.from("image-bytes"),
+    buffer: PNG_BYTES,
     stream: new Readable(),
     destination: "",
     filename: name,
@@ -85,7 +86,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       });
 
       // Oversized file
-      const bigFile = mockFile("big.jpg", "image/jpeg", config.UPLOAD_MAX_BYTES + 10);
+      const bigFile = mockFile("big.jpg", "image/jpeg", config.IMAGE_UPLOAD_MAX_BYTES + 10);
       await expect(createFaceList(userId, "Family", [bigFile])).rejects.toMatchObject({
         status: 413,
         code: "FILE_TOO_LARGE",

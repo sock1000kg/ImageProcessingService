@@ -1,6 +1,7 @@
 /**
  * Standard HTTP error models, factory constructors, and global error middleware.
  */
+import { uploadLimitLabel } from "./config";
 import { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import { ZodError } from "zod";
@@ -108,7 +109,7 @@ export function toErrorResponse(error: unknown): { status: number; body: ErrorDT
         body: {
           error: {
             code: "FILE_TOO_LARGE",
-            message: error.message || "File too large",
+            message: `File exceeds the file size limit of ${uploadLimitLabel()}`,
           },
         },
       };

@@ -31,7 +31,7 @@ import {
  */
 export const batchesUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: config.UPLOAD_MAX_BYTES },
+  limits: { fileSize: config.IMAGE_UPLOAD_MAX_BYTES },
   defParamCharset: "utf8",
 });
 

@@ -16,7 +16,8 @@ export type OutputQuality = z.infer<typeof outputQualitySchema>;
 export const outputFormatSchema = z.enum(["original", "jpg", "jpeg", "png", "webp"]);
 export type OutputFormat = z.infer<typeof outputFormatSchema>;
 
-export const detectionModeSchema = z.enum(["fast", "accurate", "max_privacy"]);
+// A stored config that names a retired mode (the earlier "accurate") falls back to fast instead of failing to parse.
+export const detectionModeSchema = z.enum(["fast", "max_privacy"]).catch("fast");
 export type DetectionMode = z.infer<typeof detectionModeSchema>;
 
 export const rawBatchConfigSchema = z.object({
@@ -80,7 +81,6 @@ export const DEFAULT_REDACTION_STRENGTHS = {
 
 const DETECTION_MODE_THRESHOLDS: Record<DetectionMode, { face: number; plate: number }> = {
   fast: { face: 0.17, plate: 0.11 },
-  accurate: { face: 0.13, plate: 0.09 },
   max_privacy: { face: 0.06, plate: 0.05 },
 };
 

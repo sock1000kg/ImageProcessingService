@@ -1,16 +1,15 @@
+import { PNG_BYTES } from "../helpers/image-bytes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as jobRepository from "../../src/repositories/job.repository";
 import * as faceListRepository from "../../src/repositories/face-list.repository";
 import { storage, UPLOADS_BUCKET } from "../../src/storage";
 import * as messaging from "../../src/messaging";
-import {
-  applyJobEvent,
-  checkAndCleanBatchWhitelist,
-  createDraftBatch,
-  deleteBatchById,
-  retryFailedJob,
-} from "../../src/services/batch.service";
+import { applyJobEvent } from "../../src/services/job-events.service";
+import { checkAndCleanBatchWhitelist } from "../../src/services/retention.service";
+import { createDraftBatch, deleteBatchById } from "../../src/services/batch.service";
+import { retryFailedJob } from "../../src/services/job.service";
 import { JobStatus } from "../../src/generated/prisma/client";
+import { prisma } from "../../src/db/prisma";
 
 describe("Task 53: Batches use allow-list photos directly; retry warns when faces are gone", () => {
   const userId = "11111111-1111-4111-8111-111111111111";
@@ -86,6 +85,8 @@ describe("Task 53: Batches use allow-list photos directly; retry warns when face
       id: batchId,
       userId,
     } as any);
+    vi.spyOn(prisma.uploadSession, "findMany").mockResolvedValue([]);
+    vi.spyOn(jobRepository, "batchHasActiveJobs").mockResolvedValue(false);
     vi.spyOn(jobRepository, "deleteBatchRowOwnedByUser").mockResolvedValue(true);
 
     await deleteBatchById(batchId, userId);
@@ -111,7 +112,7 @@ describe("Task 53: Batches use allow-list photos directly; retry warns when face
       originalname: "face.jpg",
       encoding: "7bit",
       mimetype: "image/jpeg",
-      buffer: Buffer.from("fake"),
+      buffer: PNG_BYTES,
       size: 4,
     } as any;
 

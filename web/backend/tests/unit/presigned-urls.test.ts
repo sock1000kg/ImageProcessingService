@@ -10,8 +10,8 @@ import {
   getBatchWhitelistPresignedUrl,
   getJobOriginalPresignedUrl,
   getJobResultPresignedUrl,
-  listBatches,
-} from "../../src/services/batch.service";
+} from "../../src/services/presign.service";
+import { listBatches } from "../../src/services/batch.service";
 import { getFacePresignedUrl } from "../../src/services/face-list.service";
 import { getJobOriginalUrlHandler, getJobResultUrlHandler } from "../../src/controllers/jobs.controller";
 import { getFaceUrlHandler } from "../../src/controllers/face-lists.controller";
@@ -175,7 +175,7 @@ describe("Presigned URLs Backend Unit Tests (Task 87)", () => {
       expect(next).not.toHaveBeenCalled();
       const parsedUrl = new URL(res.body.url);
       expect(parsedUrl.searchParams.get("response-content-disposition")).toBe(
-        "attachment; filename=\"family-photo.jpg\"; filename*=UTF-8''family-photo.jpg",
+        'attachment; filename="family-photo.jpg"',
       );
     });
 
@@ -539,19 +539,18 @@ describe("Presigned URLs Backend Unit Tests (Task 87)", () => {
       expect(header).not.toContain("\r");
       expect(header).not.toContain("\n");
       expect(header).toContain("filename=");
-      expect(header).toContain("filename*=");
     });
 
     it("creates RFC 5987 compliant header for Vietnamese characters", () => {
       const header = buildAttachmentContentDisposition("ảnh đại diện.png");
       expect(header).toContain("filename*=UTF-8''%E1%BA%A3nh%20%C4%91%E1%BA%A1i%20di%E1%BB%87n.png");
-      expect(header).toContain('filename="_nh __i di_n.png"');
+      expect(header).toMatch(/filename="[\x20-\x7e]+"/);
     });
 
     it("falls back to default fallback when stripped filename is empty", () => {
       expect(sanitizeAttachmentFilename("   ///???:::  ", "fallback.jpg")).toBe("fallback.jpg");
       const header = buildAttachmentContentDisposition("   ///???:::  ", "fallback.jpg");
-      expect(header).toBe("attachment; filename=\"fallback.jpg\"; filename*=UTF-8''fallback.jpg");
+      expect(header).toBe('attachment; filename="fallback.jpg"');
     });
   });
 

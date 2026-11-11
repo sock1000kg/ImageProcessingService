@@ -1,62 +1,37 @@
 /**
- * Batch orchestration service managing uploads, start dispatching, retries, and whitelist lifecycle.
+ * Batch lifecycle: create drafts, add files, start, rename, rerun, list and delete batches.
  */
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { config } from "../config";
 import {
   addJobToBatchWithLock,
-  clearJobReplacesJobId,
-  countJobsByBatchId,
+  batchHasActiveJobs,
   createDraftBatch as createDraftBatchRepository,
-  deleteJob,
-  deleteBatchRow,
   deleteBatchRowOwnedByUser,
   getAccountUsage,
-  getActiveEditJob,
-  getActiveRetryJob,
   getBatch,
   getBatchOwnedByUser,
-  getBatchesPendingWhitelistCleanup,
-  getExpiredBatches,
-  getJob,
-  getJobOwnedByUser,
   getJobsByBatchId,
   getPendingJobsByBatchId,
-  insertBatchAndJobs,
-  insertEditJob,
-  insertRetryJob,
   listBatchesByUserId,
-  markBatchWhitelistDeleted,
   setBatchStarted,
   updateBatchName,
   updateJobQueued,
-  updateJobState,
 } from "../repositories/job.repository";
 import { getFaceListOwnedByUser } from "../repositories/face-list.repository";
 import { parseFaceNamesMap, sanitizeFaceFileName } from "./face-list.service";
 import { publishJob } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
-import { buildAttachmentContentDisposition } from "../attachment";
+import { abortBatchUploads } from "./upload-cleanup.service";
 import { BatchConfig } from "../types";
 import { JobStatus } from "../generated/prisma/client";
-import {
-  buildImageRedactCommand,
-  buildVideoRedactCommand,
-  buildImageRenderCommand,
-  calculateNextJobState,
-  deriveBatchStatus,
-  JobState,
-  RenderBox,
-  resolveOutputExtension,
-} from "../domain";
+import { buildImageRedactCommand, buildVideoRedactCommand, deriveBatchStatus, resolveOutputExtension } from "../domain";
 import {
   batchNameSchema,
   BatchListResponseDTO,
   BatchResponseDTO,
   BatchSummaryItemDTO,
-  DEFAULT_REDACTION_STRENGTHS,
-  EditJobInput,
   JobResponseDTO,
   MAX_WHITELIST_FILES,
   parseBatchConfig,
@@ -70,9 +45,8 @@ import {
   UUID_REGEX,
   validateBatchCreation,
   validateSingleUploadFile,
-  validateUploadFiles,
-  ValidatedJobEvent,
 } from "../dto";
+import { assertImageContents } from "../media-types";
 import { badRequest, conflict, gone, notFound, unavailable } from "../errors";
 
 /**
@@ -96,6 +70,7 @@ export async function createDraftBatch(options: {
   const faceListIds = parseFaceListIds(options);
 
   validateBatchCreation({ filesPresent, whitelist, faceListIds });
+  await assertImageContents(whitelist, "Whitelist file");
 
   const batchConfig: BatchConfig = parseBatchConfigJson(rawConfig);
   const validatedName = parseBatchName(name);
@@ -183,6 +158,7 @@ export async function addBatchFile(
   userId: string,
 ): Promise<JobResponseDTO> {
   const validFile = validateSingleUploadFile(file);
+  await assertImageContents([validFile]);
 
   const batch = await getBatchOwnedByUser(batchId, userId);
   if (!batch) {
@@ -324,6 +300,14 @@ export async function deleteBatchById(id: string, userId: string): Promise<boole
   const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) return false;
 
+  // The Engine reads a job's input once and writes its result when done, so deleting the files under a running job
+  // would leave a result nobody can find or remove. Same rule as deleting a single job.
+  if (await batchHasActiveJobs(id)) {
+    throw conflict("Cannot delete a batch while it is processing", "BATCH_ACTIVE");
+  }
+
+  // Unfinished video uploads hold parts in storage that deleting the prefix below does not remove.
+  await abortBatchUploads(id);
   await storage.deletePrefix(UPLOADS_BUCKET, `${id}/`);
   await storage.deletePrefix(RESULTS_BUCKET, `${id}/`);
   return deleteBatchRowOwnedByUser(id, userId);
@@ -493,659 +477,4 @@ export async function listBatches(
     nextCursor,
     usage,
   };
-}
-
-export async function deleteJobById(id: string, userId: string): Promise<void> {
-  const job = await getJobOwnedByUser(id, userId);
-  if (!job) {
-    throw notFound("Job not found");
-  }
-
-  if (job.status === JobStatus.QUEUED || job.status === JobStatus.PROCESSING) {
-    throw conflict("Cannot delete an active job", "JOB_ACTIVE");
-  }
-
-  try {
-    await storage.deleteObject(UPLOADS_BUCKET, job.inputKey);
-  } catch (err) {
-    console.error(`Failed to delete input object ${job.inputKey}`, err);
-  }
-
-  try {
-    await storage.deleteObject(RESULTS_BUCKET, job.outputKey);
-  } catch (err) {
-    console.error(`Failed to delete result object ${job.outputKey}`, err);
-  }
-
-  const totalJobs = await countJobsByBatchId(job.batchId);
-  if (totalJobs <= 1) {
-    await deleteBatchById(job.batchId, userId);
-  } else {
-    await deleteJob(job.id);
-    await checkAndCleanBatchWhitelist(job.batchId);
-  }
-}
-
-export async function getJobById(id: string, userId: string): Promise<JobResponseDTO | null> {
-  const job = await getJobOwnedByUser(id, userId);
-  return toJobResponse(job);
-}
-
-export async function retryFailedJob(
-  id: string,
-  userId: string,
-  options?: { acceptMissingFaces?: boolean },
-): Promise<JobResponseDTO> {
-  const failedJob = await getJobOwnedByUser(id, userId);
-  if (!failedJob) {
-    throw gone("Job not found or its batch has expired", "JOB_EXPIRED");
-  }
-  // Why edit guard: Re-running image-redact on an edit job would discard user-drawn boxes and overrides.
-  if (failedJob.replacesJobId) {
-    throw badRequest("Edit jobs cannot be retried", "JOB_NOT_RETRYABLE");
-  }
-  if (failedJob.status !== JobStatus.FAILED) {
-    throw badRequest("Only FAILED jobs can be retried", "JOB_NOT_FAILED");
-  }
-
-  const batch = await getBatch(failedJob.batchId);
-  if (!batch) {
-    throw gone("Batch has expired", "BATCH_EXPIRED");
-  }
-  if (!(await storage.objectExists(UPLOADS_BUCKET, failedJob.inputKey))) {
-    throw gone("Original input has expired and cannot be retried", "INPUT_EXPIRED");
-  }
-
-  const activeRetry = await getActiveRetryJob(failedJob);
-  if (activeRetry) {
-    return toJobResponse(activeRetry)!;
-  }
-
-  const survivingKeys: string[] = [];
-  for (const whitelistKey of batch.whitelistKeys) {
-    if (await storage.objectExists(UPLOADS_BUCKET, whitelistKey)) {
-      survivingKeys.push(whitelistKey);
-    }
-  }
-
-  const missingCount = batch.whitelistKeys.length - survivingKeys.length;
-  if (missingCount > 0 && !options?.acceptMissingFaces) {
-    throw conflict("Some whitelist faces are no longer available", "WHITELIST_FACES_MISSING", {
-      missing: missingCount,
-      total: batch.whitelistKeys.length,
-    });
-  }
-
-  const whitelistRefs =
-    survivingKeys.length < batch.whitelistKeys.length
-      ? survivingKeys.map((key) => batch.whitelistKeys.indexOf(key))
-      : [];
-
-  const batchConfig = parseBatchConfigJson(batch.config);
-  const retryJobId = randomUUID();
-  const retryJob = {
-    id: retryJobId,
-    batchId: failedJob.batchId,
-    originalFilename: failedJob.originalFilename,
-    inputKey: failedJob.inputKey,
-    outputKey: `${failedJob.batchId}/${retryJobId}/result.${resolveOutputExtension(
-      batchConfig.format,
-      failedJob.originalFilename,
-    )}`,
-    inputBytes: failedJob.inputBytes,
-    whitelistRefs,
-  };
-  await insertRetryJob(retryJob);
-
-  try {
-    const command = buildImageRedactCommand({
-      jobId: retryJob.id,
-      batchId: retryJob.batchId,
-      inputKey: retryJob.inputKey,
-      outputKey: retryJob.outputKey,
-      config: batchConfig,
-      whitelistKeys: survivingKeys,
-    });
-    await publishJob("jobs.image", command);
-    await updateJobQueued(retryJob.id);
-  } catch (error) {
-    await deleteJob(retryJob.id);
-    console.error(`Failed to publish retry command for job ${id}`, error);
-    throw unavailable("Job queue is unavailable");
-  }
-
-  const createdRetry = await getJob(retryJob.id);
-  if (!createdRetry) {
-    throw unavailable("Retry job could not be created");
-  }
-  return toJobResponse(createdRetry)!;
-}
-
-/**
- * Re-renders a completed image job with modified bounding boxes and redaction options per Contract §2C.
- *
- * Why new Job row with replacesJobId: The original result remains accessible and intact until the new render
- * successfully completes. Once completed, the old row and storage objects are cleaned up in-place.
- */
-export async function editJob(id: string, userId: string, input: EditJobInput): Promise<JobResponseDTO> {
-  const job = await getJobOwnedByUser(id, userId);
-  if (!job) {
-    throw notFound("Job not found");
-  }
-
-  // Why active check: Returns running edit without creating duplicate workers or redundant storage objects.
-  const activeEdit = await getActiveEditJob(job.id);
-  if (activeEdit) {
-    return toJobResponse(activeEdit)!;
-  }
-
-  if (job.status !== JobStatus.COMPLETED) {
-    throw conflict("Only COMPLETED jobs can be edited", "JOB_NOT_EDITABLE");
-  }
-
-  if (!(await storage.objectExists(UPLOADS_BUCKET, job.inputKey))) {
-    throw gone("Original input has expired and cannot be edited", "INPUT_EXPIRED");
-  }
-
-  const existingDetections = Array.isArray((job.resultSummary as Record<string, unknown> | null)?.detections)
-    ? ((job.resultSummary as Record<string, unknown>).detections as Array<Record<string, unknown>>)
-    : [];
-
-  for (const idx of input.redactIndices) {
-    if (idx < 0 || idx >= existingDetections.length) {
-      throw badRequest(
-        `Index ${idx} is out of range of detections (0-${Math.max(0, existingDetections.length - 1)})`,
-        "INDEX_OUT_OF_RANGE",
-      );
-    }
-  }
-
-  const batch = await getBatch(job.batchId);
-  if (!batch) {
-    throw gone("Batch has expired", "BATCH_EXPIRED");
-  }
-  const batchConfig = parseBatchConfigJson(batch.config);
-
-  const effectiveStyle = input.style ?? batchConfig.style;
-  const effectivePadding = input.padding ?? batchConfig.padding;
-
-  let effectiveStrength: number | undefined;
-  if (effectiveStyle === "blackout") {
-    effectiveStrength = undefined;
-  } else if (input.strength !== undefined) {
-    effectiveStrength = input.strength;
-  } else if (input.style !== undefined && input.style !== batchConfig.style) {
-    // Style changed without explicit strength: fallback to style defaults from Contract §2
-    effectiveStrength = DEFAULT_REDACTION_STRENGTHS[input.style as "blur" | "pixelate"];
-  } else {
-    // Inherit batch config strength
-    effectiveStrength = batchConfig.strength;
-  }
-
-  // Validate strength against effective style range (task 85 / Contract §2)
-  if (effectiveStrength !== undefined) {
-    if (effectiveStyle === "blur" && (effectiveStrength < 1 || effectiveStrength > 50)) {
-      throw badRequest("Strength for blur style must be between 1 and 50", "VALIDATION_ERROR");
-    }
-    if (effectiveStyle === "pixelate" && (effectiveStrength < 3 || effectiveStrength > 32)) {
-      throw badRequest("Strength for pixelate style must be between 3 and 32", "VALIDATION_ERROR");
-    }
-  }
-
-  const uniqueRedactIndices = Array.from(new Set(input.redactIndices));
-  const engineBoxes: RenderBox[] = [];
-
-  for (const idx of uniqueRedactIndices) {
-    const det = existingDetections[idx];
-    const rawBox = Array.isArray(det.box) && det.box.length === 4 ? det.box : null;
-    if (!rawBox) {
-      throw badRequest(`Detection at index ${idx} is missing bounding box`, "INVALID_DETECTION");
-    }
-    const box: [number, number, number, number] = [
-      Number(rawBox[0]),
-      Number(rawBox[1]),
-      Number(rawBox[2]),
-      Number(rawBox[3]),
-    ];
-    const label = typeof det.label === "string" ? det.label : "custom";
-    engineBoxes.push({ label, box });
-  }
-
-  for (const added of input.addedBoxes) {
-    engineBoxes.push({
-      label: "custom",
-      box: added.box,
-    });
-  }
-
-  const redactSet = new Set(input.redactIndices);
-  const resultingDetections: Array<Record<string, unknown>> = existingDetections.map((det, idx) => ({
-    ...det,
-    redacted: redactSet.has(idx),
-  }));
-
-  for (const added of input.addedBoxes) {
-    resultingDetections.push({
-      label: "custom",
-      box: added.box,
-      redacted: true,
-    });
-  }
-
-  const newJobId = randomUUID();
-  const ext = path.extname(job.originalFilename).toLowerCase() || path.extname(job.inputKey).toLowerCase() || ".jpg";
-  const destInputKey = `${job.batchId}/${newJobId}/input${ext}`;
-  const outExt = resolveOutputExtension(batchConfig.format, job.originalFilename);
-  const destOutputKey = `${job.batchId}/${newJobId}/result.${outExt}`;
-
-  await storage.copyObject(UPLOADS_BUCKET, job.inputKey, destInputKey);
-
-  await insertEditJob({
-    id: newJobId,
-    batchId: job.batchId,
-    originalFilename: job.originalFilename,
-    inputKey: destInputKey,
-    outputKey: destOutputKey,
-    inputBytes: job.inputBytes,
-    replacesJobId: job.id,
-    resultSummary: {
-      detections: resultingDetections,
-    },
-  });
-
-  try {
-    const command = buildImageRenderCommand({
-      jobId: newJobId,
-      batchId: job.batchId,
-      inputKey: destInputKey,
-      outputKey: destOutputKey,
-      redaction: {
-        style: effectiveStyle,
-        strength: effectiveStrength,
-        padding: effectivePadding,
-      },
-      quality: batchConfig.quality,
-      boxes: engineBoxes,
-    });
-    await publishJob("jobs.image", command);
-    await updateJobQueued(newJobId);
-  } catch (error) {
-    await deleteJob(newJobId);
-    try {
-      await storage.deleteObject(UPLOADS_BUCKET, destInputKey);
-    } catch (cleanupErr) {
-      console.error(`Failed to cleanup copied input ${destInputKey}`, cleanupErr);
-    }
-    console.error(`Failed to publish image-render command for job ${job.id}`, error);
-    throw unavailable("Job queue is unavailable");
-  }
-
-  const createdEdit = await getJob(newJobId);
-  if (!createdEdit) {
-    throw unavailable("Edit job could not be created");
-  }
-  return toJobResponse(createdEdit)!;
-}
-
-/**
- * Computes the download filename for a job result using the original filename's stem
- * and the output format extension.
- *
- * Why stem + output extension: The processed result may be converted to another format (e.g. .jpg or .webp),
- * while preserving the user's original file stem for recognition.
- */
-export function buildJobResultFilename(originalFilename: string, outputKey: string): string {
-  let base = path.basename(originalFilename);
-  base = base
-    .replace(/[/\\]+/g, "")
-    .replace(/\.\.+/g, "")
-    .trim();
-  if (!base) base = "image";
-
-  const parsed = path.parse(base);
-  let stem = parsed.name || "image";
-  const knownExts = [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff"];
-  for (const ext of knownExts) {
-    if (stem.toLowerCase().endsWith(ext)) {
-      stem = stem.slice(0, -ext.length) || "image";
-      break;
-    }
-  }
-
-  const extFromOutput = path.extname(outputKey);
-  const resultExt = (extFromOutput || parsed.ext || ".jpg").toLowerCase();
-  return `${stem}${resultExt}`;
-}
-
-/**
- * Generates a presigned GET URL for a completed job's result image.
- *
- * Why owner verification: Job results may contain sensitive personally identifiable imagery.
- * Only the owner may obtain presigned access; unauthenticated or cross-tenant requests receive 404.
- * Why 404 on uncompleted: Jobs pending or processing have no finished artifact in the results bucket.
- * Why signed response-content-disposition: When download is requested, signing the attachment header
- * ensures the browser saves the file with its original name and output extension even across domains.
- */
-export async function getJobResultPresignedUrl(
-  id: string,
-  userId: string,
-  options?: { download?: boolean },
-): Promise<{ url: string; expiresAt: string }> {
-  const job = await getJobOwnedByUser(id, userId);
-  if (!job) {
-    throw notFound("Job not found");
-  }
-
-  if (job.status !== JobStatus.COMPLETED || !job.outputKey) {
-    throw notFound("Job result not found");
-  }
-
-  let contentDisposition: string | undefined = undefined;
-  if (options?.download) {
-    const filename = buildJobResultFilename(job.originalFilename, job.outputKey);
-    contentDisposition = buildAttachmentContentDisposition(filename);
-  }
-
-  return storage.presignGetUrl(RESULTS_BUCKET, job.outputKey, {
-    ttlSeconds: config.PRESIGN_RESULT_TTL_SECONDS,
-    contentDisposition,
-  });
-}
-
-/**
- * Generates a presigned GET URL for a job's original uploaded image.
- *
- * Why owner verification: Original images are unredacted and must remain strictly private to the owner.
- * Cross-tenant or nonexistent requests return 404.
- * Why private, no-store: Instructs intermediate proxies and browsers never to cache unredacted photos.
- */
-export async function getJobOriginalPresignedUrl(
-  id: string,
-  userId: string,
-): Promise<{ url: string; expiresAt: string }> {
-  const job = await getJobOwnedByUser(id, userId);
-  if (!job) {
-    throw notFound("Job not found");
-  }
-
-  return storage.presignGetUrl(UPLOADS_BUCKET, job.inputKey, {
-    ttlSeconds: config.PRESIGN_PRIVATE_TTL_SECONDS,
-    cacheControl: "private, no-store",
-  });
-}
-
-/**
- * Generates a presigned GET URL for the batch's nth reference whitelist photo (1-based index).
- *
- * Why owner verification: Whitelist reference images contain biometric profile data that must remain
- * strictly private to the user account that uploaded or referenced them.
- * Why key index lookup: Reuses batch.whitelistKeys without constructing storage keys from user input.
- * Why private, no-store: Protects biometric photos from caching by browsers or intermediate proxies.
- */
-export async function getBatchWhitelistPresignedUrl(
-  batchId: string,
-  index: number,
-  userId: string,
-): Promise<{ url: string; expiresAt: string }> {
-  if (!UUID_REGEX.test(batchId)) {
-    throw notFound("Batch not found");
-  }
-
-  const batch = await getBatchOwnedByUser(batchId, userId);
-  if (!batch) {
-    throw notFound("Batch not found");
-  }
-
-  const keys = Array.isArray(batch.whitelistKeys) ? batch.whitelistKeys : [];
-  if (index < 1 || index > keys.length) {
-    throw notFound("Whitelist photo not found");
-  }
-
-  const key = keys[index - 1]!;
-  return storage.presignGetUrl(UPLOADS_BUCKET, key, {
-    ttlSeconds: config.PRESIGN_PRIVATE_TTL_SECONDS,
-    cacheControl: "private, no-store",
-  });
-}
-
-/**
- * Rewrites a worker WHITELIST_REFERENCE_ERROR message to display the reference photo's original filename
- * instead of internal bucket storage keys. Falls back to a generic description if the key is unknown.
- *
- * Why storage keys are stripped: Internal storage paths (e.g. `uploads/lists/...`) expose system bucket
- * structures and UUIDs to end users. Replacing them with the user's uploaded filename keeps error notices
- * actionable while preserving privacy and security boundaries.
- */
-export function sanitizeWhitelistReferenceErrorMessage(
-  message: string,
-  whitelistKeys: string[],
-  whitelistNames: Record<string, unknown>,
-): string {
-  // Find which whitelist key is contained in the worker's error message.
-  // The worker prefixes the key with the bucket name (e.g. `uploads/lists/...` or `uploads/<batchId>/whitelist/...`),
-  // while `whitelistKeys` contains `lists/...` or `<batchId>/whitelist/...`.
-  const matchedKey = [...whitelistKeys].sort((a, b) => b.length - a.length).find((key) => key && message.includes(key));
-
-  let replacement = "a reference photo";
-  if (matchedKey) {
-    const rawName = whitelistNames[matchedKey];
-    if (typeof rawName === "string" && rawName.trim().length > 0) {
-      replacement = rawName.trim();
-    }
-  }
-
-  // Replace the whole quoted identifier (e.g. `'uploads/lists/...'` or `"uploads/..."`)
-  const quotedMatch = message.match(/['"]([^'"]+)['"]/);
-  if (quotedMatch) {
-    return message.replace(quotedMatch[0], replacement);
-  }
-
-  // Fallback: replace any unquoted key occurrence or remaining bucket prefix
-  if (matchedKey) {
-    const keyPattern = new RegExp(`(?:uploads/)?${matchedKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
-    return message.replace(keyPattern, replacement);
-  }
-
-  return message.replace(/uploads\/[^\s,':]+/g, replacement);
-}
-
-export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
-  const current = await getJob(event.jobId);
-  if (!current) return;
-
-  const currentState: JobState = {
-    status: current.status,
-    progress: current.progress,
-    stage: current.stage,
-    resultSummary: current.resultSummary as Record<string, unknown> | null,
-    error: current.error as { code: string; message: string } | null,
-  };
-
-  let eventPayload = event;
-  if (event.status === "FAILED" && event.error?.code === "WHITELIST_REFERENCE_ERROR" && event.error.message) {
-    // Why batch lookup only on WHITELIST_REFERENCE_ERROR: Normal processing events avoid
-    // an extra database round trip; only bad reference failures load the batch to resolve filenames.
-    const batch = await getBatch(current.batchId);
-    const keys = Array.isArray(batch?.whitelistKeys) ? batch.whitelistKeys : [];
-    const names =
-      batch &&
-      typeof batch.whitelistNames === "object" &&
-      batch.whitelistNames !== null &&
-      !Array.isArray(batch.whitelistNames)
-        ? (batch.whitelistNames as Record<string, unknown>)
-        : {};
-    const sanitizedMessage = sanitizeWhitelistReferenceErrorMessage(event.error.message, keys, names);
-    eventPayload = {
-      ...eventPayload,
-      error: {
-        ...event.error,
-        message: sanitizedMessage,
-      },
-    };
-  }
-
-  if (
-    current.whitelistRefs &&
-    current.whitelistRefs.length > 0 &&
-    event.status === "COMPLETED" &&
-    event.resultSummary?.detections
-  ) {
-    eventPayload = {
-      ...event,
-      resultSummary: {
-        ...event.resultSummary,
-        detections: event.resultSummary.detections.map((detection) => {
-          if (
-            typeof detection.whitelistRef === "number" &&
-            current.whitelistRefs[detection.whitelistRef] !== undefined
-          ) {
-            return {
-              ...detection,
-              whitelistRef: current.whitelistRefs[detection.whitelistRef],
-            };
-          }
-          return detection;
-        }),
-      },
-    };
-  }
-
-  const nextState = calculateNextJobState(currentState, eventPayload);
-
-  let finalSummary = nextState.resultSummary;
-  // Why merge on replacesJobId: An image-render worker reports filter stats without detections.
-  // Merging over stored summary ensures detections survive into the completed row.
-  if (current.replacesJobId && current.resultSummary) {
-    const stored = current.resultSummary as Record<string, unknown>;
-    const incoming = (event.resultSummary as Record<string, unknown> | undefined) ?? {};
-    finalSummary = {
-      ...stored,
-      ...incoming,
-      detections: incoming.detections ?? stored.detections,
-    };
-  }
-
-  let resultBytes: number | null | undefined = undefined;
-  if (nextState.status === JobStatus.COMPLETED) {
-    resultBytes = await storage.statObject(RESULTS_BUCKET, current.outputKey);
-  }
-
-  await updateJobState(event.jobId, {
-    status: nextState.status,
-    progress: nextState.progress,
-    stage: nextState.stage,
-    resultSummary: finalSummary,
-    error: nextState.error,
-    resultBytes,
-  });
-
-  // On COMPLETED: delete old row's result, input and DB row, then set replacesJobId to null.
-  // Done after saving new row as COMPLETED so we never risk losing both results.
-  if (nextState.status === JobStatus.COMPLETED && current.replacesJobId) {
-    const oldJob = await getJob(current.replacesJobId);
-    if (oldJob) {
-      try {
-        await storage.deleteObject(RESULTS_BUCKET, oldJob.outputKey);
-      } catch (err) {
-        console.error(`Failed to delete old result object ${oldJob.outputKey}`, err);
-      }
-      try {
-        await storage.deleteObject(UPLOADS_BUCKET, oldJob.inputKey);
-      } catch (err) {
-        console.error(`Failed to delete old input object ${oldJob.inputKey}`, err);
-      }
-      await deleteJob(oldJob.id);
-    }
-    await clearJobReplacesJobId(current.id);
-  }
-}
-
-/**
- * Evaluates terminal status across all jobs in a batch to trigger biometric reference cleanup.
- *
- * Why whitelist cleanup timing: To uphold privacy commitments and prevent lingering biometric data,
- * reference whitelist faces stored in the uploads bucket are purged from S3 immediately after all
- * jobs reach terminal state (COMPLETED or FAILED). Setting whitelistDeletedAt records that the S3 delete succeeded.
- */
-export async function checkAndCleanBatchWhitelist(batchId: string): Promise<void> {
-  const batch = await getBatch(batchId);
-  if (!batch || batch.startedAt === null || batch.whitelistDeletedAt !== null) {
-    return;
-  }
-
-  const jobs = await getJobsByBatchId(batchId);
-  if (jobs.length === 0) {
-    return;
-  }
-
-  // Whitelist files remain in S3 while any image job is still processing or queued
-  const remainingNonTerminal = jobs.some(
-    (job) => job.status !== JobStatus.COMPLETED && job.status !== JobStatus.FAILED,
-  );
-  if (remainingNonTerminal) {
-    return;
-  }
-
-  try {
-    await storage.deletePrefix(UPLOADS_BUCKET, `${batchId}/whitelist/`);
-  } catch (error) {
-    console.error(`Failed to delete S3 whitelist objects for batch ${batchId}`, error);
-    return;
-  }
-
-  try {
-    await markBatchWhitelistDeleted(batchId);
-  } catch (error) {
-    console.error(`Failed to update whitelistDeletedAt for batch ${batchId}`, error);
-  }
-}
-
-/**
- * Retries whitelist cleanup for finished batches whose storage delete failed or was interrupted.
- *
- * Why periodic retry: A finished batch gets no more job events, so if the initial storage deletion
- * fails upon terminal transition, the batch's biometric reference photos would linger in storage
- * indefinitely unless retried by a background timer.
- */
-export async function retryPendingWhitelistCleanups(): Promise<void> {
-  const batches = await getBatchesPendingWhitelistCleanup();
-  for (const batch of batches) {
-    try {
-      await checkAndCleanBatchWhitelist(batch.id);
-    } catch (error) {
-      console.error(`Failed to retry whitelist cleanup for batch ${batch.id}`, error);
-    }
-  }
-}
-
-export async function cleanupExpiredBatches(): Promise<number> {
-  const expiredBatches = await getExpiredBatches();
-  let deleted = 0;
-
-  for (const batch of expiredBatches) {
-    let storageDeleted = true;
-    for (const bucket of [UPLOADS_BUCKET, RESULTS_BUCKET]) {
-      try {
-        await storage.deletePrefix(bucket, `${batch.id}/`);
-      } catch (error) {
-        storageDeleted = false;
-        console.error(`Failed to clean expired objects for batch ${batch.id} in ${bucket}`, error);
-      }
-    }
-
-    // Keep the batch row when storage deletion fails so future cleanup runs can retry removing any remaining files (including private originals).
-    if (!storageDeleted) {
-      continue;
-    }
-
-    try {
-      if (await deleteBatchRow(batch.id)) {
-        deleted++;
-      }
-    } catch (error) {
-      console.error(`Failed to delete expired batch row ${batch.id}`, error);
-    }
-  }
-
-  return deleted;
 }

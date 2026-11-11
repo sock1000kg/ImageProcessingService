@@ -131,7 +131,11 @@ MINIO_USE_SSL=false
 S3_PUBLIC_ENDPOINT=http://localhost:9000
 PRESIGN_RESULT_TTL_SECONDS=3600
 PRESIGN_PRIVATE_TTL_SECONDS=300
-UPLOAD_MAX_BYTES=52428800
+IMAGE_UPLOAD_MAX_BYTES=52428800
+VIDEO_UPLOAD_MAX_BYTES=209715200
+UPLOAD_CHUNK_BYTES=8388608
+VIDEO_MIN_DURATION_SECONDS=15
+VIDEO_MAX_DURATION_SECONDS=60
 BATCH_MAX_FILES=1000
 RATE_LIMIT_MULTIPLIER=1
 TRANSFER_RATE_LIMIT_MULTIPLIER=1
@@ -287,7 +291,7 @@ Batch creation and image processing use a three-step flow:
    - **Request**: Multipart form data with:
      - `name`: optional batch name (1–100 characters after trimming, no control characters). When omitted or empty, the server sets a default name formatted as `Batch <YYYY-MM-DD HH:mm>` in UTC. Values exceeding 100 characters or containing control characters return `400 VALIDATION_ERROR`.
      - `config`: serialized JSON string with redaction options (`targets`, `style`, `strength` [relative to box width: blur 1–50%, default 15; pixelate 3–32 cells across, default 8], `padding`, `quality`, `format`, `faceConfidenceThreshold`, `plateConfidenceThreshold`, `reviewThreshold`, `similarityThreshold`, and optional normalized `whitelistPlates`).
-     - `whitelist`: optional 0 to 20 face reference images (JPG, PNG, WEBP, up to `UPLOAD_MAX_BYTES`).
+     - `whitelist`: optional 0 to 20 face reference images (JPG, PNG, WEBP, up to `IMAGE_UPLOAD_MAX_BYTES`).
      - `faceListIds`: optional array of allow list UUIDs (JSON array string or repeated form field, deduped; `faceListId` also accepted as a single-item alias). Batches reference allow list photos directly under `uploads/lists/...` without copying them server-side, in list order before uploaded files.
      - Note: allow lists and uploaded files can be combined, up to a maximum total of 20 reference faces per batch (exceeding 20 returns `400 VALIDATION_ERROR` "At most 20 whitelist faces per batch"). Specifying an unknown or foreign allow list id returns `404 NOT_FOUND`.
      - Note: `files` field is **not allowed**; sending it returns `400 BAD_REQUEST` with a message pointing to `/api/batches/:id/files`.
@@ -295,7 +299,7 @@ Batch creation and image processing use a three-step flow:
    - **Errors**: `400 BAD_REQUEST` / `VALIDATION_ERROR`, `404 NOT_FOUND`, `413 FILE_TOO_LARGE`.
 
 2. **`POST /api/batches/:id/files`** (Upload individual file)
-   - **Request**: Multipart form data with exactly one `file` field (JPG, PNG, or WEBP, up to `UPLOAD_MAX_BYTES`).
+   - **Request**: Multipart form data with exactly one `file` field (JPG, PNG, or WEBP, up to `IMAGE_UPLOAD_MAX_BYTES`).
    - **Response**: `201 Created` with `{ job }` in status `"PENDING"`.
    - **Concurrency & limits**: Enforced under a PostgreSQL row lock (`SELECT ... FOR UPDATE`) on the batch record.
    - **Errors**:
@@ -303,7 +307,7 @@ Batch creation and image processing use a three-step flow:
      - `404 NOT_FOUND`: batch does not exist.
      - `409 BATCH_STARTED`: batch has already been started.
      - `409 BATCH_FULL`: batch already has `BATCH_MAX_FILES` jobs (default: 1000).
-     - `413 FILE_TOO_LARGE`: file size exceeds `UPLOAD_MAX_BYTES` (default: 50MB).
+     - `413 FILE_TOO_LARGE`: file size exceeds `IMAGE_UPLOAD_MAX_BYTES` (default: 50MB).
 
 3. **`POST /api/batches/:id/start`** (Start processing)
    - **Request**: Empty body.
@@ -360,7 +364,7 @@ Batch creation and image processing use a three-step flow:
 
 Every batch response (`BatchResponseDTO`) includes `name: string`. The batch report (`ReportResponseDTO` from `GET /api/batches/:id/report`) includes `batchName: string`.
 
-`BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 1000). In Phase 2, originals and results are kept until the user deletes them, unless `RETENTION_DAYS` is set. Abandoned draft batches (unstarted) older than 24h are always deleted by the periodic cleanup task regardless of `RETENTION_DAYS`. Whitelist reference portraits are deleted immediately once all jobs in a batch reach a terminal state.
+`BATCH_MAX_BYTES` has been removed. Total batch size is no longer limited in memory on creation; limits are governed by `IMAGE_UPLOAD_MAX_BYTES` per file (50 MB) and `BATCH_MAX_FILES` per batch (default: 1000). In Phase 2, originals and results are kept until the user deletes them, unless `RETENTION_DAYS` is set. Abandoned draft batches (unstarted) older than 24h are always deleted by the periodic cleanup task regardless of `RETENTION_DAYS`. Whitelist reference portraits are deleted immediately once all jobs in a batch reach a terminal state.
 
 The Create Batch page also supports selecting a folder (including nested folders) in browsers that expose `webkitdirectory`. Files are validated locally before submission: only JPG/JPEG, PNG, and WEBP are accepted, and each file is limited to 50 MB. Invalid files are reported and are never added to `FormData`; choosing a folder does not upload until **Create secure batch** is pressed. Folder selection is a UI convenience only—uploads are now sent as one file per request (`POST /api/batches/:id/files`).
 

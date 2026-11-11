@@ -6,7 +6,8 @@ import { z } from "zod";
 
 import { config } from "./config";
 import { getJob } from "./db";
-import { applyJobEvent, checkAndCleanBatchWhitelist } from "./services/batch.service";
+import { applyJobEvent } from "./services/job-events.service";
+import { checkAndCleanBatchWhitelist } from "./services/retention.service";
 import { jobEventSchema } from "./dto";
 import { ImageRedactCommand, ImageRenderCommand, VideoRedactCommand } from "./domain";
 

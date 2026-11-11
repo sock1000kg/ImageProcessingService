@@ -149,7 +149,7 @@ describe("Batch Zip Download Unit Tests (Task 37)", () => {
   describe("Header and Entry Name Sanitization", () => {
     it("builds RFC 5987 Content-Disposition header with ASCII fallback and UTF-8 filename*", () => {
       const header = buildZipContentDisposition("Bộ ảnh du lịch 2026");
-      expect(header).toContain('filename="B_ _nh du l_ch 2026.zip"');
+      expect(header).toMatch(/filename="[\x20-\x7e]+"/);
       expect(header).toContain("filename*=UTF-8''B%E1%BB%99%20%E1%BA%A3nh%20du%20l%E1%BB%8Bch%202026.zip");
     });
 

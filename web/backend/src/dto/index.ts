@@ -4,5 +4,7 @@
 export * from "./batch-config.dto";
 export * from "./job-event.dto";
 export * from "./batch.dto";
+export * from "./report.dto";
+export * from "./report-video.dto";
 export * from "./validation.dto";
 export * from "./face-list.dto";

@@ -9,6 +9,10 @@ import { formatDetectionLabel } from "./DetectionList";
 /**
  * Shows one video job: the redacted video once it finishes, otherwise its processing state.
  *
+ * Top to bottom: the player (or a status box), a meta row (stage, Open original, Download, video details), the
+ * "Needs review" list, and a few counts. There is no timeline bar: "Needs review" is the timeline. Each row is one
+ * track the Engine followed through the video (one person's face or one plate) with the time span it was on screen.
+ *
  * Why the shared viewer classes: `.result-viewer` / `.viewer-empty` give the pane the same height as the image
  * viewer, which keeps the file list column beside it from collapsing while the video is still processing.
  */
@@ -22,13 +26,14 @@ export function VideoResultViewer({
   onRetry: (job: Job) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  // The flagged track whose box is drawn on the video. Only valid while paused on its frame, see seekTo.
+  // The review row the user clicked: its box is drawn over the video until they press play (see showTrack).
   const [focused, setFocused] = useState<Detection | null>(null);
   const completed = job.status === "COMPLETED";
   const { url, loading, error } = usePresignedUrl(completed ? `/api/jobs/${job.id}/result-url` : null);
   const summary = readSummary(job);
 
-  // Tracks the review rules flagged (low confidence, or a gap where the redaction may have been lost), in time order.
+  // Tracks the backend flagged for review (low confidence, or a gap where the redaction may have been lost), earliest
+  // first. `detections` for a video are its tracks; trackId is only set for those, so images' detections are skipped.
   const reviewTracks = detections
     .filter((track) => track.reviewReasons.length > 0 && track.trackId !== undefined)
     .sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0));
@@ -42,10 +47,12 @@ export function VideoResultViewer({
     setFocused(track);
   };
 
+  // The big area: the player, or why there is no player yet (processing, failed, or still loading the signed URL).
   let stage: ReactNode;
   if (completed && url) {
     stage = (
       <div className="comparison">
+        {/* The frame is sized to the video's own aspect ratio so the overlay below lines up with the picture. */}
         <div
           className="video-frame"
           style={summary.size ? { aspectRatio: `${summary.size.width} / ${summary.size.height}` } : undefined}
@@ -60,6 +67,8 @@ export function VideoResultViewer({
           >
             Your browser does not support video playback.
           </video>
+          {/* Box overlay: an SVG whose coordinate system is the video's pixels, so the Engine's box (also in video
+              pixels) is drawn as-is and scales with the player. */}
           {focused?.box && summary.size && (
             <svg
               className="video-box-overlay"
@@ -139,6 +148,7 @@ export function VideoResultViewer({
         )}
         {summary.details && <span>{summary.details}</span>}
       </div>
+      {/* One row per flagged track: label + time span, and why it was flagged. Clicking jumps to the track's frame. */}
       {reviewTracks.length > 0 && (
         <section className="report-section" aria-label="Needs review">
           <h4>Needs review</h4>
@@ -155,6 +165,7 @@ export function VideoResultViewer({
           </ul>
         </section>
       )}
+      {/* Totals from the Engine's summary, plus how many tracks are in the review list above. */}
       {summary.counts.length > 0 && (
         <div className="report-metrics">
           {[...summary.counts, ...(completed ? [["Needs review", reviewTracks.length] as [string, number]] : [])].map(
@@ -211,6 +222,7 @@ function readSummary(job: Job): {
   };
 }
 
+/** Milliseconds as m:ss.t (tenths), because flagged stretches are often under a second long. */
 function formatClock(ms: number): string {
   const tenths = Math.floor(ms / 100);
   return `${Math.floor(tenths / 600)}:${String(Math.floor((tenths % 600) / 10)).padStart(2, "0")}.${tenths % 10}`;

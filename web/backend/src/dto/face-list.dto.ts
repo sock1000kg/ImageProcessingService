@@ -2,7 +2,8 @@
  * Data transfer objects and validation schemas for saved face lists.
  */
 import { z } from "zod";
-import { config } from "../config";
+import { config, uploadLimitLabel } from "../config";
+import { ALLOWED_IMAGE_MIME_TYPES } from "../media-types";
 import { badRequest, payloadTooLarge } from "../errors";
 import { CONTROL_CHAR_REGEX, MAX_FACE_LIST_FILES } from "./validation.dto";
 
@@ -55,8 +56,6 @@ export function parseFaceListName(input: unknown): string {
   }
 }
 
-const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
-
 /**
  * Validates uploaded face files for face list creation.
  * Follows identical type, count, and size constraints as whitelist uploads (1-5 files, JPEG/PNG/WEBP).
@@ -70,13 +69,13 @@ export function validateFaceListFiles(files: Express.Multer.File[]): void {
   }
 
   for (const file of files) {
-    if (file.size > config.UPLOAD_MAX_BYTES) {
+    if (file.size > config.IMAGE_UPLOAD_MAX_BYTES) {
       throw payloadTooLarge(
-        `Face file ${file.originalname} exceeds limit of ${config.UPLOAD_MAX_BYTES} bytes`,
+        `Face file ${file.originalname} exceeds the file size limit of ${uploadLimitLabel()}`,
         "FILE_TOO_LARGE",
       );
     }
-    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
       throw badRequest(
         `Face file ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
         "VALIDATION_ERROR",

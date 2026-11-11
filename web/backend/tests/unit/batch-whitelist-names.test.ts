@@ -1,10 +1,11 @@
+import { PNG_BYTES } from "../helpers/image-bytes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Readable } from "node:stream";
 import { createDraftBatch } from "../../src/services/batch.service";
 import * as jobRepository from "../../src/repositories/job.repository";
 import * as faceListRepository from "../../src/repositories/face-list.repository";
 import { storage, UPLOADS_BUCKET } from "../../src/storage";
-import { toReportResponse } from "../../src/dto/batch.dto";
+import { toReportResponse } from "../../src/dto/report.dto";
 import { createBatchHandler, rerunBatchHandler } from "../../src/controllers/batches.controller";
 import * as batchService from "../../src/services/batch.service";
 
@@ -24,7 +25,7 @@ describe("Batch Whitelist Names and Private Image Endpoint (Task 58)", () => {
     encoding: "7bit",
     mimetype: "image/jpeg",
     size: 1000,
-    buffer: Buffer.from("fake-img-data"),
+    buffer: PNG_BYTES,
     stream: new Readable(),
     destination: "",
     filename: name,

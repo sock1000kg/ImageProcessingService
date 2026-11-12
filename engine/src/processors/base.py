@@ -1,5 +1,6 @@
 """Abstract Base Processor Interface."""
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Tuple, Dict, Any, Optional, Callable
 import cv2
 import numpy as np
@@ -9,24 +10,122 @@ DEFAULT_REVIEW_THRESHOLD: float = 0.25
 DEFAULT_REDACTION_STRENGTHS: Dict[str, int] = {"blur": 15, "pixelate": 8}
 
 
-def parse_confidence_thresholds(params: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+@dataclass(frozen=True)
+class DetectionModeConfig:
+    mode: str
+    model_name: str
+    imgsz: int
+    confidence_thresholds: Dict[str, float]
+
+
+def parse_mode_config(
+    mode_name: str,
+    config_str: str,
+    default_model: str = "yolo26n-1280-e20-crowd.pt",
+    default_imgsz: int = 1280,
+) -> DetectionModeConfig:
+    """Parse configuration string in format '<model_name>@<imgsz>:face=<conf>,plate=<conf>'.
+
+    Example:
+        'yolo26n-1280-e20-crowd.pt@1280:face=0.17,plate=0.11'
+    """
+    config_str = (config_str or "").strip()
+    model_name = default_model
+    imgsz = default_imgsz
+    thresholds = dict(DEFAULT_CONFIDENCE_THRESHOLDS)
+
+    if not config_str:
+        return DetectionModeConfig(
+            mode=mode_name,
+            model_name=model_name,
+            imgsz=imgsz,
+            confidence_thresholds=thresholds,
+        )
+
+    # 1. Parse @ separator for model_name
+    if "@" in config_str:
+        parts = config_str.split("@", 1)
+        model_name = parts[0].strip() or default_model
+        rest = parts[1].strip()
+    else:
+        rest = config_str
+
+    # 2. Parse : separator for imgsz and thresholds
+    if ":" in rest:
+        imgsz_part, thresh_part = rest.split(":", 1)
+        imgsz_part = imgsz_part.strip()
+        if imgsz_part.isdigit():
+            parsed_sz = int(imgsz_part)
+            if parsed_sz > 0 and parsed_sz % 32 == 0:
+                imgsz = parsed_sz
+
+        for pair in thresh_part.split(","):
+            pair = pair.strip()
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                k = k.strip()
+                try:
+                    thresholds[k] = float(v.strip())
+                except ValueError:
+                    pass
+    else:
+        # Check if rest is an imgsz or model name
+        if rest.isdigit():
+            parsed_sz = int(rest)
+            if parsed_sz > 0 and parsed_sz % 32 == 0:
+                imgsz = parsed_sz
+        elif "@" not in config_str and rest:
+            model_name = rest
+
+    return DetectionModeConfig(
+        mode=mode_name,
+        model_name=model_name,
+        imgsz=imgsz,
+        confidence_thresholds=thresholds,
+    )
+
+
+def get_detection_mode_config(mode: Optional[str] = "fast") -> DetectionModeConfig:
+    """Resolve DetectionModeConfig for a given mode ('fast', 'accurate', 'max_privacy')."""
+    from ..config import settings
+
+    norm_mode = (mode or "fast").lower().strip()
+    if norm_mode == "accurate":
+        raw_cfg = settings.mode_accurate
+        default_model = "yolo26s-1280-e5-plates-frozen-x3.pt"
+        return parse_mode_config("accurate", raw_cfg, default_model=default_model)
+    elif norm_mode == "max_privacy":
+        raw_cfg = settings.mode_max_privacy
+        default_model = "yolo26s-1280-e5-plates-frozen-x3.pt"
+        return parse_mode_config("max_privacy", raw_cfg, default_model=default_model)
+    else:
+        raw_cfg = settings.mode_fast
+        default_model = "yolo26n-1280-e20-crowd.pt"
+        return parse_mode_config("fast", raw_cfg, default_model=default_model)
+
+
+def parse_confidence_thresholds(
+    params: Optional[Dict[str, Any]] = None,
+    base_thresholds: Optional[Dict[str, float]] = None,
+) -> Dict[str, float]:
     """Parse class-specific confidence thresholds from job params.
 
     Why: Reads params.confidenceThresholds mapping and falls back to
-    default thresholds (face: 0.17, plate: 0.11) when omitted.
+    base thresholds (or default: face: 0.17, plate: 0.11) when omitted.
     """
     params = params or {}
     new_thresholds = params.get("confidenceThresholds")
+    base = base_thresholds or DEFAULT_CONFIDENCE_THRESHOLDS
 
     if isinstance(new_thresholds, dict) and "face" in new_thresholds and new_thresholds["face"] is not None:
         face = float(new_thresholds["face"])
     else:
-        face = DEFAULT_CONFIDENCE_THRESHOLDS["face"]
+        face = float(base.get("face", DEFAULT_CONFIDENCE_THRESHOLDS["face"]))
 
     if isinstance(new_thresholds, dict) and "plate" in new_thresholds and new_thresholds["plate"] is not None:
         plate = float(new_thresholds["plate"])
     else:
-        plate = DEFAULT_CONFIDENCE_THRESHOLDS["plate"]
+        plate = float(base.get("plate", DEFAULT_CONFIDENCE_THRESHOLDS["plate"]))
 
     return {"face": face, "plate": plate}
 

@@ -432,6 +432,60 @@ def test_relative_strength_consistency_across_scales():
     print("=> TEST 12 PASSED!\n")
 
 
+def test_detection_modes_and_model_swapping():
+    """Verify Task B: params.detection.mode selection, memory reuse, and threshold inheritance."""
+    print("--- [TEST 13] Detection Modes & Memory Swapping (fast, accurate, max_privacy) ---")
+    img_bytes = create_solid_image_with_square(w=400, h=400)
+    processor = ImageRedactProcessor(model_name="yolo26n-1280-e20-crowd.pt")
+
+    # 1. Mode 'fast'
+    _, summary_fast, _ = processor.process(
+        img_bytes,
+        params={"detection": {"mode": "fast"}},
+        output_key="test.jpg",
+    )
+    assert "yolo26n" in summary_fast["model"]
+    assert "fast:face=0.17,plate=0.11" in summary_fast["model"]
+    print(f"  ✅ Fast mode executed: {summary_fast['model']}")
+
+    # 2. Mode 'accurate' -> swaps model from yolo26n to yolo26s
+    _, summary_acc, _ = processor.process(
+        img_bytes,
+        params={"detection": {"mode": "accurate"}},
+        output_key="test.jpg",
+    )
+    assert "yolo26s" in summary_acc["model"]
+    assert "accurate:face=0.13,plate=0.09" in summary_acc["model"]
+    acc_model_id = id(processor.model)
+    print(f"  ✅ Accurate mode executed (swapped to yolo26s): {summary_acc['model']}")
+
+    # 3. Mode 'max_privacy' -> uses same yolo26s file, MUST reuse loaded model instance in RAM
+    _, summary_max, _ = processor.process(
+        img_bytes,
+        params={"detection": {"mode": "max_privacy"}},
+        output_key="test.jpg",
+    )
+    assert "yolo26s" in summary_max["model"]
+    assert "max_privacy:face=0.06,plate=0.05" in summary_max["model"]
+    max_model_id = id(processor.model)
+    # Strict RAM reuse verification: model instance in memory must NOT be reloaded
+    assert acc_model_id == max_model_id, "Accurate and max_privacy must reuse identical model instance in RAM"
+    print(f"  ✅ Max privacy mode executed (zero-reload RAM reuse): {summary_max['model']}")
+
+    # 4. Mode with explicit override via params.confidenceThresholds
+    _, summary_override, _ = processor.process(
+        img_bytes,
+        params={
+            "detection": {"mode": "accurate"},
+            "confidenceThresholds": {"face": 0.25},
+        },
+        output_key="test.jpg",
+    )
+    assert "accurate:face=0.25,plate=0.09" in summary_override["model"]
+    print(f"  ✅ Override applied: {summary_override['model']}")
+    print("=> TEST 13 PASSED!\n")
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY BỘ UNIT TEST MILESTONE 1 (IMAGE-REDACT)")

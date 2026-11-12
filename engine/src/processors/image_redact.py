@@ -14,6 +14,7 @@ from .base import (
     DEFAULT_REVIEW_THRESHOLD,
     DEFAULT_REDACTION_STRENGTHS,
     apply_redaction_style,
+    get_detection_mode_config,
 )
 from .face_embedding import FaceEmbedder
 from .whitelist import WhitelistManager
@@ -54,41 +55,85 @@ class ImageRedactProcessor(BaseProcessor):
         plate_whitelist_manager: Optional[PlateWhitelistManager] = None,
         storage_client: Optional[Any] = None,
     ):
-        from ultralytics import YOLO
-
         self.class_mapping = class_mapping or self.DEFAULT_CLASS_MAPPING
         if imgsz <= 0 or imgsz % 32 != 0:
             raise ValueError(f"YOLO input size must be a positive multiple of 32, got {imgsz}")
         self.imgsz = imgsz
+        self.default_model_name = model_name
         self.face_embedding_model = face_embedding_model
         self.face_embedder = face_embedder
         self.whitelist_manager = whitelist_manager
         self.plate_whitelist_manager = plate_whitelist_manager
         self.storage_client = storage_client
 
-        # Search for model weights locally
+        self.current_model_name = None
+        self.current_model_path = None
+        self.model = None
+        self.model_tag = os.path.splitext(os.path.basename(model_name))[0]
+
+        # Initialize with default/configured model
+        self._ensure_model(model_name)
+
+    def _resolve_model_path(self, model_name: str) -> str:
+        """Find local path for given model weight filename."""
         candidate_paths = [
+            os.path.join(settings.models_dir, model_name),
             os.path.join("models", model_name),
             os.path.join("engine", "models", model_name),
             os.path.join("/app", "models", model_name),
             model_name,
-            "engine/models/yolo26n-1280-e20-crowd.pt",
-            "models/yolo26n-1280-e20-crowd.pt",
-            "engine/models/yolov8n-oiv7.pt",
-            "models/yolov8n-oiv7.pt",
+            os.path.join("engine", "models", "yolo26n-1280-e20-crowd.pt"),
+            os.path.join("models", "yolo26n-1280-e20-crowd.pt"),
+            os.path.join("engine", "models", "yolov8n-oiv7.pt"),
+            os.path.join("models", "yolov8n-oiv7.pt"),
         ]
-        chosen_model = model_name
         for p in candidate_paths:
             if os.path.exists(p):
-                chosen_model = p
-                break
+                return p
+        return model_name
 
-        logger.info(f"Initializing YOLO model for image-redact from: {chosen_model}...")
-        self.model = YOLO(chosen_model)
-        # Extract tag like 'yolov8n-oiv7' without .pt extension
-        raw_tag = os.path.splitext(os.path.basename(chosen_model))[0]
-        self.model_tag = raw_tag
-        logger.info(f"YOLO model ({self.model_tag}) loaded successfully with {len(self.model.names)} classes, input size {self.imgsz}px!")
+    def _ensure_model(self, target_model_name: str) -> None:
+        """Ensure the requested YOLO model is loaded in RAM, swapping if necessary.
+
+        Complies with K8s RAM constraint (<= 1.5GB/Pod):
+        - Holds only 1 YOLO model instance in memory at a time.
+        - If target_model_name matches currently loaded model (e.g. switching between
+          'accurate' and 'max_privacy' which both use 'yolo26s-1280-e5-plates-frozen-x3.pt'),
+          reuses the instance immediately with 0 reload latency and 0 extra RAM.
+        - If a different model is requested, drops old model, forces garbage collection,
+          and loads the new weights.
+        """
+        target_path = self._resolve_model_path(target_model_name)
+        if getattr(self, "current_model_path", None) == target_path and hasattr(self, "model") and self.model is not None:
+            return  # Cache hit: exact same model weights already loaded
+
+        from ultralytics import YOLO
+        import gc
+
+        logger.info(
+            f"Model switch: '{getattr(self, 'current_model_name', None)}' -> '{target_model_name}' (path: {target_path})"
+        )
+
+        # 1. Release previous model and reclaim memory
+        if hasattr(self, "model") and self.model is not None:
+            del self.model
+            self.model = None
+            gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+
+        # 2. Load new model instance
+        self.model = YOLO(target_path)
+        self.current_model_name = target_model_name
+        self.current_model_path = target_path
+        self.model_tag = os.path.splitext(os.path.basename(target_path))[0]
+        logger.info(
+            f"YOLO model ({self.model_tag}) loaded successfully from {target_path} with {len(self.model.names)} classes!"
+        )
 
     def _get_whitelist_manager(self) -> WhitelistManager:
         """Lazily initialize WhitelistManager and FaceEmbedder when first requested."""
@@ -151,7 +196,29 @@ class ImageRedactProcessor(BaseProcessor):
         # Convert PIL to BGR OpenCV ndarray for drawing and filtering
         img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
-        # 2. Parse configuration parameters
+        # 2. Resolve detection mode & configuration (fast, accurate, max_privacy)
+        params = params or {}
+        detection_cfg = params.get("detection", {}) if isinstance(params, dict) else {}
+        if not isinstance(detection_cfg, dict):
+            detection_cfg = {}
+
+        mode_param = detection_cfg.get("mode")
+        if mode_param:
+            mode_cfg = get_detection_mode_config(str(mode_param))
+            target_model = mode_cfg.model_name
+            active_imgsz = mode_cfg.imgsz
+            mode_name = mode_cfg.mode
+            base_thresholds = mode_cfg.confidence_thresholds
+        else:
+            mode_name = "fast"
+            mode_cfg = get_detection_mode_config("fast")
+            target_model = self.default_model_name or mode_cfg.model_name
+            active_imgsz = self.imgsz or mode_cfg.imgsz
+            base_thresholds = mode_cfg.confidence_thresholds
+
+        # Ensure active YOLO model instance in memory (swapping if needed, reusing if same weights)
+        self._ensure_model(target_model)
+
         redaction_cfg = params.get("redaction", {}) if params else {}
         targets_param = redaction_cfg.get("targets", ["face", "plate"])
         if isinstance(targets_param, str):
@@ -168,7 +235,7 @@ class ImageRedactProcessor(BaseProcessor):
         padding = float(redaction_cfg.get("padding", 0.1))
         padding = max(0.0, min(0.5, padding))
 
-        thresholds = parse_confidence_thresholds(params)
+        thresholds = parse_confidence_thresholds(params, base_thresholds=base_thresholds)
         review_threshold = float(params.get("reviewThreshold", DEFAULT_REVIEW_THRESHOLD))
         target_thresholds = [thresholds[t] for t in targets_set if t in thresholds]
         floor = min(target_thresholds) if target_thresholds else min(thresholds.values())
@@ -198,7 +265,7 @@ class ImageRedactProcessor(BaseProcessor):
             results = self.model.predict(
                 source=pil_img,
                 conf=floor,
-                imgsz=self.imgsz,
+                imgsz=active_imgsz,
                 verbose=False,
             )
             result = results[0]
@@ -391,6 +458,7 @@ class ImageRedactProcessor(BaseProcessor):
         if has_plate_whitelist:
             counts["whitelistedPlate"] = whitelisted_plate_count
 
+        model_str = f"{self.model_tag}@{active_imgsz}[{mode_name}:face={thresholds['face']:.2f},plate={thresholds['plate']:.2f}]"
         result_summary = {
             "imageSize": [orig_w, orig_h],
             "counts": counts,
@@ -400,7 +468,7 @@ class ImageRedactProcessor(BaseProcessor):
                 "strength": strength,
                 "padding": padding,
             },
-            "model": self.model_tag,
+            "model": model_str,
             "processingTimeMs": processing_time_ms,
         }
 

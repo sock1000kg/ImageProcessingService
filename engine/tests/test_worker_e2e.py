@@ -27,6 +27,7 @@ if sys.platform == "win32":
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.main import EngineWorker
+from src.processors import get_processor_registry
 
 
 class MockStorageClient:
@@ -290,6 +291,116 @@ def test_worker_unsupported_job_type():
     print("  -> PASS: Ném đúng mã lỗi UNSUPPORTED_JOB_TYPE và ACK message.")
 
 
+def test_processor_registry_pools():
+    """Verify registry dynamically provisions processors by pool type."""
+    print("Test 5: Kiểm tra Processor Registry phân định theo pool...")
+    image_reg = get_processor_registry(pool_type="image")
+    assert "image-redact" in image_reg
+    assert "image-render" in image_reg
+    assert "video-redact" not in image_reg
+
+    video_reg = get_processor_registry(pool_type="video")
+    assert "video-redact" in video_reg
+    assert "image-redact" not in video_reg
+    assert "image-render" not in video_reg
+
+    all_reg = get_processor_registry(pool_type="all")
+    assert "image-redact" in all_reg
+    assert "image-render" in all_reg
+    assert "video-redact" in all_reg
+    print("  -> PASS: Registry cấu hình chính xác cho image, video, and all pools.")
+
+
+def test_worker_image_render_success():
+    """Verify EngineWorker handles 'image-render' job end-to-end (Contract §2C, §3B3)."""
+    print("Test 6: Kiểm tra Worker xử lý job 'image-render' thành công...")
+
+    worker = EngineWorker(pool_type="image")
+    worker.storage = MockStorageClient()
+    worker.messaging = MockMessagingClient()
+
+    # Create dummy 200x200 JPEG
+    dummy_img = np.zeros((200, 200, 3), dtype=np.uint8)
+    dummy_img[:] = (100, 150, 200)
+    _, buf = cv2.imencode(".jpg", dummy_img)
+    in_bytes = buf.tobytes()
+
+    in_key = "batch-render/job-render-1/input.jpg"
+    out_key = "batch-render/job-render-1/result.jpg"
+    worker.storage.buckets["uploads"][in_key] = in_bytes
+
+    command = {
+        "jobId": "job-render-1",
+        "batchId": "batch-render",
+        "type": "image-render",
+        "input": {"bucket": "uploads", "key": in_key},
+        "output": {"bucket": "results", "key": out_key},
+        "params": {
+            "redaction": {"style": "blur", "strength": 15, "padding": 0.1},
+            "output": {"quality": "high"},
+            "boxes": [
+                {"label": "face", "box": [30, 30, 80, 90]},
+                {"label": "custom", "box": [110, 110, 160, 170]},
+            ],
+        },
+    }
+
+    msg = MockNatsMessage(command)
+    asyncio.run(worker.handle_job(msg))
+
+    assert msg.acked is True, "Worker must ACK successfully processed image-render job"
+    assert out_key in worker.storage.buckets["results"], "Output image must be uploaded to results bucket"
+
+    comp_event = next(e for e in worker.messaging.events if e["status"] == "COMPLETED")
+    assert comp_event["jobId"] == "job-render-1"
+    assert comp_event["result"]["bucket"] == "results"
+    assert comp_event["result"]["key"] == out_key
+
+    # Validate Contract §3B3 resultSummary schema
+    summary = comp_event["resultSummary"]
+    assert summary["imageSize"] == [200, 200]
+    assert summary["boxes"] == 2
+    assert "redaction" in summary
+    assert "processingTimeMs" in summary
+    assert "detections" not in summary, "image-render must NOT return detections field per Contract §3B3"
+    print("  -> PASS: Job image-render xử lý trơn tru, phát sinh COMPLETED event đúng chuẩn Contract §3B3.")
+
+
+def test_worker_image_render_invalid_box_emits_failure():
+    """Verify invalid box in 'image-render' emits INVALID_INPUT_FILE and ACKs per Contract §2C, §4."""
+    print("Test 7: Kiểm tra Worker bắt lỗi box sai trong 'image-render'...")
+
+    worker = EngineWorker(pool_type="image")
+    worker.storage = MockStorageClient()
+    worker.messaging = MockMessagingClient()
+
+    dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
+    _, buf = cv2.imencode(".jpg", dummy_img)
+    in_key = "batch-render/job-render-bad/input.jpg"
+    out_key = "batch-render/job-render-bad/result.jpg"
+    worker.storage.buckets["uploads"][in_key] = buf.tobytes()
+
+    command = {
+        "jobId": "job-render-bad",
+        "type": "image-render",
+        "input": {"bucket": "uploads", "key": in_key},
+        "output": {"bucket": "results", "key": out_key},
+        "params": {
+            "boxes": [
+                {"label": "face", "box": [50, 50, 50, 80]}  # Zero width (x2 == x1) -> invalid
+            ]
+        },
+    }
+
+    msg = MockNatsMessage(command)
+    asyncio.run(worker.handle_job(msg))
+
+    assert msg.acked is True, "Must ACK fatal input error per Contract §4"
+    failed_event = next(e for e in worker.messaging.events if e["status"] == "FAILED")
+    assert failed_event["error"]["code"] == "INVALID_INPUT_FILE"
+    print("  -> PASS: Bắt đúng mã lỗi INVALID_INPUT_FILE khi box sai quy cách.")
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY KIỂM THỬ TÍCH HỢP WORKER E2E (GIAI ĐOẠN 6)")
@@ -298,6 +409,9 @@ if __name__ == "__main__":
     test_worker_video_redact_with_face_and_plate_whitelists()
     test_worker_error_handling_corrupt_video()
     test_worker_unsupported_job_type()
+    test_processor_registry_pools()
+    test_worker_image_render_success()
+    test_worker_image_render_invalid_box_emits_failure()
     print("==================================================")
-    print("✅ TOÀN BỘ 4/4 TEST CASES WORKER E2E PASS 100%!")
+    print("✅ TOÀN BỘ 7/7 TEST CASES WORKER E2E PASS 100%!")
     print("==================================================")

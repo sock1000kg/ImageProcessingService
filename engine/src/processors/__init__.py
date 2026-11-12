@@ -1,8 +1,14 @@
 """Processor registry module for Engine Worker."""
 from typing import Optional
 from ..config import settings
-from .base import BaseProcessor
+from .base import (
+    BaseProcessor,
+    DetectionModeConfig,
+    parse_mode_config,
+    get_detection_mode_config,
+)
 from .image_redact import ImageRedactProcessor, InvalidInputFileError
+from .image_render import ImageRenderProcessor
 from .video_redact import VideoRedactProcessor, VideoMetadata, VideoProbe
 from .whitelist import WhitelistManager, WhitelistReferenceError
 from .face_embedding import FaceEmbedder
@@ -28,6 +34,7 @@ def get_processor_registry(pool_type: Optional[str] = None) -> dict[str, BasePro
             face_embedding_model=settings.face_embedding_model,
             imgsz=settings.yolo_imgsz,
         )
+        registry["image-render"] = ImageRenderProcessor()
 
     if is_video or is_all:
         registry["video-redact"] = VideoRedactProcessor(
@@ -44,7 +51,11 @@ def get_processor_registry(pool_type: Optional[str] = None) -> dict[str, BasePro
 
 __all__ = [
     "BaseProcessor",
+    "DetectionModeConfig",
+    "parse_mode_config",
+    "get_detection_mode_config",
     "ImageRedactProcessor",
+    "ImageRenderProcessor",
     "VideoRedactProcessor",
     "VideoMetadata",
     "VideoProbe",

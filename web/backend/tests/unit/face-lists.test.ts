@@ -500,7 +500,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       ).rejects.toMatchObject({
         status: 400,
         code: "VALIDATION_ERROR",
-        message: "At most 20 whitelist faces per batch",
+        message: "At most 20 allow list faces per batch",
       });
     });
 
@@ -541,7 +541,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       ).rejects.toMatchObject({
         status: 404,
         code: "NOT_FOUND",
-        message: "Face list not found",
+        message: "Allow list not found",
       });
 
       expect(copySpy).not.toHaveBeenCalled();
@@ -575,7 +575,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       ).rejects.toMatchObject({
         status: 404,
         code: "NOT_FOUND",
-        message: "Face list not found",
+        message: "Allow list not found",
       });
 
       expect(copySpy).not.toHaveBeenCalled();

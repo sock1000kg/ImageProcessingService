@@ -412,11 +412,11 @@ export async function downloadBatchZipHandler(request: Request, response: Respon
 function parseWhitelistIndex(nParam: unknown): number {
   const rawN = Array.isArray(nParam) ? nParam[0] : nParam;
   if (typeof rawN !== "string" || !/^\d+$/.test(rawN)) {
-    throw notFound("Whitelist photo not found");
+    throw notFound("Allow list photo not found");
   }
   const n = parseInt(rawN, 10);
   if (n < 1) {
-    throw notFound("Whitelist photo not found");
+    throw notFound("Allow list photo not found");
   }
   return n;
 }

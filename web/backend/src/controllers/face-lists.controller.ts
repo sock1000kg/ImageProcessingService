@@ -16,7 +16,7 @@ import { UUID_REGEX } from "../dto";
 
 function parseListId(idParam: unknown): string {
   if (typeof idParam !== "string" || !UUID_REGEX.test(idParam)) {
-    throw notFound("Face list not found");
+    throw notFound("Allow list not found");
   }
   return idParam;
 }

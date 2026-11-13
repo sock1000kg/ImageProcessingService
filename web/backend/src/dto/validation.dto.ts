@@ -132,25 +132,25 @@ export function validateBatchCreation(options: {
   if (faceListIds) {
     for (const id of faceListIds) {
       if (!UUID_REGEX.test(id)) {
-        throw notFound("Face list not found");
+        throw notFound("Allow list not found");
       }
     }
   }
 
   if (whitelist.length > MAX_WHITELIST_FILES) {
-    throw badRequest("At most 20 whitelist faces per batch", "VALIDATION_ERROR");
+    throw badRequest("At most 20 allow list faces per batch", "VALIDATION_ERROR");
   }
 
   for (const file of whitelist) {
     if (file.size > config.IMAGE_UPLOAD_MAX_BYTES) {
       throw payloadTooLarge(
-        `Whitelist file ${file.originalname} exceeds the file size limit of ${uploadLimitLabel()}`,
+        `Allow list file ${file.originalname} exceeds the file size limit of ${uploadLimitLabel()}`,
         "FILE_TOO_LARGE",
       );
     }
     if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
       throw badRequest(
-        `Whitelist file ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
+        `Allow list file ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
       );
     }
   }
@@ -185,7 +185,7 @@ export function validateUploadFiles(options: {
     throw badRequest(`Too many files: maximum allowed is ${config.BATCH_MAX_FILES}`);
   }
   if (whitelist.length > MAX_WHITELIST_FILES) {
-    throw badRequest("At most 20 whitelist faces per batch", "VALIDATION_ERROR");
+    throw badRequest("At most 20 allow list faces per batch", "VALIDATION_ERROR");
   }
 
   for (const file of files) {
@@ -205,13 +205,13 @@ export function validateUploadFiles(options: {
   for (const file of whitelist) {
     if (file.size > config.IMAGE_UPLOAD_MAX_BYTES) {
       throw payloadTooLarge(
-        `Whitelist file ${file.originalname} exceeds the file size limit of ${uploadLimitLabel()}`,
+        `Allow list file ${file.originalname} exceeds the file size limit of ${uploadLimitLabel()}`,
         "FILE_TOO_LARGE",
       );
     }
     if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
       throw badRequest(
-        `Whitelist file ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
+        `Allow list file ${file.originalname} has unsupported format. Only JPEG, PNG, and WEBP images are supported`,
       );
     }
   }

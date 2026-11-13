@@ -241,7 +241,7 @@ describe("DTO Validation and Schemas (Task 26)", () => {
           files: [dummyFile],
           whitelist: Array(21).fill(dummyFile),
         }),
-      ).toThrow("At most 20 whitelist faces per batch");
+      ).toThrow("At most 20 allow list faces per batch");
     });
 
     it("throws 400 when file format is unsupported", () => {

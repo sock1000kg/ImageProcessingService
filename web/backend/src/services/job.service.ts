@@ -100,7 +100,7 @@ export async function retryFailedJob(
 
   const missingCount = batch.whitelistKeys.length - survivingKeys.length;
   if (missingCount > 0 && !options?.acceptMissingFaces) {
-    throw conflict("Some whitelist faces are no longer available", "WHITELIST_FACES_MISSING", {
+    throw conflict("Some allow list faces are no longer available", "WHITELIST_FACES_MISSING", {
       missing: missingCount,
       total: batch.whitelistKeys.length,
     });

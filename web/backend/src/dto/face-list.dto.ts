@@ -30,27 +30,27 @@ export const faceListNameSchema = z
     if (CONTROL_CHAR_REGEX.test(val)) {
       ctx.addIssue({
         code: "custom",
-        message: "Face list name must not contain control characters",
+        message: "Allow list name must not contain control characters",
       });
     }
   })
   .transform((val) => val.trim())
   .refine((val) => val.length >= 1, {
-    message: "Face list name is required",
+    message: "Allow list name is required",
   })
   .refine((val) => val.length <= 100, {
-    message: "Face list name must be at most 100 characters",
+    message: "Allow list name must be at most 100 characters",
   });
 
 export function parseFaceListName(input: unknown): string {
   if (typeof input !== "string") {
-    throw badRequest("Face list name is required", "VALIDATION_ERROR");
+    throw badRequest("Allow list name is required", "VALIDATION_ERROR");
   }
   try {
     return faceListNameSchema.parse(input);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw badRequest(error.issues[0]?.message ?? "Invalid face list name", "VALIDATION_ERROR");
+      throw badRequest(error.issues[0]?.message ?? "Invalid allow list name", "VALIDATION_ERROR");
     }
     throw error;
   }

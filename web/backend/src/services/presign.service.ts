@@ -121,7 +121,7 @@ export async function getBatchWhitelistPresignedUrl(
 
   const keys = Array.isArray(batch.whitelistKeys) ? batch.whitelistKeys : [];
   if (index < 1 || index > keys.length) {
-    throw notFound("Whitelist photo not found");
+    throw notFound("Allow list photo not found");
   }
 
   const key = keys[index - 1]!;

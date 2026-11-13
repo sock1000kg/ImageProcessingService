@@ -46,7 +46,7 @@ export type Detection = {
  * Diagnostic reason why an image or detection was flagged for human review.
  */
 export type ReviewReason =
-  "Low confidence" | "Similarity near whitelist threshold" | "Engine reported needsReview" | "Possible redaction gap";
+  "Low confidence" | "Similarity near allow list threshold" | "Engine reported needsReview" | "Possible redaction gap";
 
 /**
  * Image record in the advanced batch report with detection summary and review flags.

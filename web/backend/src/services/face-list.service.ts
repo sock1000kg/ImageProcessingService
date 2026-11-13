@@ -185,7 +185,7 @@ export async function getFacePresignedUrl(
 ): Promise<{ url: string; expiresAt: string }> {
   const list = await getFaceListOwnedByUser(id, userId);
   if (!list) {
-    throw notFound("Face list not found");
+    throw notFound("Allow list not found");
   }
 
   const key = list.keys.find((k) => faceIdFromKey(k) === faceId);
@@ -209,7 +209,7 @@ export async function getFacePresignedUrl(
 export async function deleteFaceList(id: string, userId: string): Promise<void> {
   const list = await getFaceListOwnedByUser(id, userId);
   if (!list) {
-    throw notFound("Face list not found");
+    throw notFound("Allow list not found");
   }
 
   // Do not catch storage deletion errors: if MinIO fails, propagate the error so the database row
@@ -246,12 +246,12 @@ export async function addFacesToList(
   files: Express.Multer.File[],
 ): Promise<FaceListItemDTO> {
   if (!UUID_REGEX.test(id)) {
-    throw notFound("Face list not found");
+    throw notFound("Allow list not found");
   }
 
   const existing = await getFaceListOwnedByUser(id, userId);
   if (!existing) {
-    throw notFound("Face list not found");
+    throw notFound("Allow list not found");
   }
 
   validateFaceListFiles(files);
@@ -282,7 +282,7 @@ export async function addFacesToList(
 
       const current = await getFaceListOwnedByUser(id, userId);
       if (!current) {
-        throw notFound("Face list not found");
+        throw notFound("Allow list not found");
       }
       throw conflict(`Allow list cannot exceed ${MAX_FACE_LIST_FILES} faces`, "FACE_LIST_FULL");
     }
@@ -313,12 +313,12 @@ export async function deleteFaceFromList(
   userId: string,
 ): Promise<{ list: FaceListItemDTO | null }> {
   if (!UUID_REGEX.test(id)) {
-    throw notFound("Face list not found");
+    throw notFound("Allow list not found");
   }
 
   const list = await getFaceListOwnedByUser(id, userId);
   if (!list) {
-    throw notFound("Face list not found");
+    throw notFound("Allow list not found");
   }
 
   const key = list.keys.find((k) => faceIdFromKey(k) === faceId);
@@ -336,7 +336,7 @@ export async function deleteFaceFromList(
 
   const updated = await removeFaceListKey(id, userId, key);
   if (!updated) {
-    throw notFound("Face list not found");
+    throw notFound("Allow list not found");
   }
 
   return {
@@ -353,7 +353,7 @@ export async function deleteFaceFromList(
 export async function renameFaceList(id: string, rawName: unknown, userId: string): Promise<FaceListItemDTO> {
   const existing = await getFaceListOwnedByUser(id, userId);
   if (!existing) {
-    throw notFound("Face list not found");
+    throw notFound("Allow list not found");
   }
   const name = parseFaceListName(rawName);
   const updated = await updateFaceListName(id, name);

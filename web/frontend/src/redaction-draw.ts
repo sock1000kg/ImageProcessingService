@@ -30,7 +30,7 @@ export function drawRedaction(
   const height = Math.min(context.canvas.height - y, box.height + vertical * 2);
 
   if (style === "blackout") {
-    context.fillStyle = "#111827";
+    context.fillStyle = "#000000"; // the Engine's blackout is pure black (np.zeros_like)
     context.fillRect(x, y, width, height);
     return;
   }
@@ -95,12 +95,70 @@ function blurRegion(
     }
   }
 
-  const blurred = document.createElement("canvas");
-  blurred.width = padded.width;
-  blurred.height = padded.height;
-  const blurredContext = blurred.getContext("2d");
-  if (!blurredContext) return;
-  blurredContext.filter = `blur(${sigma}px)`;
-  blurredContext.drawImage(padded, 0, 0);
+  const blurred = canvasFilterSupported() ? filterBlur(padded, sigma) : resampleBlur(padded, sigma);
+  if (!blurred) return;
   context.drawImage(blurred, margin, margin, w, h, x, y, w, h);
+}
+
+let filterSupport: boolean | undefined;
+
+/**
+ * Whether this browser applies CanvasRenderingContext2D.filter.
+ *
+ * Why: some mobile browsers (Safari on iPhone and iPad) ignore it, so the preview showed an unblurred photo.
+ * An unsupported browser leaves `filter` undefined instead of the string "none".
+ */
+function canvasFilterSupported(): boolean {
+  if (filterSupport === undefined) {
+    const probe = document.createElement("canvas").getContext("2d");
+    filterSupport = !!probe && typeof probe.filter === "string";
+  }
+  return filterSupport;
+}
+
+function filterBlur(source: HTMLCanvasElement, sigma: number): HTMLCanvasElement | null {
+  const blurred = document.createElement("canvas");
+  blurred.width = source.width;
+  blurred.height = source.height;
+  const blurredContext = blurred.getContext("2d");
+  if (!blurredContext) return null;
+  blurredContext.filter = `blur(${sigma}px)`;
+  blurredContext.drawImage(source, 0, 0);
+  return blurred;
+}
+
+/**
+ * Blur without `filter`: shrink the canvas in halving steps, then enlarge it the same way, smoothing each step.
+ *
+ * Why: it only uses drawImage, so it also works on a canvas holding a cross-origin picture (the editor shows the
+ * result image from storage, and reading its pixels back would throw). Shrinking by a factor f and enlarging again
+ * softens about as much as a Gaussian with sigma f / 2, so f = 2 * sigma. It is a preview, not the Engine's exact blur.
+ */
+function resampleBlur(source: HTMLCanvasElement, sigma: number): HTMLCanvasElement | null {
+  const factor = Math.max(1, sigma * 2);
+  const halvings = Math.floor(Math.log2(factor));
+  const sizes: Array<[number, number]> = [[source.width, source.height]];
+  for (let i = 0; i < halvings; i += 1) {
+    const [w, h] = sizes[sizes.length - 1];
+    sizes.push([Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2))]);
+  }
+  const rest = factor / 2 ** halvings;
+  if (rest > 1.05) {
+    const [w, h] = sizes[sizes.length - 1];
+    sizes.push([Math.max(1, Math.round(w / rest)), Math.max(1, Math.round(h / rest))]);
+  }
+
+  let current = source;
+  for (const [w, h] of [...sizes.slice(1), ...sizes.slice(0, -1).reverse()]) {
+    const next = document.createElement("canvas");
+    next.width = w;
+    next.height = h;
+    const nextContext = next.getContext("2d");
+    if (!nextContext) return null;
+    nextContext.imageSmoothingEnabled = true;
+    nextContext.imageSmoothingQuality = "high";
+    nextContext.drawImage(current, 0, 0, current.width, current.height, 0, 0, w, h);
+    current = next;
+  }
+  return current;
 }

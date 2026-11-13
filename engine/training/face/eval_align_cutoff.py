@@ -18,24 +18,44 @@ sys.argv = ["x"]
 spec = importlib.util.spec_from_file_location("ev", HERE / "eval_face_whitelist.py")
 ev = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ev)
-ev.FACE_WIDTHS=(64,48,40,32,28,24,20,16); ev.MARGINS=(0.0,)
-people={d.name:sorted(d.glob('*.jpg')) for d in ev.LFW.iterdir() if d.is_dir()}
-owners,photos=ev.pick_photos(people,600,600,4,0)
-paths=sorted({p for v in photos.values() for p in v})
-proc=ev.ImageRedactProcessor(model_name='yolo26n-1280-e20-crowd.pt',imgsz=640)
-emb={}
-for label,align_model in (('aligned','yunet.onnx'),('plain','no-such-file.onnx')):
-    e=ev.FaceEmbedder(model_name='w600k_mbf.onnx',align_model=align_model)
-    emb[label]=ev.embed_all(proc,e,paths); print('embedded',label,flush=True)
-out={}
-for n in (1,3):
-    for w in ev.FACE_WIDTHS:
-        r={}
-        for label in emb:
-            pos,neg,_,tests,_=ev.score(owners,photos,emb[label],(0.0,w),n,0)
-            r[label]={t:(float((pos>=t).sum()/tests),float((neg>=t).mean())) for t in (0.40,0.45)}
-        out[f"enrol{n}/{w}px"]=r
-        a,p=r['aligned'],r['plain']
-        print(f"enrol{n} {w:>2}px | 0.45 aligned {a[0.45][0]:.0%}/{a[0.45][1]:.3%}  plain {p[0.45][0]:.0%}/{p[0.45][1]:.3%} | 0.40 aligned {a[0.40][0]:.0%}/{a[0.40][1]:.3%}  plain {p[0.40][0]:.0%}/{p[0.40][1]:.3%}")
-(HERE / 'results').mkdir(exist_ok=True)
-json.dump(out, open(HERE / 'results/align_cutoff.json', 'w'), indent=1)
+
+WIDTHS = (64, 48, 40, 32, 28, 24, 20, 16)
+THRESHOLDS = (0.40, 0.45)
+EMBEDDERS = {"aligned": "yunet.onnx", "plain": "no-such-file.onnx"}  # a missing model makes the embedder resize
+
+
+def main():
+    ev.FACE_WIDTHS = WIDTHS
+    ev.MARGINS = (0.0,)
+    people = {d.name: sorted(d.glob("*.jpg")) for d in ev.LFW.iterdir() if d.is_dir()}
+    owners, photos = ev.pick_photos(people, 600, 600, 4, 0)
+    paths = sorted({p for v in photos.values() for p in v})
+    processor = ev.ImageRedactProcessor(model_name="yolo26n-1280-e20-crowd.pt", imgsz=640)
+
+    emb = {}
+    for label, align_model in EMBEDDERS.items():
+        embedder = ev.FaceEmbedder(model_name="w600k_mbf.onnx", align_model=align_model)
+        emb[label] = ev.embed_all(processor, embedder, paths)
+        print("embedded", label, flush=True)
+
+    out = {}
+    for enrol_n in (1, 3):
+        for width in WIDTHS:
+            row = {}
+            for label in emb:
+                pos, neg, _, tests, _ = ev.score(owners, photos, emb[label], (0.0, width), enrol_n, 0)
+                row[label] = {t: (float((pos >= t).sum() / tests), float((neg >= t).mean())) for t in THRESHOLDS}
+            out[f"enrol{enrol_n}/{width}px"] = row
+            cells = " | ".join(
+                f"{t:.2f} aligned {row['aligned'][t][0]:.0%}/{row['aligned'][t][1]:.3%}"
+                f"  plain {row['plain'][t][0]:.0%}/{row['plain'][t][1]:.3%}"
+                for t in sorted(THRESHOLDS, reverse=True)
+            )
+            print(f"enrol{enrol_n} {width:>2}px | {cells}")
+
+    (HERE / "results").mkdir(exist_ok=True)
+    (HERE / "results/align_cutoff.json").write_text(json.dumps(out, indent=1) + "\n")
+
+
+if __name__ == "__main__":
+    main()

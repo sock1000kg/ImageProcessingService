@@ -65,16 +65,15 @@ Mỗi mục theo format **Vấn đề → Lựa chọn → Quyết định → V
   - Fine-tune "thường" (AdamW, lr thấp) làm biển số tệ hơn bất kể dữ liệu; giữ optimizer SGD ban đầu và đóng băng
     backbone thì biển số trở lại mà mặt không đổi. Phần biển số còn thiếu chủ yếu là điểm tin cậy thấp, nên hạ ngưỡng
     riêng cho biển số là đủ.
-- **Quyết định (ba chế độ phát hiện, ngưỡng theo từng lớp):**
+- **Quyết định (hai chế độ phát hiện, ngưỡng theo từng lớp):**
 
 | Chế độ | Mô hình | Ngưỡng mặt | Ngưỡng biển số |
 | :--- | :--- | :---: | :---: |
 | Fast | YOLO26n | 0,17 | 0,11 |
-| Accurate | YOLO26s (frozen ×3) | 0,13 | 0,09 |
-| Maximum privacy | cùng YOLO26s, ngưỡng rất thấp | 0,06 | 0,05 |
+| Maximum privacy | YOLO26s (frozen ×3), ngưỡng rất thấp | 0,06 | 0,05 |
 
 - **Vì sao:** Ở cùng precision của deface (0,64), Fast che 80,4% số mặt so với 72,3% của deface, và Accurate 82,7%.
-  Tách ba chế độ để người dùng đổi tốc độ lấy độ an toàn: ngưỡng thấp hơn = bắt thêm mặt mờ/nhỏ nhưng che nhầm nhiều
+  Tách hai chế độ để người dùng đổi tốc độ lấy độ an toàn: ngưỡng thấp hơn = bắt thêm mặt mờ/nhỏ nhưng che nhầm nhiều
   hơn, phù hợp nguyên tắc "thà che thừa còn hơn lộ" (mục C).
 - **Trạng thái:** hai file trọng số đã nằm trong `engine/models/` và ngưỡng riêng cho từng lớp (mặt 0,17, biển 0,11) đã
   chạy trong engine. Việc chọn chế độ theo từng job (`params.detection.mode`) còn mở trong `engine/docs/plan.md`.

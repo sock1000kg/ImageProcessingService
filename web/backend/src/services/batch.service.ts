@@ -42,7 +42,6 @@ import {
   toBatchResponse,
   toJobResponse,
   toReportResponse,
-  UUID_REGEX,
   validateBatchCreation,
   validateSingleUploadFile,
 } from "../dto";
@@ -79,9 +78,6 @@ export async function createDraftBatch(options: {
   const faceLists: Array<{ id: string; name: string; keys: string[]; faceNames?: unknown }> = [];
   if (faceListIds && faceListIds.length > 0) {
     for (const id of faceListIds) {
-      if (!UUID_REGEX.test(id)) {
-        throw notFound("Allow list not found");
-      }
       const faceList = await getFaceListOwnedByUser(id, options.userId);
       if (!faceList) {
         throw notFound("Allow list not found");

@@ -13,10 +13,6 @@ export const idParamSchema = z.object({
   id: z.string().uuid(),
 });
 
-export function validateIdParam(params: unknown): string {
-  return idParamSchema.parse(params).id;
-}
-
 export const CONTROL_CHAR_REGEX = /[\u0000-\u001F\u007F-\u009F]/;
 
 export function formatDefaultBatchName(date: Date = new Date()): string {

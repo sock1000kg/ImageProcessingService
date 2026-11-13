@@ -3,12 +3,12 @@ import http from "node:http";
 import {
   batchNameSchema,
   formatDefaultBatchName,
+  idParamSchema,
   imageResultSummarySchema,
   patchBatchBodySchema,
   toBatchResponse,
   toReportResponse,
   toJobResponse,
-  validateIdParam,
   validateUploadFiles,
 } from "../../src/dto";
 import { createApp } from "../../src/app";
@@ -137,16 +137,16 @@ describe("DTO Validation and Schemas (Task 26)", () => {
   describe("ID Param Validation", () => {
     it("validates valid UUID", () => {
       const validUuid = "123e4567-e89b-12d3-a456-426614174000";
-      expect(validateIdParam({ id: validUuid })).toBe(validUuid);
+      expect(idParamSchema.parse({ id: validUuid })).toEqual({ id: validUuid });
     });
 
     it("throws ZodError on non-UUID", () => {
-      expect(() => validateIdParam({ id: "not-a-uuid" })).toThrow();
-      expect(() => validateIdParam({ id: 12345 })).toThrow();
-      expect(() => validateIdParam({})).toThrow();
+      expect(() => idParamSchema.parse({ id: "not-a-uuid" })).toThrow();
+      expect(() => idParamSchema.parse({ id: 12345 })).toThrow();
+      expect(() => idParamSchema.parse({})).toThrow();
     });
 
-    it("returns 400 VALIDATION_ERROR on GET /api/batches/not-a-uuid", async () => {
+    it("returns 404 NOT_FOUND on GET /api/batches/not-a-uuid", async () => {
       const app = createApp();
       const server = http.createServer(app);
       await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -154,17 +154,16 @@ describe("DTO Validation and Schemas (Task 26)", () => {
 
       try {
         const res = await fetch(`http://127.0.0.1:${port}/api/batches/not-a-uuid`, { headers: authHeaders() });
-        expect(res.status).toBe(400);
+        expect(res.status).toBe(404);
         const body = (await res.json()) as { error: { code: string; message: string; details: unknown } };
-        expect(body.error.code).toBe("VALIDATION_ERROR");
-        expect(body.error.message).not.toBe("Validation failed");
-        expect(Array.isArray(body.error.details)).toBe(true);
+        expect(body.error.code).toBe("NOT_FOUND");
+        expect(body.error.message).toBe("Batch not found");
       } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }
     });
 
-    it("returns 400 VALIDATION_ERROR on GET /api/jobs/not-a-uuid", async () => {
+    it("returns 404 NOT_FOUND on GET /api/jobs/not-a-uuid", async () => {
       const app = createApp();
       const server = http.createServer(app);
       await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -172,9 +171,10 @@ describe("DTO Validation and Schemas (Task 26)", () => {
 
       try {
         const res = await fetch(`http://127.0.0.1:${port}/api/jobs/not-a-uuid`, { headers: authHeaders() });
-        expect(res.status).toBe(400);
+        expect(res.status).toBe(404);
         const body = (await res.json()) as { error: { code: string; message: string; details: unknown } };
-        expect(body.error.code).toBe("VALIDATION_ERROR");
+        expect(body.error.code).toBe("NOT_FOUND");
+        expect(body.error.message).toBe("Job not found");
       } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }

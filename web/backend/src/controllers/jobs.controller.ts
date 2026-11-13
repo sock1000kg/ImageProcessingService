@@ -5,11 +5,11 @@ import { NextFunction, Request, Response } from "express";
 import { deleteJobById, editJob, getJobById, retryFailedJob } from "../services/job.service";
 import { getJobOriginalPresignedUrl, getJobResultPresignedUrl } from "../services/presign.service";
 import { notFound } from "../errors";
-import { editJobBodySchema, validateIdParam } from "../dto";
+import { editJobBodySchema } from "../dto";
 
 export async function getJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const job = await getJobById(id, request.authUser!.id);
     if (!job) {
       throw notFound("Job not found");
@@ -29,7 +29,7 @@ export async function getJobHandler(request: Request, response: Response, next: 
  */
 export async function getJobResultUrlHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const userId = request.authUser!.id;
     const download = request.query.download === "1";
     const result = await getJobResultPresignedUrl(id, userId, { download });
@@ -49,7 +49,7 @@ export async function getJobOriginalUrlHandler(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const userId = request.authUser!.id;
     const result = await getJobOriginalPresignedUrl(id, userId);
     response.json(result);
@@ -60,7 +60,7 @@ export async function getJobOriginalUrlHandler(
 
 export async function retryJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const acceptMissingFaces = Boolean(request.body?.acceptMissingFaces);
     const job = await retryFailedJob(id, request.authUser!.id, { acceptMissingFaces });
     response.status(202).json({ job });
@@ -75,7 +75,7 @@ export async function retryJobHandler(request: Request, response: Response, next
  */
 export async function editJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const body = editJobBodySchema.parse(request.body);
     const job = await editJob(id, request.authUser!.id, body);
     response.status(201).json({ job });
@@ -86,7 +86,7 @@ export async function editJobHandler(request: Request, response: Response, next:
 
 export async function deleteJobHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const userId = request.authUser!.id;
     await deleteJobById(id, userId);
     response.status(204).end();

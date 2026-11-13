@@ -18,7 +18,7 @@ import {
 } from "../services/batch.service";
 import { getBatchWhitelistPresignedUrl } from "../services/presign.service";
 import { notFound, unauthorized } from "../errors";
-import { listBatchesQuerySchema, parseFaceListIds, patchBatchBodySchema, validateIdParam } from "../dto";
+import { listBatchesQuerySchema, parseFaceListIds, patchBatchBodySchema } from "../dto";
 import { createBatchDownloadToken, verifyBatchDownloadToken } from "../auth";
 import { RESULTS_BUCKET, storage } from "../storage";
 import { getBatch, getBatchOwnedByUser, getJobsByBatchId } from "../repositories/job.repository";
@@ -62,7 +62,7 @@ export async function createBatchHandler(request: Request, response: Response, n
 
 export async function addBatchFileHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const job = await addBatchFile(id, request.file, request.authUser!.id);
     response.status(201).json({ job });
   } catch (error) {
@@ -72,7 +72,7 @@ export async function addBatchFileHandler(request: Request, response: Response, 
 
 export async function startBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const batch = await startBatch(id, request.authUser!.id);
     response.status(202).json({ batch });
   } catch (error) {
@@ -88,7 +88,7 @@ export async function startBatchHandler(request: Request, response: Response, ne
  */
 export async function rerunBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const filesMap = request.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     const whitelist = filesMap?.whitelist ?? [];
     const faceListIds = parseFaceListIds(request.body);
@@ -110,7 +110,7 @@ export async function rerunBatchHandler(request: Request, response: Response, ne
 
 export async function getBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const batch = await getBatchById(id, request.authUser!.id);
     if (!batch) {
       throw notFound("Batch not found");
@@ -123,7 +123,7 @@ export async function getBatchHandler(request: Request, response: Response, next
 
 export async function updateBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const body = patchBatchBodySchema.parse(request.body);
     const batch = await renameBatch(id, body.name, request.authUser!.id);
     response.status(200).json({ batch });
@@ -134,7 +134,7 @@ export async function updateBatchHandler(request: Request, response: Response, n
 
 export async function getBatchReportHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const report = await getBatchReportById(id, request.authUser!.id);
     if (!report) {
       throw notFound("Batch not found");
@@ -147,7 +147,7 @@ export async function getBatchReportHandler(request: Request, response: Response
 
 export async function deleteBatchHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const deleted = await deleteBatchById(id, request.authUser!.id);
     if (!deleted) {
       throw notFound("Batch not found");
@@ -273,7 +273,7 @@ export async function createBatchDownloadTokenHandler(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const userId = request.authUser!.id;
     const batch = await getBatchOwnedByUser(id, userId);
     if (!batch) {
@@ -294,7 +294,7 @@ export async function createBatchDownloadTokenHandler(
  */
 export async function downloadBatchZipHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = validateIdParam(request.params);
+    const id = request.params.id as string;
     const token = typeof request.query.token === "string" ? request.query.token : "";
     if (!token) {
       throw unauthorized("Invalid download token", "INVALID_DOWNLOAD_TOKEN");
@@ -431,12 +431,7 @@ export async function getBatchWhitelistPhotoUrlHandler(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const rawId = request.params.id;
-    const id = Array.isArray(rawId) ? rawId[0] : rawId;
-    if (typeof id !== "string" || !id) {
-      throw notFound("Batch not found");
-    }
-
+    const id = request.params.id as string;
     const n = parseWhitelistIndex(request.params.n);
     const userId = request.authUser!.id;
     const result = await getBatchWhitelistPresignedUrl(id, n, userId);

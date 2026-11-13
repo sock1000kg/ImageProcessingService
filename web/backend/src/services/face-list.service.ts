@@ -18,7 +18,6 @@ import {
   FaceListsResponseDTO,
   MAX_FACE_LIST_FILES,
   parseFaceListName,
-  UUID_REGEX,
   validateFaceListFiles,
 } from "../dto";
 import {
@@ -245,10 +244,6 @@ export async function addFacesToList(
   userId: string,
   files: Express.Multer.File[],
 ): Promise<FaceListItemDTO> {
-  if (!UUID_REGEX.test(id)) {
-    throw notFound("Allow list not found");
-  }
-
   const existing = await getFaceListOwnedByUser(id, userId);
   if (!existing) {
     throw notFound("Allow list not found");
@@ -312,10 +307,6 @@ export async function deleteFaceFromList(
   faceId: string,
   userId: string,
 ): Promise<{ list: FaceListItemDTO | null }> {
-  if (!UUID_REGEX.test(id)) {
-    throw notFound("Allow list not found");
-  }
-
   const list = await getFaceListOwnedByUser(id, userId);
   if (!list) {
     throw notFound("Allow list not found");

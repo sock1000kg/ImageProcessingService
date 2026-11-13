@@ -258,20 +258,25 @@ def test_fuzzy_levenshtein_plate_matching():
     """Verify Levenshtein distance matches blurred plates under vibration with matching province."""
     norm_wl = PlateWhitelistManager.normalize_whitelist(["67L1-785.60", "29V1-678.90"])
 
-    # 1. Motion blurred '78' -> '35'
-    is_m, target = PlateWhitelistManager.is_plate_match("67L13550", norm_wl)
+    # 1. One dropped digit due to vibration
+    is_m, target = PlateWhitelistManager.is_plate_match("67L17560", norm_wl)
     assert is_m is True
     assert target == "67L178560"
 
-    # 2. Missing digit due to vibration
-    is_m2, target2 = PlateWhitelistManager.is_plate_match("67L17550", norm_wl)
+    # 2. One misread digit
+    is_m2, target2 = PlateWhitelistManager.is_plate_match("67L178660", norm_wl)
     assert is_m2 is True
     assert target2 == "67L178560"
 
-    # 3. Screw prefix + vibration
-    is_m3, target3 = PlateWhitelistManager.is_plate_match("J67L17550", norm_wl)
+    # 3. Screw prefix + one dropped digit
+    is_m3, target3 = PlateWhitelistManager.is_plate_match("J67L17560", norm_wl)
     assert is_m3 is True
     assert target3 == "67L178560"
+
+    # 3b. Two or more differing characters are a different plate: with up to 3 edits allowed, a 20-plate whitelist
+    # matched 3% of strangers (training/ocr/results/whitelist_rules.json), so the Engine allows one.
+    assert PlateWhitelistManager.is_plate_match("67L17550", norm_wl) == (False, None)  # 2 edits
+    assert PlateWhitelistManager.is_plate_match("67L13550", norm_wl) == (False, None)  # 3 edits
 
     # 4. Foreign vehicle (different province) -> NOT MATCH
     is_m4, target4 = PlateWhitelistManager.is_plate_match("84A00732", norm_wl)

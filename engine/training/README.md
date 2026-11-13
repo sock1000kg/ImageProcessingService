@@ -4,10 +4,11 @@ Fine-tunes the engine's detector (faces + licence plates) and scores it on the b
 a normal Ultralytics `.pt`: class names match its mapping (`Human face`, `Vehicle registration plate` in
 `engine/src/processors/image_redact.py`), so a new model needs only `YOLO_MODEL_NAME` / `YOLO_IMGSZ` and a threshold.
 
-**Picked models** (detection modes): Fast = YOLO26n, Accurate and Maximum privacy = YOLO26s frozen x3, 1280 px, in
+**Picked models** (detection modes): Fast = YOLO26n, Maximum privacy = YOLO26s frozen x3, 1280 px, in
 [`engine/models/`](../models) where the engine loads them. **Results:** the journey from the base model to these in
 [results/README.md](results/README.md), every benchmark number in [bench/comparison.md](bench/comparison.md), throughput
 in [infra/bench/results/comparison.md](../../infra/bench/results/comparison.md).
+**Whitelist accuracy** (plates and faces: what was tried, the results, next steps): [results/whitelist.md](results/whitelist.md).
 
 ## Flow
 

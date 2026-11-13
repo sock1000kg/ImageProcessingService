@@ -62,11 +62,11 @@ What each step taught us:
    runs is mostly the confidence of the plates, so a lower threshold for plates recovers them (0.976 at threshold 0.069).
 
 **Picked** (the engine's detection modes, thresholds per class proposed from `../bench/`): **Fast** = YOLO26n (face 0.17, plate
-0.11), **Accurate** = YOLO26s frozen x3 (face 0.13, plate 0.09), **Maximum privacy** = the same YOLO26s at low thresholds (face
+0.11), **Maximum privacy** = YOLO26s frozen x3 at low thresholds (face
 0.06, plate 0.05). The models are in [`engine/models/`](../../models); see the task in [`engine/docs/plan.md`](../../docs/plan.md).
 The engine needs per-class thresholds for these; until then the columns above use one threshold per run.
 
 At deface's own default precision (0.64, comparison C), Fast protects 0.804 of all faces vs deface's 0.723, and 0.935 vs 0.930 of
-faces >= 16 px; Accurate 0.827 and 0.946.
+faces >= 16 px; YOLO26s at 0.13 / 0.09 (the retired Accurate mode) 0.827 and 0.946.
 
 Open: YOLO11s under the comparison recipe (20 epochs, for a like-for-like "26s vs 11s"). Speed: [`infra/bench/results/comparison.md`](../../../infra/bench/results/comparison.md).

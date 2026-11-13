@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 STRETCH_FACTOR = 1.3
 DEFAULT_MIN_CONFIDENCE = 0.50
+# Edit distance a read may differ from a whitelist plate by and still match (same province code). One character covers
+# a single misread; 2 or 3 made one in 20 strangers match a 20-plate whitelist (training/ocr/results/whitelist_rules.json).
+MAX_FUZZY_EDITS = 1
 
 
 def normalize_plate_text(text: Optional[str]) -> str:
@@ -179,8 +182,7 @@ class PlateWhitelistManager:
            - Digit '6' vs letter 'G'.
            - Digit '2' vs letter 'Z'.
            - Digit '5' vs letter 'S'.
-        4. Vietnamese plate syntax:
-           If province (first 2 digits) and serial tail (last 4-5 digits) match, series letter confusion is tolerated.
+        4. Fuzzy match: same province code (2 digits) and at most MAX_FUZZY_EDITS differing characters.
         """
         if not recognized_norm or not whitelist_norm_set:
             return False, None
@@ -206,27 +208,17 @@ class PlateWhitelistManager:
             if len(target) >= 7 and (target in recognized_norm or target_canon in rec_canon):
                 return True, target
 
-            # 4. Vietnamese syntax: province code (2 digits) + serial tail (4-5 digits) match
-            if len(target) >= 8 and len(recognized_norm) >= 8:
-                tail_len = 5 if len(target) >= 9 else 4
-                if target[-tail_len:] == recognized_norm[-tail_len:] and target_canon[:2] == rec_canon[:2]:
-                    return True, target
-                if target[-5:] == recognized_norm[-5:] and target_canon[:2] == rec_canon[:2]:
-                    return True, target
-
-            # 5. Fuzzy match under motion blur / road vibration with matching province code
+            # 4. Fuzzy match under motion blur / road vibration with matching province code
             if len(rec_canon) >= 6 and len(target_canon) >= 6:
                 # Direct province match
                 if rec_canon[:2] == target_canon[:2] and rec_canon[:2].isdigit():
                     dist = _levenshtein_distance(rec_canon, target_canon)
-                    max_allowed = 3 if max(len(rec_canon), len(target_canon)) >= 8 else 2
-                    if dist <= max_allowed:
+                    if dist <= MAX_FUZZY_EDITS:
                         return True, target
                 # Handled screw prefix (e.g. J67...)
                 elif len(rec_canon) >= 7 and rec_canon[1:3] == target_canon[:2] and rec_canon[1:3].isdigit():
                     dist = _levenshtein_distance(rec_canon[1:], target_canon)
-                    max_allowed = 3 if max(len(rec_canon[1:]), len(target_canon)) >= 8 else 2
-                    if dist <= max_allowed:
+                    if dist <= MAX_FUZZY_EDITS:
                         return True, target
 
         return False, None

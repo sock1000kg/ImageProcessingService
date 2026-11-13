@@ -33,6 +33,7 @@ import cv2
 
 from .base import (
     BaseProcessor,
+    get_detection_mode_config,
     parse_confidence_thresholds,
     DEFAULT_REVIEW_THRESHOLD,
     DEFAULT_REDACTION_STRENGTHS,
@@ -682,22 +683,8 @@ class VideoRedactProcessor(BaseProcessor):
         self.tracker_config = tracker_config
         self.model_name = model_name
 
-        candidate_paths = [
-            os.path.join("models", model_name),
-            os.path.join("engine", "models", model_name),
-            os.path.join("/app", "models", model_name),
-            model_name,
-            "engine/models/yolo26n-1280-e20-crowd.pt",
-            "models/yolo26n-1280-e20-crowd.pt",
-            "engine/models/yolov8n-oiv7.pt",
-            "models/yolov8n-oiv7.pt",
-        ]
-        chosen_model = model_name
-        for p in candidate_paths:
-            if os.path.exists(p):
-                chosen_model = p
-                break
-
+        chosen_model = self._resolve_model_path(model_name)
+        self.default_model_path = chosen_model  # used by jobs that do not name a detection mode
         self.chosen_model_path = chosen_model
         self.model_tag = os.path.splitext(os.path.basename(chosen_model))[0]
         self._model = None
@@ -730,6 +717,44 @@ class VideoRedactProcessor(BaseProcessor):
         except Exception:
             encoder = "libx264"
         return encoder
+
+    @staticmethod
+    def _resolve_model_path(model_name: str) -> str:
+        """Local path of a model weight file; same lookup order as the image processor (including its fallbacks)."""
+        candidate_paths = [
+            os.path.join(settings.models_dir, model_name),
+            os.path.join("models", model_name),
+            os.path.join("engine", "models", model_name),
+            os.path.join("/app", "models", model_name),
+            model_name,
+            "engine/models/yolo26n-1280-e20-crowd.pt",
+            "models/yolo26n-1280-e20-crowd.pt",
+            "engine/models/yolov8n-oiv7.pt",
+            "models/yolov8n-oiv7.pt",
+        ]
+        for p in candidate_paths:
+            if os.path.exists(p):
+                return p
+        return model_name
+
+    def _use_model(self, target_path: str) -> None:
+        """Make ``target_path`` the model the next job runs, dropping the loaded one if it differs.
+
+        Why: a worker holds one YOLO model at a time (the pod memory limit does not fit two), exactly like
+        ImageRedactProcessor._ensure_model. Same weights as the last job: nothing happens, the loaded model is reused.
+        The new weights are loaded lazily by _get_model().
+        """
+        if target_path == self.chosen_model_path:
+            return
+        logger.info(f"Model switch: '{self.chosen_model_path}' -> '{target_path}'")
+        if self._model is not None:
+            del self._model
+            self._model = None
+            import gc
+
+            gc.collect()
+        self.chosen_model_path = target_path
+        self.model_tag = os.path.splitext(os.path.basename(target_path))[0]
 
     def _get_model(self):
         """Lazy load YOLO model."""
@@ -1009,7 +1034,22 @@ class VideoRedactProcessor(BaseProcessor):
         strength = int(redaction_cfg.get("strength", default_strength))
         padding = max(0.0, min(0.5, float(redaction_cfg.get("padding", 0.1))))
 
-        thresholds = parse_confidence_thresholds(params)
+        # Detection mode (fast / max_privacy) picks the model, input size and base thresholds, as for images.
+        # No mode: the processor's own model and size, with the default thresholds.
+        detection_cfg = params.get("detection") if isinstance(params.get("detection"), dict) else {}
+        mode_param = detection_cfg.get("mode")
+        if mode_param:
+            mode_cfg = get_detection_mode_config(str(mode_param))
+            self._use_model(self._resolve_model_path(mode_cfg.model_name))
+            active_imgsz = mode_cfg.imgsz
+            mode_name = mode_cfg.mode
+            base_thresholds = mode_cfg.confidence_thresholds
+        else:
+            self._use_model(self.default_model_path)
+            active_imgsz = self.imgsz
+            mode_name = None
+            base_thresholds = None
+        thresholds = parse_confidence_thresholds(params, base_thresholds=base_thresholds)
         review_threshold = float(params.get("reviewThreshold", DEFAULT_REVIEW_THRESHOLD))
 
         # Parse Whitelist configuration
@@ -1055,6 +1095,7 @@ class VideoRedactProcessor(BaseProcessor):
                 thresholds=thresholds,
                 review_threshold=review_threshold,
                 throttler=throttler,
+                imgsz=active_imgsz,
             )
 
             # Milestone 2: Evaluate Whitelist per Track (45% -> 50%)
@@ -1129,7 +1170,12 @@ class VideoRedactProcessor(BaseProcessor):
                 "strength": strength,
                 "padding": padding,
             },
-            "model": self.model_tag,
+            # With a mode, say what actually ran (model, size, thresholds) like image jobs; otherwise just the model.
+            "model": (
+                f"{self.model_tag}@{active_imgsz}[{mode_name}:face={thresholds['face']:.2f},plate={thresholds['plate']:.2f}]"
+                if mode_name
+                else self.model_tag
+            ),
             "tracker": "bytetrack",
             "processingTimeMs": processing_time_ms,
         }
@@ -1144,6 +1190,7 @@ class VideoRedactProcessor(BaseProcessor):
         thresholds: Dict[str, float],
         review_threshold: float,
         throttler: ProgressThrottler,
+        imgsz: Optional[int] = None,
     ) -> TrackManager:
         """Pass 1: Detect and track faces/plates across all frames using ByteTrack."""
         cap = cv2.VideoCapture(input_video_path)
@@ -1211,7 +1258,7 @@ class VideoRedactProcessor(BaseProcessor):
                         persist=True,
                         tracker=active_tracker,
                         conf=track_low_thresh,
-                        imgsz=self.imgsz,
+                        imgsz=imgsz or self.imgsz,
                         verbose=False,
                     )
                     if not results or len(results) == 0 or results[0] is None:

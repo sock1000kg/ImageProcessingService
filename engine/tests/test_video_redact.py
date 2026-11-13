@@ -692,7 +692,7 @@ def test_plate_whitelist_video_e2e():
     # Mock _track_pass to return two plate tracks
     orig_track_pass = processor._track_pass
 
-    def mock_track_pass(input_video_path, metadata, targets_set, thresholds, review_threshold, throttler):
+    def mock_track_pass(input_video_path, metadata, targets_set, thresholds, review_threshold, throttler, imgsz=None):
         tm = TrackManager(fps=metadata.fps, orig_w=metadata.width, orig_h=metadata.height)
         # Track 1: Authorized vehicle "30A-123.45"
         plate_roi_1 = np.full((40, 100, 3), 100, dtype=np.uint8)
@@ -1062,6 +1062,60 @@ def test_track_manager_apply_holds():
     print("  -> PASS: Toàn bộ tiêu chí apply_holds (scaling, runs, gap, boundary, whitelist, contract summary) đạt 100%.")
 
 
+def test_detection_mode_selects_model_and_thresholds():
+    """params.detection.mode picks the model, input size and base thresholds for video, as it does for images."""
+    print("Test 23: Kiểm tra chế độ detection.mode (fast / max_privacy) áp dụng cho video...")
+    processor = VideoRedactProcessor(ffmpeg_bin="ffmpeg")
+    video_bytes = _create_synthetic_video(width=320, height=240, fps=25.0, num_frames=6)
+
+    seen = {}
+
+    def fake_track_pass(input_video_path, metadata, targets_set, thresholds, review_threshold, throttler, imgsz=None):
+        seen["thresholds"], seen["imgsz"] = dict(thresholds), imgsz
+        return TrackManager(fps=metadata.fps, orig_w=metadata.width, orig_h=metadata.height)
+
+    orig_track_pass = processor._track_pass
+    processor._track_pass = fake_track_pass
+    try:
+        def run(detection):
+            params = {"redaction": {"targets": ["face", "plate"]}, "output": {"quality": "high"}}
+            if detection:
+                params["detection"] = detection
+            return processor.process(input_bytes=video_bytes, params=params, output_key="results/b/j/result.mp4")[1]
+
+        # Maximum privacy: the bigger model and its lower thresholds.
+        processor._model = object()  # stands in for the loaded Fast model
+        summary = run({"mode": "max_privacy"})
+        assert "yolo26s" in summary["model"] and "max_privacy:face=0.06,plate=0.05" in summary["model"], summary["model"]
+        assert seen["thresholds"] == {"face": 0.06, "plate": 0.05}
+        assert seen["imgsz"] == 1280
+        assert processor._model is None, "the loaded model must be dropped when the weights change"
+
+        # Back to Fast: swaps again.
+        processor._model = object()
+        summary = run({"mode": "fast"})
+        assert "yolo26n" in summary["model"] and "fast:face=0.17,plate=0.11" in summary["model"], summary["model"]
+        assert seen["thresholds"] == {"face": 0.17, "plate": 0.11}
+        assert processor._model is None
+
+        # Same mode twice: the loaded model is kept (no reload).
+        sentinel = processor._model = object()
+        run({"mode": "fast"})
+        assert processor._model is sentinel
+
+        # No mode: the processor's own model, default thresholds, and job thresholds still override the mode.
+        summary = run(None)
+        assert summary["model"] == processor.model_tag and processor.chosen_model_path == processor.default_model_path
+        params = {"redaction": {"targets": ["face"]}, "detection": {"mode": "max_privacy"},
+                  "confidenceThresholds": {"face": 0.3}}
+        _, summary, _ = processor.process(input_bytes=video_bytes, params=params, output_key="results/b/j/result.mp4")
+        assert seen["thresholds"] == {"face": 0.3, "plate": 0.05}, seen["thresholds"]
+        print("  -> PASS: video làm theo detection.mode (model, imgsz, ngưỡng), tái sử dụng model khi cùng chế độ.")
+    finally:
+        processor._track_pass = orig_track_pass
+        processor._model = None
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY KIỂM THỬ VIDEO REDACT (GIAI ĐOẠN 5)")
@@ -1088,6 +1142,7 @@ if __name__ == "__main__":
     test_low_score_box_tracking_recovery()
     test_hold_frames_scaling()
     test_track_manager_apply_holds()
+    test_detection_mode_selects_model_and_thresholds()
     print("==================================================")
-    print("✅ TOÀN BỘ 22/22 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
+    print("✅ TOÀN BỘ 23/23 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
     print("==================================================")

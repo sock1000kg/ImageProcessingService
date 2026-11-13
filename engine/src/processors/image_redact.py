@@ -97,8 +97,8 @@ class ImageRedactProcessor(BaseProcessor):
 
         Complies with K8s RAM constraint (<= 1.5GB/Pod):
         - Holds only 1 YOLO model instance in memory at a time.
-        - If target_model_name matches currently loaded model (e.g. switching between
-          'accurate' and 'max_privacy' which both use 'yolo26s-1280-e5-plates-frozen-x3.pt'),
+        - If target_model_name matches currently loaded model (e.g. consecutive jobs
+          sharing 'yolo26s-1280-e5-plates-frozen-x3.pt' or 'yolo26n-1280-e20-crowd.pt'),
           reuses the instance immediately with 0 reload latency and 0 extra RAM.
         - If a different model is requested, drops old model, forces garbage collection,
           and loads the new weights.
@@ -196,7 +196,7 @@ class ImageRedactProcessor(BaseProcessor):
         # Convert PIL to BGR OpenCV ndarray for drawing and filtering
         img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
-        # 2. Resolve detection mode & configuration (fast, accurate, max_privacy)
+        # 2. Resolve detection mode & configuration (fast, max_privacy)
         params = params or {}
         detection_cfg = params.get("detection", {}) if isinstance(params, dict) else {}
         if not isinstance(detection_cfg, dict):

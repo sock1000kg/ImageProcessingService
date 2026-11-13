@@ -26,21 +26,19 @@ def test_parse_mode_config_standard():
     assert cfg.confidence_thresholds["plate"] == 0.11
 
 
-def test_parse_mode_config_accurate_and_max_privacy():
-    """Verify accurate and max_privacy configs have matching weights and distinct thresholds."""
-    acc_raw = "yolo26s-1280-e5-plates-frozen-x3.pt@1280:face=0.13,plate=0.09"
+def test_parse_mode_config_fast_and_max_privacy():
+    """Verify fast and max_privacy configs have distinct models and thresholds."""
+    fast_raw = "yolo26n-1280-e20-crowd.pt@1280:face=0.17,plate=0.11"
     max_raw = "yolo26s-1280-e5-plates-frozen-x3.pt@1280:face=0.06,plate=0.05"
 
-    acc_cfg = parse_mode_config("accurate", acc_raw)
+    fast_cfg = parse_mode_config("fast", fast_raw)
     max_cfg = parse_mode_config("max_privacy", max_raw)
 
-    # Both accurate and max_privacy MUST share identical model weight files
-    assert acc_cfg.model_name == max_cfg.model_name
-    assert acc_cfg.model_name == "yolo26s-1280-e5-plates-frozen-x3.pt"
+    assert fast_cfg.model_name == "yolo26n-1280-e20-crowd.pt"
+    assert max_cfg.model_name == "yolo26s-1280-e5-plates-frozen-x3.pt"
 
-    # But their confidence thresholds must be distinct
-    assert acc_cfg.confidence_thresholds["face"] == 0.13
-    assert acc_cfg.confidence_thresholds["plate"] == 0.09
+    assert fast_cfg.confidence_thresholds["face"] == 0.17
+    assert fast_cfg.confidence_thresholds["plate"] == 0.11
 
     assert max_cfg.confidence_thresholds["face"] == 0.06
     assert max_cfg.confidence_thresholds["plate"] == 0.05
@@ -79,10 +77,11 @@ def test_get_detection_mode_config_settings_resolution():
     assert fast_cfg.model_name == "yolo26n-1280-e20-crowd.pt"
     assert fast_cfg.confidence_thresholds == {"face": 0.17, "plate": 0.11}
 
+    # Accurate or max_privacy aliases to max_privacy
     acc_cfg = get_detection_mode_config("accurate")
-    assert acc_cfg.mode == "accurate"
+    assert acc_cfg.mode == "max_privacy"
     assert acc_cfg.model_name == "yolo26s-1280-e5-plates-frozen-x3.pt"
-    assert acc_cfg.confidence_thresholds == {"face": 0.13, "plate": 0.09}
+    assert acc_cfg.confidence_thresholds == {"face": 0.06, "plate": 0.05}
 
     max_cfg = get_detection_mode_config("max_privacy")
     assert max_cfg.mode == "max_privacy"
@@ -120,10 +119,8 @@ def test_parse_confidence_thresholds_inheritance_and_override():
 
 
 def test_settings_mode_env_variables_present():
-    """Verify Settings object exposes mode_fast, mode_accurate, mode_max_privacy."""
+    """Verify Settings object exposes mode_fast and mode_max_privacy."""
     assert hasattr(settings, "mode_fast")
-    assert hasattr(settings, "mode_accurate")
     assert hasattr(settings, "mode_max_privacy")
     assert "yolo26n" in settings.mode_fast
-    assert "yolo26s" in settings.mode_accurate
     assert "yolo26s" in settings.mode_max_privacy

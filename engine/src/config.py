@@ -49,10 +49,6 @@ class Settings(BaseModel):
         "MODE_FAST",
         "yolo26n-1280-e20-crowd.pt@1280:face=0.17,plate=0.11",
     )
-    mode_accurate: str = os.getenv(
-        "MODE_ACCURATE",
-        "yolo26s-1280-e5-plates-frozen-x3.pt@1280:face=0.13,plate=0.09",
-    )
     mode_max_privacy: str = os.getenv(
         "MODE_MAX_PRIVACY",
         "yolo26s-1280-e5-plates-frozen-x3.pt@1280:face=0.06,plate=0.05",

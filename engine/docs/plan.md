@@ -88,15 +88,14 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 - [x] **[Should]** **[Đổi contract]** **[Cần Web]** Job chỉ render (`image-render`): nhận danh sách box cuối cùng + style, che rồi xuất ảnh, không chạy model. Dùng cho nút "Sửa ảnh" của Web (triển khai qua `ImageRenderProcessor`, latency ~24.8ms < 50ms, RAM ~57.5MB).
 - [ ] **[Could]** Build arg `TORCH=cpu|cuda` cho `engine/Dockerfile`: bản `cpu` nhỏ hơn nhiều cho lab (không GPU), bản `cuda` giữ khả năng chạy GPU. Ultralytics tự chọn GPU nếu torch thấy GPU, không cần đổi code.
 - [ ] **[Could]** Benchmark xử lý video monolith (một process xử lý cả video) vs phân tán (chia đoạn video ra nhiều job). **[Cần Infra]** để đưa vào phần đo đạc của báo cáo.
-- [x] **[Should, sau khi xong các tính năng chính]** **[Đổi contract]** **[Cần Web]** Chọn chế độ theo job: `params.detection.mode` (`fast` | `accurate` | `max_privacy`, thiếu thì `fast`) map sang model + `imgsz` + **ngưỡng riêng cho từng class** qua env (`MODE_FAST`, `MODE_ACCURATE`, `MODE_MAX_PRIVACY`). Cơ chế Model Swapper tự động giải phóng model cũ khi chuyển đổi và tái sử dụng 100% instance RAM giữa `accurate` và `max_privacy`, giữ RAM đỉnh ~549.2 MB (hoàn toàn an toàn trong giới hạn Pod 1.5 GB). `resultSummary.model` ghi model, mode và ngưỡng thật đã chạy. Model đã chọn (`engine/models/`, đề xuất ngưỡng từ `engine/training/bench/`):
+- [x] **[Should, sau khi xong các tính năng chính]** **[Đổi contract]** **[Cần Web]** Chọn chế độ theo job: `params.detection.mode` (`fast` | `max_privacy`, thiếu thì mặc định `fast`) map sang model + `imgsz` + **ngưỡng riêng cho từng class** qua env (`MODE_FAST`, `MODE_MAX_PRIVACY`). Cơ chế Model Swapper tự động giải phóng model cũ khi chuyển đổi giữa `fast` (YOLO26 Nano) và `max_privacy` (YOLO26 Small), giữ RAM đỉnh ~534 MB - 549.2 MB (hoàn toàn an toàn trong giới hạn Pod 1.5 GB). `resultSummary.model` ghi model, mode và ngưỡng thật đã chạy. Model đã chọn (`engine/models/`):
 
   | Chế độ | Model | Ngưỡng mặt | Ngưỡng biển số |
   | --- | --- | --- | --- |
-  | `fast` | `yolo26n-1280-e20-crowd.pt` | 0.17 | 0.11 |
-  | `accurate` | `yolo26s-1280-e5-plates-frozen-x3.pt` | 0.13 | 0.09 |
+  | `fast` (Mặc định) | `yolo26n-1280-e20-crowd.pt` | 0.17 | 0.11 |
   | `max_privacy` | `yolo26s-1280-e5-plates-frozen-x3.pt` | 0.06 | 0.05 |
 
-  Ngưỡng theo class trong `processors/image_redact.py`: `model.predict(conf=` ngưỡng thấp nhất `)`, rồi lọc từng box theo ngưỡng của class đó (label đã có trong vòng lặp). Worker chỉ nạp model mà job cần, lúc dùng lần đầu (`accurate` và `max_privacy` dùng chung một model), giữ một model và đổi khi job sau dùng chế độ khác (nạp lại ~1-2 s); giữ cả hai thì phải nâng memory limit (một model ở 1280 đã dùng ~1.2 GB / 1.5 GB), chốt sau khi đo. `resultSummary.model` ghi model và ngưỡng thật đã chạy. Image engine cần Ultralytics >= 8.4 (YOLO26). *(Lưu ý Task 77: Per-class confidence thresholds `face` 0.17 và `plate` 0.11 cùng parser chia sẻ đã hoàn thành; công việc chọn chế độ `params.detection.mode` vẫn để mở).*
+  Ngưỡng theo class trong `processors/image_redact.py`: `model.predict(conf=` ngưỡng thấp nhất `)`, rồi lọc từng box theo ngưỡng của class đó (label đã có trong vòng lặp). Worker chỉ nạp model mà job cần, lúc dùng lần đầu, giữ một model và đổi khi job sau dùng chế độ khác (nạp lại ~1-2 s); giữ RAM luôn <= 1.5 GB. `resultSummary.model` ghi model và ngưỡng thật đã chạy. Image engine cần Ultralytics >= 8.4 (YOLO26).
 
 ---
 

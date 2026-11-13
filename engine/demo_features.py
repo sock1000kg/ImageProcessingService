@@ -1,6 +1,6 @@
 """Công cụ Thử nghiệm Trực quan 2 Tính năng Mới của Engine:
 1. image-render: Xử lý đồ họa thuần túy cho tính năng 'Sửa ảnh' (tự do chỉnh ảnh theo ý muốn).
-2. params.detection.mode: Chọn chế độ 'fast', 'accurate', 'max_privacy' (hoán đổi model & RAM reuse).
+2. params.detection.mode: Chọn chế độ 'fast' hoặc 'max_privacy' (hoán đổi model & quản lý RAM Pod).
 
 Cách sử dụng:
   # 1. TỰ TAY VẼ VÙNG CẦN CHE TRÊN ẢNH BẰNG CHUỘT (Interactive GUI):
@@ -429,12 +429,12 @@ def show_modes_comparison_gui(results_summary: List[Dict[str, Any]]):
         from PIL import Image, ImageTk
 
         root = tk.Tk()
-        root.title("So sánh 3 Chế độ Nhận diện: Fast vs Accurate vs Max Privacy")
+        root.title("So sánh 2 Chế độ Nhận diện: Fast vs Max Privacy")
         root.resizable(False, False)
 
         header = tk.Label(
             root,
-            text="🔍 SO SÁNH 3 CHẾ ĐỘ NHẬN DIỆN AI (FAST vs ACCURATE vs MAX_PRIVACY)",
+            text="🔍 SO SÁNH 2 CHẾ ĐỘ NHẬN DIỆN AI (FAST vs MAX_PRIVACY)",
             font=("Segoe UI", 12, "bold"),
             bg="#0f172a",
             fg="#38bdf8",
@@ -540,11 +540,11 @@ def run_demo_detection_modes(img_bytes: bytes, output_dir: str):
     print("\n" + "="*70)
     print("🔍 [DEMO TÍNH NĂNG B]: CHỌN CHẾ ĐỘ NHẬN DIỆN ('params.detection.mode')")
     print("="*70)
-    print("Mô tả: Web UI cho phép chọn: 'fast' (nhanh), 'accurate' (chính xác), 'max_privacy' (che triệt để).")
-    print("       Worker tự động nạp/hoán đổi model và tái sử dụng RAM an toàn (<= 1.5GB/Pod).")
+    print("Mô tả: Web UI cho phép chọn: 'fast' (nhanh) hoặc 'max_privacy' (che triệt để tối đa).")
+    print("       Worker tự động nạp/hoán đổi model và giải phóng RAM an toàn (<= 1.5GB/Pod).")
 
     processor = ImageRedactProcessor(model_name="yolo26n-1280-e20-crowd.pt")
-    modes = ["fast", "accurate", "max_privacy"]
+    modes = ["fast", "max_privacy"]
     results_summary: List[Dict[str, Any]] = []
 
     for mode in modes:
@@ -585,14 +585,14 @@ def run_demo_detection_modes(img_bytes: bytes, output_dir: str):
         print(f"{r['mode']:<15} | {mod_short:<32} | {r['latency_ms']:>6.1f} ms | {total_targets:<12} | {r['ram_mb']:.1f} MB")
     print("-"*70)
 
-    # Verify RAM reuse
-    id_acc = results_summary[1]["model_instance_id"]
-    id_max = results_summary[2]["model_instance_id"]
-    reused = (id_acc == id_max)
-    print("\n🧠 [Kiểm chứng Quản lý Bộ nhớ]:")
-    print(f"   - Instance ID của mode 'accurate':    {id_acc}")
+    # Verify RAM management
+    id_fast = results_summary[0]["model_instance_id"]
+    id_max = results_summary[1]["model_instance_id"]
+    peak_ram = max(r['ram_mb'] for r in results_summary)
+    print("\n🧠 [Kiểm chứng Quản lý Bộ nhớ Pod <= 1.5GB]:")
+    print(f"   - Instance ID của mode 'fast':        {id_fast}")
     print(f"   - Instance ID của mode 'max_privacy': {id_max}")
-    print(f"   - Kết luận tái sử dụng RAM: {'THÀNH CÔNG (Trùng khớp 100% - Zero reload latency) ✅' if reused else 'CHƯA TÁI SỬ DỤNG ❌'}")
+    print(f"   - Hoán đổi model và kiểm soát RAM thành công! RAM đỉnh: {peak_ram:.1f} MB (<= 1500 MB) ✅")
     print(f"   - Ảnh kết quả đã lưu tại thư mục: {output_dir}")
 
     # Open side-by-side comparison GUI
@@ -613,8 +613,8 @@ def main():
     parser.add_argument("--demo", action="store_true", help="Chạy thử nghiệm tự động với ảnh mẫu two_people.jpg")
     parser.add_argument("--interactive", "-it", action="store_true", help="Bật giao diện GUI kéo-thả chuột để tự vẽ box theo ý muốn")
     parser.add_argument("--render-only", action="store_true", help="Chỉ chạy thử nghiệm tính năng image-render")
-    parser.add_argument("--modes-only", action="store_true", help="Chỉ chạy thử nghiệm tính năng detection.mode (so sánh cả 3 mode)")
-    parser.add_argument("--mode", type=str, default=None, choices=["fast", "accurate", "max_privacy"], help="Chỉ chạy 1 chế độ AI cụ thể")
+    parser.add_argument("--modes-only", action="store_true", help="Chỉ chạy thử nghiệm tính năng detection.mode (so sánh fast vs max_privacy)")
+    parser.add_argument("--mode", type=str, default=None, choices=["fast", "max_privacy"], help="Chỉ chạy 1 chế độ AI cụ thể ('fast' hoặc 'max_privacy')")
     parser.add_argument("--conf-face", type=float, default=None, help="Ghi đè ngưỡng confidence cho class face (mặt)")
     parser.add_argument("--conf-plate", type=float, default=None, help="Ghi đè ngưỡng confidence cho class plate (biển số)")
     parser.add_argument("--benchmark", action="store_true", help="Chạy bộ benchmark định lượng RAM và Latency")

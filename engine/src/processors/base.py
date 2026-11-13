@@ -86,15 +86,11 @@ def parse_mode_config(
 
 
 def get_detection_mode_config(mode: Optional[str] = "fast") -> DetectionModeConfig:
-    """Resolve DetectionModeConfig for a given mode ('fast', 'accurate', 'max_privacy')."""
+    """Resolve DetectionModeConfig for a given mode ('fast' or 'max_privacy')."""
     from ..config import settings
 
     norm_mode = (mode or "fast").lower().strip()
-    if norm_mode == "accurate":
-        raw_cfg = settings.mode_accurate
-        default_model = "yolo26s-1280-e5-plates-frozen-x3.pt"
-        return parse_mode_config("accurate", raw_cfg, default_model=default_model)
-    elif norm_mode == "max_privacy":
+    if norm_mode in ("max_privacy", "accurate"):
         raw_cfg = settings.mode_max_privacy
         default_model = "yolo26s-1280-e5-plates-frozen-x3.pt"
         return parse_mode_config("max_privacy", raw_cfg, default_model=default_model)

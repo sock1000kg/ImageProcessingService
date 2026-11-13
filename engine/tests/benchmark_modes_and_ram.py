@@ -64,30 +64,30 @@ def run_benchmark():
     print(f"  -> Process RAM: {fast_peak_ram:.1f} MB")
     print(f"  -> Model string: {sum_fast['model']}")
 
-    # 3. Benchmark ImageRedactProcessor Mode ACCURATE (Swapping to yolo26s)
-    print("\n--- 3. ImageRedactProcessor: Mode ACCURATE (Swap to yolo26s) ---")
-    t0 = time.perf_counter()
-    _, sum_acc, _ = redact_proc.process(img_bytes, {"detection": {"mode": "accurate"}}, "result.jpg")
-    t_acc = (time.perf_counter() - t0) * 1000
-    acc_peak_ram = process.memory_info().rss / (1024 * 1024)
-    acc_model_id = id(redact_proc.model)
-    print(f"  -> Latency (including model load): {t_acc:.1f}ms")
-    print(f"  -> Process RAM: {acc_peak_ram:.1f} MB (well within 1.5 GB limit!)")
-    print(f"  -> Model string: {sum_acc['model']}")
-
-    # 4. Benchmark ImageRedactProcessor Mode MAX_PRIVACY (Reusing yolo26s in RAM)
-    print("\n--- 4. ImageRedactProcessor: Mode MAX_PRIVACY (Reusing yolo26s) ---")
+    # 3. Benchmark ImageRedactProcessor Mode MAX_PRIVACY (Swapping to yolo26s)
+    print("\n--- 3. ImageRedactProcessor: Mode MAX_PRIVACY (Swap to yolo26s) ---")
     t0 = time.perf_counter()
     _, sum_max, _ = redact_proc.process(img_bytes, {"detection": {"mode": "max_privacy"}}, "result.jpg")
     t_max = (time.perf_counter() - t0) * 1000
     max_peak_ram = process.memory_info().rss / (1024 * 1024)
     max_model_id = id(redact_proc.model)
-    ram_reused = (acc_model_id == max_model_id)
-    print(f"  -> Latency: {t_max:.1f}ms")
-    print(f"  -> Process RAM: {max_peak_ram:.1f} MB")
-    print(f"  -> Instance Reused in RAM: {ram_reused} (acc_id={acc_model_id}, max_id={max_model_id})")
+    print(f"  -> Latency (including model load): {t_max:.1f}ms")
+    print(f"  -> Process RAM: {max_peak_ram:.1f} MB (well within 1.5 GB limit!)")
     print(f"  -> Model string: {sum_max['model']}")
-    assert ram_reused is True, "max_privacy must reuse identical model instance from accurate mode"
+
+    # 4. Benchmark ImageRedactProcessor Mode MAX_PRIVACY (Reusing yolo26s in RAM)
+    print("\n--- 4. ImageRedactProcessor: Mode MAX_PRIVACY (Reusing yolo26s in RAM) ---")
+    t0 = time.perf_counter()
+    _, sum_max2, _ = redact_proc.process(img_bytes, {"detection": {"mode": "max_privacy"}}, "result.jpg")
+    t_max2 = (time.perf_counter() - t0) * 1000
+    max2_peak_ram = process.memory_info().rss / (1024 * 1024)
+    max2_model_id = id(redact_proc.model)
+    ram_reused = (max_model_id == max2_model_id)
+    print(f"  -> Latency: {t_max2:.1f}ms")
+    print(f"  -> Process RAM: {max2_peak_ram:.1f} MB")
+    print(f"  -> Instance Reused in RAM: {ram_reused} (id1={max_model_id}, id2={max2_model_id})")
+    print(f"  -> Model string: {sum_max2['model']}")
+    assert ram_reused is True, "consecutive max_privacy jobs must reuse identical model instance from RAM"
 
     # 5. Swap back to FAST
     print("\n--- 5. ImageRedactProcessor: Swap back to FAST (yolo26n) ---")
@@ -101,7 +101,7 @@ def run_benchmark():
 
     print("\n" + "="*60)
     print("✅ TOÀN BỘ BENCHMARK RAM & LATENCY HOÀN TẤT THÀNH CÔNG!")
-    print(f"   + Max RAM đỉnh ghi nhận: {max(fast_peak_ram, acc_peak_ram, max_peak_ram):.1f} MB <= 1500 MB (K8s limit)")
+    print(f"   + Max RAM đỉnh ghi nhận: {max(fast_peak_ram, max_peak_ram, max2_peak_ram):.1f} MB <= 1500 MB (K8s limit)")
     print(f"   + Image-Render Latency: {avg_render:.1f} ms < 50 ms")
     print("="*60 + "\n")
 

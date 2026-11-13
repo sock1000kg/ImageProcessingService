@@ -46,8 +46,8 @@ export function sortBatchJobs(batch: Batch, report: ReportImage[]): Job[] {
       const imgA = reportByJob.get(a.id);
       const imgB = reportByJob.get(b.id);
 
-      const simA = imgA?.reviewReasons?.includes("Similarity near whitelist threshold") ? 1 : 0;
-      const simB = imgB?.reviewReasons?.includes("Similarity near whitelist threshold") ? 1 : 0;
+      const simA = imgA?.reviewReasons?.includes("Similarity near allow list threshold") ? 1 : 0;
+      const simB = imgB?.reviewReasons?.includes("Similarity near allow list threshold") ? 1 : 0;
       if (simA !== simB) {
         return simB - simA;
       }

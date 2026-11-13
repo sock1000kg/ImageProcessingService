@@ -12,14 +12,6 @@ import {
   renameFaceList,
 } from "../services/face-list.service";
 import { notFound } from "../errors";
-import { UUID_REGEX } from "../dto";
-
-function parseListId(idParam: unknown): string {
-  if (typeof idParam !== "string" || !UUID_REGEX.test(idParam)) {
-    throw notFound("Face list not found");
-  }
-  return idParam;
-}
 
 /**
  * Validates that faceId is a non-empty string.
@@ -73,7 +65,7 @@ export async function createFaceListHandler(request: Request, response: Response
  */
 export async function addFacesToListHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = parseListId(request.params.id);
+    const id = request.params.id as string;
     const userId = request.authUser!.id;
     const files = (request.files as Express.Multer.File[]) ?? [];
     const list = await addFacesToList(id, userId, files);
@@ -89,7 +81,7 @@ export async function addFacesToListHandler(request: Request, response: Response
  */
 export async function getFaceUrlHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = parseListId(request.params.id);
+    const id = request.params.id as string;
     const faceId = parseFaceId(request.params.faceId);
 
     const userId = request.authUser!.id;
@@ -114,7 +106,7 @@ export async function deleteFaceFromListHandler(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = parseListId(request.params.id);
+    const id = request.params.id as string;
     const faceId = parseFaceId(request.params.faceId);
     const userId = request.authUser!.id;
     const result = await deleteFaceFromList(id, faceId, userId);
@@ -130,7 +122,7 @@ export async function deleteFaceFromListHandler(
  */
 export async function deleteFaceListHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = parseListId(request.params.id);
+    const id = request.params.id as string;
     const userId = request.authUser!.id;
     await deleteFaceList(id, userId);
     response.status(204).end();
@@ -145,7 +137,7 @@ export async function deleteFaceListHandler(request: Request, response: Response
  */
 export async function renameFaceListHandler(request: Request, response: Response, next: NextFunction): Promise<void> {
   try {
-    const id = parseListId(request.params.id);
+    const id = request.params.id as string;
     const userId = request.authUser!.id;
     const list = await renameFaceList(id, request.body?.name, userId);
     response.status(200).json({ list });

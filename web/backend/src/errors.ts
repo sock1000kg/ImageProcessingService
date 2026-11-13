@@ -75,6 +75,25 @@ function validationMessage(error: ZodError): string {
   return [...new Set(parts)].join(". ") || "Invalid request";
 }
 
+/**
+ * True for Prisma's error when a non-UUID string reaches a `@db.Uuid` column (P2007 from the pg driver adapter,
+ * Postgres 22P02). Why: routes check `:id` with the validateId middleware, but a route that forgets it must still
+ * answer 404 like any unknown id, not 500. Matched narrowly because 22P02 also covers other bad input (ints, enums).
+ */
+function isMalformedUuidError(error: unknown): boolean {
+  const e = error as {
+    code?: unknown;
+    meta?: { driverAdapterError?: { cause?: { originalCode?: unknown; message?: unknown } } };
+  };
+  const cause = e?.meta?.driverAdapterError?.cause;
+  return (
+    e?.code === "P2007" &&
+    cause?.originalCode === "22P02" &&
+    typeof cause.message === "string" &&
+    cause.message.includes("type uuid")
+  );
+}
+
 export function toErrorResponse(error: unknown): { status: number; body: ErrorDTO } {
   if (error instanceof AppError) {
     return {
@@ -123,6 +142,10 @@ export function toErrorResponse(error: unknown): { status: number; body: ErrorDT
         },
       },
     };
+  }
+
+  if (isMalformedUuidError(error)) {
+    return { status: 404, body: { error: { code: "NOT_FOUND", message: "Not found" } } };
   }
 
   // Malformed JSON body (from express.json / body-parser SyntaxError)

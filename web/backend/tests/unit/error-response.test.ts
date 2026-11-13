@@ -137,4 +137,17 @@ describe("toErrorResponse Unit Tests", () => {
     expect(response.body.error.message).not.toContain("10.0.0.1");
     expect(response.body.error.details).toBeUndefined();
   });
+  it("maps a malformed UUID reaching Prisma to 404, and leaves other invalid input as 500", () => {
+    const prismaError = (originalCode: string, message: string) =>
+      Object.assign(new Error("db"), {
+        code: "P2007",
+        meta: { driverAdapterError: { cause: { originalCode, message } } },
+      });
+
+    const uuid = toErrorResponse(prismaError("22P02", 'invalid input syntax for type uuid: "not-a-uuid"'));
+    expect(uuid.status).toBe(404);
+    expect(uuid.body.error.code).toBe("NOT_FOUND");
+
+    expect(toErrorResponse(prismaError("22P02", 'invalid input syntax for type integer: "x"')).status).toBe(500);
+  });
 });

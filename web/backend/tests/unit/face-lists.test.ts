@@ -500,7 +500,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       ).rejects.toMatchObject({
         status: 400,
         code: "VALIDATION_ERROR",
-        message: "At most 20 whitelist faces per batch",
+        message: "At most 20 allow list faces per batch",
       });
     });
 
@@ -541,7 +541,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       ).rejects.toMatchObject({
         status: 404,
         code: "NOT_FOUND",
-        message: "Face list not found",
+        message: "Allow list not found",
       });
 
       expect(copySpy).not.toHaveBeenCalled();
@@ -575,7 +575,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       ).rejects.toMatchObject({
         status: 404,
         code: "NOT_FOUND",
-        message: "Face list not found",
+        message: "Allow list not found",
       });
 
       expect(copySpy).not.toHaveBeenCalled();
@@ -979,14 +979,8 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       expect(deletePrefixSpy).not.toHaveBeenCalled();
     });
 
-    it("another user's list or a non-UUID id → 404, nothing written", async () => {
+    it("another user's list → 404, nothing written", async () => {
       const putSpy = vi.spyOn(storage, "putObject");
-
-      // Non-UUID
-      await expect(addFacesToList("invalid-uuid", userId, [mockFile("f.jpg")])).rejects.toMatchObject({
-        status: 404,
-      });
-      expect(putSpy).not.toHaveBeenCalled();
 
       // Another user's list
       vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue(null);
@@ -1072,17 +1066,6 @@ describe("Face Lists Unit Tests (Task 39)", () => {
           createdAt: "2026-11-05T09:00:00.000Z",
         },
       });
-    });
-
-    it("addFacesToListHandler rejects non-UUID id with 404", async () => {
-      const next = vi.fn();
-      const req: any = {
-        params: { id: "not-a-uuid" },
-        authUser: { id: userId },
-        files: [mockFile("face.jpg")],
-      };
-      await addFacesToListHandler(req, {} as any, next);
-      expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
     });
   });
 
@@ -1233,14 +1216,9 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       expect(result).toEqual({ list: null });
     });
 
-    it("returns 404 and deletes nothing for other user list, non-UUID id, or unknown faceId", async () => {
+    it("returns 404 and deletes nothing for other user list or unknown faceId", async () => {
       const deleteObjSpy = vi.spyOn(storage, "deleteObject");
       const deletePrefixSpy = vi.spyOn(storage, "deletePrefix");
-
-      // Non-UUID id
-      await expect(deleteFaceFromList("not-a-uuid", "face-1", userId)).rejects.toMatchObject({
-        status: 404,
-      });
 
       // Other user list
       vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue(null);
@@ -1308,16 +1286,8 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       });
     });
 
-    it("deleteFaceFromListHandler rejects invalid faceId or invalid id with 404", async () => {
+    it("deleteFaceFromListHandler rejects invalid faceId with 404", async () => {
       const next = vi.fn();
-      const reqBadId: any = {
-        params: { id: "bad-uuid", faceId: "face-1" },
-        authUser: { id: userId },
-      };
-      await deleteFaceFromListHandler(reqBadId, {} as any, next);
-      expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
-
-      next.mockClear();
       const reqBadFaceId: any = {
         params: { id: listId, faceId: "   " },
         authUser: { id: userId },
@@ -1628,7 +1598,7 @@ describe("Face Lists Unit Tests (Task 39)", () => {
       });
     });
 
-    it("another user's list and a non-UUID id → 404", async () => {
+    it("another user's list → 404", async () => {
       // Another user's list in service: getFaceListOwnedByUser returns null
       vi.spyOn(faceListRepository, "getFaceListOwnedByUser").mockResolvedValue(null);
 
@@ -1644,15 +1614,6 @@ describe("Face Lists Unit Tests (Task 39)", () => {
         next1,
       );
       expect(next1).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
-
-      // Controller with non-UUID id throws/forwards 404
-      const next2 = vi.fn();
-      await renameFaceListHandler(
-        { params: { id: "not-a-valid-uuid" }, body: { name: "Valid Name" }, authUser: { id: userId } } as any,
-        {} as any,
-        next2,
-      );
-      expect(next2).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
     });
   });
 });

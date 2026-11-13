@@ -7,7 +7,6 @@ import { getBatchOwnedByUser, getJobOwnedByUser } from "../repositories/job.repo
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
 import { buildAttachmentContentDisposition } from "../attachment";
 import { JobStatus } from "../generated/prisma/client";
-import { UUID_REGEX } from "../dto";
 import { notFound } from "../errors";
 
 /**
@@ -110,10 +109,6 @@ export async function getBatchWhitelistPresignedUrl(
   index: number,
   userId: string,
 ): Promise<{ url: string; expiresAt: string }> {
-  if (!UUID_REGEX.test(batchId)) {
-    throw notFound("Batch not found");
-  }
-
   const batch = await getBatchOwnedByUser(batchId, userId);
   if (!batch) {
     throw notFound("Batch not found");
@@ -121,7 +116,7 @@ export async function getBatchWhitelistPresignedUrl(
 
   const keys = Array.isArray(batch.whitelistKeys) ? batch.whitelistKeys : [];
   if (index < 1 || index > keys.length) {
-    throw notFound("Whitelist photo not found");
+    throw notFound("Allow list photo not found");
   }
 
   const key = keys[index - 1]!;

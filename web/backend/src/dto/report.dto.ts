@@ -14,7 +14,7 @@ import {
 import { rangesOf, formatRange, videoTracksAsDetections, videoTrackFields } from "./report-video.dto";
 
 export type ReviewReason =
-  "Low confidence" | "Similarity near whitelist threshold" | "Engine reported needsReview" | "Possible redaction gap";
+  "Low confidence" | "Similarity near allow list threshold" | "Engine reported needsReview" | "Possible redaction gap";
 
 export interface ReportImageDTO {
   jobId: string;
@@ -451,8 +451,8 @@ function compareReportImages(a: ReportImageDTO, b: ReportImageDTO): number {
   // width descending with null last (larger faces are more critical/recognisable), then lowest
   // redacted confidence ascending.
   if (groupA === 1) {
-    const simA = a.reviewReasons.includes("Similarity near whitelist threshold") ? 1 : 0;
-    const simB = b.reviewReasons.includes("Similarity near whitelist threshold") ? 1 : 0;
+    const simA = a.reviewReasons.includes("Similarity near allow list threshold") ? 1 : 0;
+    const simB = b.reviewReasons.includes("Similarity near allow list threshold") ? 1 : 0;
     if (simA !== simB) {
       return simB - simA;
     }
@@ -514,7 +514,7 @@ function toReportDetection(detection: ImageDetectionSummary, similarityThreshold
   // Video only: stretches where the tracker lost the object, so it may not have been redacted there.
   const gapRanges = qualifiesLowConfidence ? rangesOf(detection, "gapRanges") : [];
   if (gapRanges.length > 0) reviewReasons.push("Possible redaction gap");
-  if (nearThreshold === true) reviewReasons.push("Similarity near whitelist threshold");
+  if (nearThreshold === true) reviewReasons.push("Similarity near allow list threshold");
 
   const reviewNotes: string[] = [];
   if (detection.lowConfidence === true && qualifiesLowConfidence) {
@@ -531,9 +531,9 @@ function toReportDetection(detection: ImageDetectionSummary, similarityThreshold
     const simStr = typeof similarity === "number" ? similarity.toFixed(2) : "0.00";
     const threshStr = similarityThreshold.toFixed(2);
     if (detection.whitelisted === true) {
-      reviewNotes.push(`kept face near whitelist threshold (similarity ${simStr}, threshold ${threshStr})`);
+      reviewNotes.push(`kept face near allow list threshold (similarity ${simStr}, threshold ${threshStr})`);
     } else {
-      reviewNotes.push(`redacted face near whitelist threshold (similarity ${simStr}, threshold ${threshStr})`);
+      reviewNotes.push(`redacted face near allow list threshold (similarity ${simStr}, threshold ${threshStr})`);
     }
   }
   if (detection.needsReview === true) {

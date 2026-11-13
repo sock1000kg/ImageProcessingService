@@ -421,7 +421,7 @@ describe("Presigned URLs Backend Unit Tests (Task 87)", () => {
       expect(next).toHaveBeenCalledWith(
         expect.objectContaining({
           status: 404,
-          message: "Face list not found",
+          message: "Allow list not found",
         }),
       );
     });
@@ -524,7 +524,7 @@ describe("Presigned URLs Backend Unit Tests (Task 87)", () => {
         expect(next).toHaveBeenCalledWith(
           expect.objectContaining({
             status: 404,
-            message: "Whitelist photo not found",
+            message: "Allow list photo not found",
           }),
         );
       }

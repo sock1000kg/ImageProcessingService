@@ -6,7 +6,8 @@ import multer from "multer";
 import { config } from "../config";
 import { requireAuth } from "../middleware/auth.middleware";
 import { RATE_LIMIT_BASES, rateLimit, userKey } from "../middleware/rate-limit.middleware";
-import { MAX_WHITELIST_FILES, parseFaceListIds, validateBatchCreation, validateIdParam } from "../dto";
+import { validateId } from "../middleware/validate-id.middleware";
+import { MAX_WHITELIST_FILES, parseFaceListIds, validateBatchCreation } from "../dto";
 import { NextFunction, Request, Response } from "express";
 import {
   addBatchFileHandler,
@@ -40,14 +41,6 @@ export const batchesRouter = Router();
 export const createBatchLimit = rateLimit(RATE_LIMIT_BASES.createBatch, userKey, "transfer");
 export const uploadLimit = rateLimit(RATE_LIMIT_BASES.upload, userKey, "transfer");
 export const downloadTokenLimit = rateLimit(RATE_LIMIT_BASES.downloadToken, userKey, "transfer");
-function validateId(request: Request, _response: Response, next: NextFunction): void {
-  try {
-    validateIdParam(request.params);
-    next();
-  } catch (error) {
-    next(error);
-  }
-}
 
 function validateCreateRequest(request: Request, _response: Response, next: NextFunction): void {
   try {
@@ -101,7 +94,7 @@ batchesRouter.post(
   "/:id/files",
   requireAuth,
   uploadLimit,
-  validateId,
+  validateId("Batch"),
   batchesUpload.single("file"),
   addBatchFileHandler,
 );
@@ -112,7 +105,7 @@ batchesRouter.post(
  * Response: 200 { batch: BatchResponseDTO }
  * Errors: 400 INVALID_UUID / BATCH_EMPTY, 404 NOT_FOUND, 503 SERVICE_UNAVAILABLE
  */
-batchesRouter.post("/:id/start", requireAuth, validateId, startBatchHandler);
+batchesRouter.post("/:id/start", requireAuth, validateId("Batch"), startBatchHandler);
 
 /**
  * POST /api/batches/:id/rerun
@@ -124,7 +117,7 @@ batchesRouter.post(
   "/:id/rerun",
   requireAuth,
   createBatchLimit,
-  validateId,
+  validateId("Batch"),
   batchesUpload.fields([{ name: "whitelist", maxCount: MAX_WHITELIST_FILES }]),
   rerunBatchHandler,
 );
@@ -135,7 +128,7 @@ batchesRouter.post(
  * Response: 200 { batch: BatchResponseDTO }
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
-batchesRouter.get("/:id", requireAuth, validateId, getBatchHandler);
+batchesRouter.get("/:id", requireAuth, validateId("Batch"), getBatchHandler);
 
 /**
  * PATCH /api/batches/:id
@@ -143,7 +136,7 @@ batchesRouter.get("/:id", requireAuth, validateId, getBatchHandler);
  * Response: 200 { batch: BatchResponseDTO }
  * Errors: 400 INVALID_UUID / VALIDATION_ERROR, 404 NOT_FOUND
  */
-batchesRouter.patch("/:id", requireAuth, validateId, updateBatchHandler);
+batchesRouter.patch("/:id", requireAuth, validateId("Batch"), updateBatchHandler);
 
 /**
  * GET /api/batches/:id/report
@@ -151,7 +144,7 @@ batchesRouter.patch("/:id", requireAuth, validateId, updateBatchHandler);
  * Response: 200 { report: BatchReportResponseDTO }
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
-batchesRouter.get("/:id/report", requireAuth, validateId, getBatchReportHandler);
+batchesRouter.get("/:id/report", requireAuth, validateId("Batch"), getBatchReportHandler);
 
 /**
  * GET /api/batches/:id/whitelist/:n/url
@@ -159,7 +152,7 @@ batchesRouter.get("/:id/report", requireAuth, validateId, getBatchReportHandler)
  * Response: 200 { url: string, expiresAt: string }
  * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
  */
-batchesRouter.get("/:id/whitelist/:n/url", requireAuth, getBatchWhitelistPhotoUrlHandler);
+batchesRouter.get("/:id/whitelist/:n/url", requireAuth, validateId("Batch"), getBatchWhitelistPhotoUrlHandler);
 
 /**
  * DELETE /api/batches/:id
@@ -167,7 +160,7 @@ batchesRouter.get("/:id/whitelist/:n/url", requireAuth, getBatchWhitelistPhotoUr
  * Response: 204 No Content
  * Errors: 400 INVALID_UUID, 404 NOT_FOUND
  */
-batchesRouter.delete("/:id", requireAuth, validateId, deleteBatchHandler);
+batchesRouter.delete("/:id", requireAuth, validateId("Batch"), deleteBatchHandler);
 
 /**
  * POST /api/batches/:id/download-token
@@ -175,7 +168,13 @@ batchesRouter.delete("/:id", requireAuth, validateId, deleteBatchHandler);
  * Response: 200 { url: string }
  * Errors: 400 INVALID_UUID, 401 UNAUTHORIZED, 404 NOT_FOUND, 429 RATE_LIMITED
  */
-batchesRouter.post("/:id/download-token", requireAuth, downloadTokenLimit, validateId, createBatchDownloadTokenHandler);
+batchesRouter.post(
+  "/:id/download-token",
+  requireAuth,
+  downloadTokenLimit,
+  validateId("Batch"),
+  createBatchDownloadTokenHandler,
+);
 
 /**
  * GET /api/batches/:id/download.zip?token=...
@@ -183,4 +182,4 @@ batchesRouter.post("/:id/download-token", requireAuth, downloadTokenLimit, valid
  * Response: 200 (zip stream)
  * Errors: 400 INVALID_UUID, 401 INVALID_DOWNLOAD_TOKEN, 404 NOT_FOUND / NO_RESULTS
  */
-batchesRouter.get("/:id/download.zip", validateId, downloadBatchZipHandler);
+batchesRouter.get("/:id/download.zip", validateId("Batch"), downloadBatchZipHandler);

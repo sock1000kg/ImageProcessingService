@@ -42,7 +42,6 @@ import {
   toBatchResponse,
   toJobResponse,
   toReportResponse,
-  UUID_REGEX,
   validateBatchCreation,
   validateSingleUploadFile,
 } from "../dto";
@@ -70,7 +69,7 @@ export async function createDraftBatch(options: {
   const faceListIds = parseFaceListIds(options);
 
   validateBatchCreation({ filesPresent, whitelist, faceListIds });
-  await assertImageContents(whitelist, "Whitelist file");
+  await assertImageContents(whitelist, "Allow list file");
 
   const batchConfig: BatchConfig = parseBatchConfigJson(rawConfig);
   const validatedName = parseBatchName(name);
@@ -79,12 +78,9 @@ export async function createDraftBatch(options: {
   const faceLists: Array<{ id: string; name: string; keys: string[]; faceNames?: unknown }> = [];
   if (faceListIds && faceListIds.length > 0) {
     for (const id of faceListIds) {
-      if (!UUID_REGEX.test(id)) {
-        throw notFound("Face list not found");
-      }
       const faceList = await getFaceListOwnedByUser(id, options.userId);
       if (!faceList) {
-        throw notFound("Face list not found");
+        throw notFound("Allow list not found");
       }
       faceLists.push(faceList);
     }
@@ -94,7 +90,7 @@ export async function createDraftBatch(options: {
   const listFacesCount = faceLists.reduce((sum, list) => sum + list.keys.length, 0);
   const totalFaces = listFacesCount + whitelist.length;
   if (totalFaces > MAX_WHITELIST_FILES) {
-    throw badRequest("At most 20 whitelist faces per batch", "VALIDATION_ERROR");
+    throw badRequest("At most 20 allow list faces per batch", "VALIDATION_ERROR");
   }
 
   const batchId = randomUUID();

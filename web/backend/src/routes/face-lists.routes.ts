@@ -4,8 +4,10 @@
 import { Router } from "express";
 import multer from "multer";
 import { config } from "../config";
+import { MAX_FACE_LIST_FILES } from "../dto";
 import { requireAuth } from "../middleware/auth.middleware";
 import { RATE_LIMIT_BASES, rateLimit, userKey } from "../middleware/rate-limit.middleware";
+import { validateId } from "../middleware/validate-id.middleware";
 import {
   addFacesToListHandler,
   createFaceListHandler,
@@ -46,7 +48,13 @@ faceListsRouter.get("/", requireAuth, listFaceListsHandler);
  * Response: 201 { list: FaceListItemDTO }
  * Errors: 400 VALIDATION_ERROR, 401 UNAUTHORIZED, 413 FILE_TOO_LARGE, 429 RATE_LIMITED
  */
-faceListsRouter.post("/", requireAuth, createListLimit, faceListsUpload.array("faces", 10), createFaceListHandler);
+faceListsRouter.post(
+  "/",
+  requireAuth,
+  createListLimit,
+  faceListsUpload.array("faces", MAX_FACE_LIST_FILES),
+  createFaceListHandler,
+);
 
 /**
  * POST /api/face-lists/:id/faces
@@ -57,8 +65,9 @@ faceListsRouter.post("/", requireAuth, createListLimit, faceListsUpload.array("f
 faceListsRouter.post(
   "/:id/faces",
   requireAuth,
+  validateId("Allow list"),
   createListLimit,
-  faceListsUpload.array("faces", 10),
+  faceListsUpload.array("faces", MAX_FACE_LIST_FILES),
   addFacesToListHandler,
 );
 
@@ -68,7 +77,7 @@ faceListsRouter.post(
  * Response: 200 { url: string, expiresAt: string }
  * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
  */
-faceListsRouter.get("/:id/faces/:faceId/url", requireAuth, getFaceUrlHandler);
+faceListsRouter.get("/:id/faces/:faceId/url", requireAuth, validateId("Allow list"), getFaceUrlHandler);
 
 /**
  * DELETE /api/face-lists/:id/faces/:faceId
@@ -76,7 +85,7 @@ faceListsRouter.get("/:id/faces/:faceId/url", requireAuth, getFaceUrlHandler);
  * Response: 200 { list: FaceListItemDTO | null }
  * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
  */
-faceListsRouter.delete("/:id/faces/:faceId", requireAuth, deleteFaceFromListHandler);
+faceListsRouter.delete("/:id/faces/:faceId", requireAuth, validateId("Allow list"), deleteFaceFromListHandler);
 
 /**
  * PATCH /api/face-lists/:id
@@ -84,7 +93,7 @@ faceListsRouter.delete("/:id/faces/:faceId", requireAuth, deleteFaceFromListHand
  * Response: 200 { list: FaceListItemDTO }
  * Errors: 400 VALIDATION_ERROR, 401 UNAUTHORIZED, 404 NOT_FOUND
  */
-faceListsRouter.patch("/:id", requireAuth, renameFaceListHandler);
+faceListsRouter.patch("/:id", requireAuth, validateId("Allow list"), renameFaceListHandler);
 
 /**
  * DELETE /api/face-lists/:id
@@ -92,4 +101,4 @@ faceListsRouter.patch("/:id", requireAuth, renameFaceListHandler);
  * Response: 204 No Content
  * Errors: 401 UNAUTHORIZED, 404 NOT_FOUND
  */
-faceListsRouter.delete("/:id", requireAuth, deleteFaceListHandler);
+faceListsRouter.delete("/:id", requireAuth, validateId("Allow list"), deleteFaceListHandler);

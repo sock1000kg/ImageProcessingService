@@ -47,7 +47,7 @@ describe("batch report review state", () => {
     expect(report.images[0]?.reviewReasons).toEqual([
       "Low confidence",
       "Engine reported needsReview",
-      "Similarity near whitelist threshold",
+      "Similarity near allow list threshold",
     ]);
     expect(report.images[0]?.lowestRedactedConfidence).toBe(0.41);
     expect(report.reviewImages).toHaveLength(1);
@@ -349,25 +349,25 @@ describe("advanced batch report features (Task 30)", () => {
     // Verify detection notes
     expect(img?.detections[0]?.reviewNotes).toEqual(["low confidence 0.41"]);
     expect(img?.detections[1]?.reviewNotes).toEqual([
-      "kept face near whitelist threshold (similarity 0.62, threshold 0.60)",
+      "kept face near allow list threshold (similarity 0.62, threshold 0.60)",
     ]);
     expect(img?.detections[2]?.reviewNotes).toEqual([
-      "redacted face near whitelist threshold (similarity 0.58, threshold 0.60)",
+      "redacted face near allow list threshold (similarity 0.58, threshold 0.60)",
     ]);
     expect(img?.detections[3]?.reviewNotes).toEqual(["engine flagged for review"]);
 
     // Verify image notes: kept-face note MUST come first
     expect(img?.reviewNotes).toEqual([
-      "kept face near whitelist threshold (similarity 0.62, threshold 0.60)",
+      "kept face near allow list threshold (similarity 0.62, threshold 0.60)",
       "low confidence 0.41",
-      "redacted face near whitelist threshold (similarity 0.58, threshold 0.60)",
+      "redacted face near allow list threshold (similarity 0.58, threshold 0.60)",
       "engine flagged for review",
     ]);
 
     // Existing reviewReasons should remain unchanged
     expect(img?.reviewReasons).toEqual([
       "Low confidence",
-      "Similarity near whitelist threshold",
+      "Similarity near allow list threshold",
       "Engine reported needsReview",
     ]);
   });
@@ -630,7 +630,7 @@ describe("Face size filter and review candidate ordering (Step 2, 3, 5)", () => 
     ]);
     const imgKept = report.images.find((img) => img.originalFilename === "kept-10px.jpg");
     expect(imgKept?.needsReview).toBe(true);
-    expect(imgKept?.reviewReasons).toEqual(["Similarity near whitelist threshold"]);
+    expect(imgKept?.reviewReasons).toEqual(["Similarity near allow list threshold"]);
     expect(imgKept?.largestReviewFaceWidth).toBe(10);
   });
 

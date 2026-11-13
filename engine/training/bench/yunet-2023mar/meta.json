@@ -1,0 +1,8 @@
+{
+  "mode": "local",
+  "weights": "/home/dat/projects/ImageProcessing/engine/training/datasets/yunet/yunet.onnx",
+  "imgsz": "original size",
+  "dataset": "max",
+  "confidence_threshold": 0.05,
+  "padding": 0.1
+}

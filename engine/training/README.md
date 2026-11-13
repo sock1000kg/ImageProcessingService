@@ -8,6 +8,7 @@ a normal Ultralytics `.pt`: class names match its mapping (`Human face`, `Vehicl
 [`engine/models/`](../models) where the engine loads them. **Results:** the journey from the base model to these in
 [results/README.md](results/README.md), every benchmark number in [bench/comparison.md](bench/comparison.md), throughput
 in [infra/bench/results/comparison.md](../../infra/bench/results/comparison.md).
+**Whitelist accuracy** (plates and faces: what was tried, the results, next steps): [results/whitelist.md](results/whitelist.md).
 
 ## Flow
 

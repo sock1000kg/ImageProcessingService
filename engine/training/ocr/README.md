@@ -20,6 +20,8 @@ python engine/training/ocr/eval_ocr.py        # prints a table and writes result
 | --- | --- |
 | `fetch.sh` | Downloads the trungdinh22 Character Detection Dataset (`OCR.zip`) and checks its SHA-256. Its licence isn't stated, so the images stay local |
 | `eval_ocr.py` | Scores each reading method on both sets |
+| `eval_whitelist.py` | Plate whitelist: owner kept vs stranger leaked, with the Engine's own OCR and matcher. Writes `results/whitelist.json` |
+| `eval_whitelist_rules.py` | Same test with each fuzzy rule of the matcher switched on or off alone. Writes `results/whitelist_rules.json` |
 | `uet-plates-text.json` | Text of 80 plates from the benchmark's UET set, read by eye, with their image and box |
 | `char_map.json` | The real class-number-to-character mapping of the trungdinh22 labels |
 | `results/` | `README.md` (the journey) and `results.json` |

@@ -1,0 +1,510 @@
+{
+ "exact only": {
+  "rules": [],
+  "owner_kept": 0.901,
+  "leak_by_whitelist_size": {
+   "1": 1e-05,
+   "5": 3e-05,
+   "20": 0.00012
+  },
+  "plates_matched_by_some_other": 0.0032,
+  "examples": [
+   {
+    "plate": "86H7991",
+    "read_as": "86H79591",
+    "whitelist_entry": "86H79591"
+   },
+   {
+    "plate": "51V44549",
+    "read_as": "51V44579",
+    "whitelist_entry": "51V44579"
+   }
+  ]
+ },
+ "all five rules (Engine before 2026-11-12)": {
+  "rules": [
+   "canon",
+   "contain",
+   "fuzzy",
+   "fuzzy_screw",
+   "province_tail"
+  ],
+  "owner_kept": 0.9773,
+  "leak_by_whitelist_size": {
+   "1": 0.00153,
+   "5": 0.00763,
+   "20": 0.02995
+  },
+  "plates_matched_by_some_other": 0.461,
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "59N174864",
+    "read_as": "59N174864",
+    "whitelist_entry": "59Y171364"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59S135252"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59T105297"
+   }
+  ]
+ },
+ "exact + canon": {
+  "rules": [
+   "canon"
+  ],
+  "owner_kept": 0.9205,
+  "leak_by_whitelist_size": {
+   "1": 1e-05,
+   "5": 3e-05,
+   "20": 0.00012
+  },
+  "plates_matched_by_some_other": 0.0032,
+  "examples": [
+   {
+    "plate": "86H7991",
+    "read_as": "86H79591",
+    "whitelist_entry": "86H79591"
+   },
+   {
+    "plate": "51V44549",
+    "read_as": "51V44579",
+    "whitelist_entry": "51V44579"
+   }
+  ]
+ },
+ "exact + contain": {
+  "rules": [
+   "contain"
+  ],
+  "owner_kept": 0.9286,
+  "leak_by_whitelist_size": {
+   "1": 1e-05,
+   "5": 3e-05,
+   "20": 0.00012
+  },
+  "plates_matched_by_some_other": 0.0032,
+  "examples": [
+   {
+    "plate": "86H7991",
+    "read_as": "86H79591",
+    "whitelist_entry": "86H79591"
+   },
+   {
+    "plate": "51V44549",
+    "read_as": "51V44579",
+    "whitelist_entry": "51V44579"
+   }
+  ]
+ },
+ "exact + province_tail": {
+  "rules": [
+   "province_tail"
+  ],
+  "owner_kept": 0.9432,
+  "leak_by_whitelist_size": {
+   "1": 2e-05,
+   "5": 0.0001,
+   "20": 0.00041
+  },
+  "plates_matched_by_some_other": 0.0114,
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "86H7991",
+    "read_as": "86H79591",
+    "whitelist_entry": "86H79591"
+   },
+   {
+    "plate": "51V44549",
+    "read_as": "51V44579",
+    "whitelist_entry": "51V44579"
+   },
+   {
+    "plate": "51F97979",
+    "read_as": "51F97979",
+    "whitelist_entry": "51H07979"
+   }
+  ]
+ },
+ "exact + fuzzy": {
+  "rules": [
+   "fuzzy"
+  ],
+  "owner_kept": 0.9692,
+  "leak_by_whitelist_size": {
+   "1": 0.00151,
+   "5": 0.00753,
+   "20": 0.02954
+  },
+  "plates_matched_by_some_other": 0.4545,
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "59N174864",
+    "read_as": "59N174864",
+    "whitelist_entry": "59Y171364"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59S135252"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59T105297"
+   }
+  ]
+ },
+ "exact + fuzzy_screw": {
+  "rules": [
+   "fuzzy_screw"
+  ],
+  "owner_kept": 0.9091,
+  "leak_by_whitelist_size": {
+   "1": 3e-05,
+   "5": 0.00013,
+   "20": 0.00053
+  },
+  "plates_matched_by_some_other": 0.0097,
+  "examples": [
+   {
+    "plate": "59U135226",
+    "read_as": "159U135226",
+    "whitelist_entry": "59B135294"
+   },
+   {
+    "plate": "59U135226",
+    "read_as": "159U135226",
+    "whitelist_entry": "59S135252"
+   },
+   {
+    "plate": "59U135226",
+    "read_as": "159U135226",
+    "whitelist_entry": "59U155529"
+   },
+   {
+    "plate": "86H7991",
+    "read_as": "86H79591",
+    "whitelist_entry": "86H79591"
+   }
+  ]
+ },
+ "all except canon": {
+  "rules": [
+   "contain",
+   "fuzzy",
+   "fuzzy_screw",
+   "province_tail"
+  ],
+  "owner_kept": 0.9773,
+  "leak_by_whitelist_size": {
+   "1": 0.00153,
+   "5": 0.00763,
+   "20": 0.02995
+  },
+  "plates_matched_by_some_other": 0.461,
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "59N174864",
+    "read_as": "59N174864",
+    "whitelist_entry": "59Y171364"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59S135252"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59T105297"
+   }
+  ]
+ },
+ "all except contain": {
+  "rules": [
+   "canon",
+   "fuzzy",
+   "fuzzy_screw",
+   "province_tail"
+  ],
+  "owner_kept": 0.9773,
+  "leak_by_whitelist_size": {
+   "1": 0.00153,
+   "5": 0.00763,
+   "20": 0.02995
+  },
+  "plates_matched_by_some_other": 0.461,
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "59N174864",
+    "read_as": "59N174864",
+    "whitelist_entry": "59Y171364"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59S135252"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59T105297"
+   }
+  ]
+ },
+ "all except province_tail": {
+  "rules": [
+   "canon",
+   "contain",
+   "fuzzy",
+   "fuzzy_screw"
+  ],
+  "owner_kept": 0.9773,
+  "leak_by_whitelist_size": {
+   "1": 0.00153,
+   "5": 0.00763,
+   "20": 0.02995
+  },
+  "plates_matched_by_some_other": 0.461,
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "59N174864",
+    "read_as": "59N174864",
+    "whitelist_entry": "59Y171364"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59S135252"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59T105297"
+   }
+  ]
+ },
+ "all except fuzzy": {
+  "rules": [
+   "canon",
+   "contain",
+   "fuzzy_screw",
+   "province_tail"
+  ],
+  "owner_kept": 0.9562,
+  "leak_by_whitelist_size": {
+   "1": 4e-05,
+   "5": 0.00021,
+   "20": 0.00082
+  },
+  "plates_matched_by_some_other": 0.0179,
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "59U135226",
+    "read_as": "159U135226",
+    "whitelist_entry": "59B135294"
+   },
+   {
+    "plate": "59U135226",
+    "read_as": "159U135226",
+    "whitelist_entry": "59S135252"
+   },
+   {
+    "plate": "59U135226",
+    "read_as": "159U135226",
+    "whitelist_entry": "59U155529"
+   }
+  ]
+ },
+ "all except fuzzy_screw": {
+  "rules": [
+   "canon",
+   "contain",
+   "fuzzy",
+   "province_tail"
+  ],
+  "owner_kept": 0.9756,
+  "leak_by_whitelist_size": {
+   "1": 0.00151,
+   "5": 0.00753,
+   "20": 0.02954
+  },
+  "plates_matched_by_some_other": 0.4545,
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "59N174864",
+    "read_as": "59N174864",
+    "whitelist_entry": "59Y171364"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59S135252"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59T105297"
+   }
+  ]
+ },
+ "all, fuzzy distance <= 2": {
+  "rules": [
+   "canon",
+   "contain",
+   "fuzzy",
+   "fuzzy_screw",
+   "province_tail"
+  ],
+  "owner_kept": 0.9773,
+  "leak_by_whitelist_size": {
+   "1": 0.00015,
+   "5": 0.00074,
+   "20": 0.00295
+  },
+  "plates_matched_by_some_other": 0.0714,
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "59T100985",
+    "read_as": "59T100985",
+    "whitelist_entry": "59U101985"
+   },
+   {
+    "plate": "59P229729",
+    "read_as": "59P229729",
+    "whitelist_entry": "59C224729"
+   },
+   {
+    "plate": "59F123865",
+    "read_as": "59F123865",
+    "whitelist_entry": "59F113860"
+   }
+  ]
+ },
+ "all, fuzzy distance <= 1": {
+  "rules": [
+   "canon",
+   "contain",
+   "fuzzy",
+   "fuzzy_screw",
+   "province_tail"
+  ],
+  "owner_kept": 0.974,
+  "leak_by_whitelist_size": {
+   "1": 3e-05,
+   "5": 0.00013,
+   "20": 0.00053
+  },
+  "plates_matched_by_some_other": 0.0146,
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "51V44579",
+    "read_as": "51V44579",
+    "whitelist_entry": "51V44549"
+   },
+   {
+    "plate": "86H7991",
+    "read_as": "86H79591",
+    "whitelist_entry": "86H79591"
+   },
+   {
+    "plate": "51V44549",
+    "read_as": "51V44579",
+    "whitelist_entry": "51V44579"
+   }
+  ]
+ },
+ "Engine now (no province_tail, fuzzy distance <= 1)": {
+  "rules": [
+   "canon",
+   "contain",
+   "fuzzy",
+   "fuzzy_screw"
+  ],
+  "owner_kept": 0.974,
+  "leak_by_whitelist_size": {
+   "1": 2e-05,
+   "5": 9e-05,
+   "20": 0.00036
+  },
+  "plates_matched_by_some_other": 0.0097,
+  "examples": [
+   {
+    "plate": "51V44579",
+    "read_as": "51V44579",
+    "whitelist_entry": "51V44549"
+   },
+   {
+    "plate": "86H7991",
+    "read_as": "86H79591",
+    "whitelist_entry": "86H79591"
+   },
+   {
+    "plate": "51V44549",
+    "read_as": "51V44579",
+    "whitelist_entry": "51V44579"
+   },
+   {
+    "plate": "86H79591",
+    "read_as": "86H79591",
+    "whitelist_entry": "86H7991"
+   }
+  ]
+ }
+}

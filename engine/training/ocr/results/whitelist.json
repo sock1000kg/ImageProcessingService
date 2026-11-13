@@ -1,0 +1,264 @@
+{
+ "trungdinh-val": {
+  "plates": 536,
+  "distinct_texts": 470,
+  "two_line": 440,
+  "true_accept": 0.9739,
+  "true_accept_exact_only": 0.8862,
+  "true_accept_one_line": 0.9896,
+  "true_accept_two_line": 0.9705,
+  "stranger_pairs": 251384,
+  "false_whitelist_pair_rate_ocr": 0.0018378257963911784,
+  "false_whitelist_pair_rate_matcher_only": 0.0018895395092766445,
+  "plates_matched_by_some_other_ocr": 0.4739,
+  "plates_matched_by_some_other_matcher_only": 0.4813,
+  "stranger_leak_by_whitelist_size_ocr": {
+   "1": 0.00184,
+   "5": 0.00914,
+   "20": 0.03575
+  },
+  "stranger_leak_by_whitelist_size_matcher_only": {
+   "1": 0.00189,
+   "5": 0.00939,
+   "20": 0.03673
+  },
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "59N174864",
+    "read_as": "59N174864",
+    "whitelist_entry": "59Y171364"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59S135252"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59T105297"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59U135226"
+   },
+   {
+    "plate": "59X294270",
+    "read_as": "59X294270",
+    "whitelist_entry": "59T192270"
+   },
+   {
+    "plate": "54S25505",
+    "read_as": "54S25505",
+    "whitelist_entry": "54S24522"
+   },
+   {
+    "plate": "54S25505",
+    "read_as": "54S25505",
+    "whitelist_entry": "54U25965"
+   },
+   {
+    "plate": "54S25505",
+    "read_as": "54S25505",
+    "whitelist_entry": "54V25804"
+   },
+   {
+    "plate": "51G29034",
+    "read_as": "51G29034",
+    "whitelist_entry": "51F63034"
+   },
+   {
+    "plate": "51G29034",
+    "read_as": "51G29034",
+    "whitelist_entry": "51G20536"
+   },
+   {
+    "plate": "51U74598",
+    "read_as": "51U74598",
+    "whitelist_entry": "51P54578"
+   }
+  ]
+ },
+ "uet-handread": {
+  "plates": 80,
+  "distinct_texts": 79,
+  "two_line": 16,
+  "true_accept": 1.0,
+  "true_accept_exact_only": 1.0,
+  "true_accept_one_line": 1.0,
+  "true_accept_two_line": 1.0,
+  "stranger_pairs": 6240,
+  "false_whitelist_pair_rate_ocr": 0.0028846153846153848,
+  "false_whitelist_pair_rate_matcher_only": 0.0028846153846153848,
+  "plates_matched_by_some_other_ocr": 0.1875,
+  "plates_matched_by_some_other_matcher_only": 0.1875,
+  "stranger_leak_by_whitelist_size_ocr": {
+   "1": 0.00288,
+   "5": 0.0143,
+   "20": 0.05532
+  },
+  "stranger_leak_by_whitelist_size_matcher_only": {
+   "1": 0.00288,
+   "5": 0.0143,
+   "20": 0.05532
+  },
+  "examples": [
+   {
+    "plate": "51G76766",
+    "read_as": "51G76766",
+    "whitelist_entry": "51G72926"
+   },
+   {
+    "plate": "19A08888",
+    "read_as": "19A08888",
+    "whitelist_entry": "19A08879"
+   },
+   {
+    "plate": "12A02497",
+    "read_as": "12A02497",
+    "whitelist_entry": "12A09592"
+   },
+   {
+    "plate": "30A86868",
+    "read_as": "30A86868",
+    "whitelist_entry": "30A68888"
+   },
+   {
+    "plate": "30A86868",
+    "read_as": "30A86868",
+    "whitelist_entry": "30A88888"
+   },
+   {
+    "plate": "29A97509",
+    "read_as": "29A97509",
+    "whitelist_entry": "29A49779"
+   },
+   {
+    "plate": "51F97979",
+    "read_as": "51F97979",
+    "whitelist_entry": "51H07979"
+   },
+   {
+    "plate": "43A55555",
+    "read_as": "43A55555",
+    "whitelist_entry": "43A04558"
+   },
+   {
+    "plate": "43A04558",
+    "read_as": "43A04558",
+    "whitelist_entry": "43A55555"
+   },
+   {
+    "plate": "51G72926",
+    "read_as": "51G72926",
+    "whitelist_entry": "51G76766"
+   },
+   {
+    "plate": "12A09592",
+    "read_as": "12A09592",
+    "whitelist_entry": "12A02497"
+   },
+   {
+    "plate": "30A68888",
+    "read_as": "30A68888",
+    "whitelist_entry": "30A86868"
+   }
+  ]
+ },
+ "combined": {
+  "plates": 616,
+  "distinct_texts": 549,
+  "two_line": 456,
+  "true_accept": 0.9773,
+  "true_accept_exact_only": 0.901,
+  "true_accept_one_line": 0.9938,
+  "true_accept_two_line": 0.9715,
+  "stranger_pairs": 337568,
+  "false_whitelist_pair_rate_ocr": 0.0015345056403450563,
+  "false_whitelist_pair_rate_matcher_only": 0.0015730163996587354,
+  "plates_matched_by_some_other_ocr": 0.461,
+  "plates_matched_by_some_other_matcher_only": 0.4675,
+  "stranger_leak_by_whitelist_size_ocr": {
+   "1": 0.00153,
+   "5": 0.00763,
+   "20": 0.02995
+  },
+  "stranger_leak_by_whitelist_size_matcher_only": {
+   "1": 0.00157,
+   "5": 0.00782,
+   "20": 0.03068
+  },
+  "examples": [
+   {
+    "plate": "29D163516",
+    "read_as": "29D163516",
+    "whitelist_entry": "29Y23516"
+   },
+   {
+    "plate": "59N174864",
+    "read_as": "59N174864",
+    "whitelist_entry": "59Y171364"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59S135252"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59T105297"
+   },
+   {
+    "plate": "59B135294",
+    "read_as": "59B135294",
+    "whitelist_entry": "59U135226"
+   },
+   {
+    "plate": "59X294270",
+    "read_as": "59X294270",
+    "whitelist_entry": "59T192270"
+   },
+   {
+    "plate": "54S25505",
+    "read_as": "54S25505",
+    "whitelist_entry": "54S24522"
+   },
+   {
+    "plate": "54S25505",
+    "read_as": "54S25505",
+    "whitelist_entry": "54U25965"
+   },
+   {
+    "plate": "54S25505",
+    "read_as": "54S25505",
+    "whitelist_entry": "54V25804"
+   },
+   {
+    "plate": "51G29034",
+    "read_as": "51G29034",
+    "whitelist_entry": "51F63034"
+   },
+   {
+    "plate": "51G29034",
+    "read_as": "51G29034",
+    "whitelist_entry": "51G20536"
+   },
+   {
+    "plate": "51U74598",
+    "read_as": "51U74598",
+    "whitelist_entry": "51P54578"
+   }
+  ],
+  "line_mix": {
+   "2": 456,
+   "1": 160
+  }
+ }
+}

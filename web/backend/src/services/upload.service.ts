@@ -28,12 +28,7 @@ import { addBatchStoredObject } from "./batch.service";
 import { getBatchOwnedByUser } from "../repositories/job.repository";
 import { validateUploadedVideo } from "./video-validation.service";
 import { discardUpload } from "./upload-cleanup.service";
-
-const VIDEO_EXT = ".mp4";
-
-function isVideo(filename: string): boolean {
-  return path.extname(filename).toLowerCase() === VIDEO_EXT;
-}
+import { isVideoFilename } from "../media-types";
 
 /** Loads a session only if it belongs to this user; anything else looks like "not found". */
 async function findOwnedSession(userId: string, sessionId: string) {
@@ -63,7 +58,7 @@ export async function beginMultipartUpload(
   }
 
   // Images are small and go through the single-request route; only MP4 videos use multipart.
-  if (!isVideo(filename)) {
+  if (!isVideoFilename(filename)) {
     throw badRequest("Multipart upload is currently reserved for MP4 video files", "INVALID_MEDIA_TYPE");
   }
 

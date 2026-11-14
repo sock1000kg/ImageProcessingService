@@ -596,6 +596,7 @@ describe("Presigned URLs Backend Unit Tests (Task 87)", () => {
           jobs: [
             {
               id: "job-1",
+              originalFilename: "photo.jpg",
               status: JobStatus.COMPLETED,
               inputBytes: 1500,
               resultBytes: 2500,

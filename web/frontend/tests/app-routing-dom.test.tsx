@@ -281,6 +281,7 @@ describe("App Routing and Page Headings", () => {
                   status: "COMPLETED",
                   jobCounts: { total: 1, completed: 1, failed: 0 },
                   thumbnailUrl: null,
+                  hasVideo: false,
                   bytes: 1024,
                 },
               ],

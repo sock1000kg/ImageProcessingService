@@ -33,6 +33,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
           jobs: [
             {
               id: "job-1",
+              originalFilename: "vacation1.jpg",
               status: JobStatus.COMPLETED,
               inputBytes: 1500,
               resultBytes: 2500,
@@ -41,6 +42,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
             },
             {
               id: "job-2",
+              originalFilename: "vacation2.jpg",
               status: JobStatus.FAILED,
               inputBytes: 1000,
               resultBytes: null,
@@ -69,6 +71,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       expect(item.id).toBe(batchId);
       expect(item.name).toBe("Vacation Photos");
       expect(item.thumbnailUrl).toBe("http://localhost:9000/signed-thumb.jpg");
+      expect(item.hasVideo).toBe(false);
       expect(item.status).toBe("PARTIAL");
       expect(item.jobCounts).toEqual({ total: 2, completed: 1, failed: 1 });
       expect(item.bytes).toBe(5000); // 1500 + 2500 + 1000 + 0
@@ -103,6 +106,90 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       const result = await listBatches(userId, { limit: 20 });
       expect(result.batches[0].thumbnailUrl).toBeNull();
       expect(result.batches[0].status).toBe("DRAFT");
+    });
+
+    it("picks the first completed image result as thumbnail when first completed job is a video", async () => {
+      const mockBatches = [
+        {
+          id: batchId,
+          name: "Mixed Media Batch",
+          startedAt: new Date("2026-11-04T10:00:00Z"),
+          createdAt: new Date("2026-11-04T09:30:00Z"),
+          jobs: [
+            {
+              id: "job-video",
+              status: JobStatus.COMPLETED,
+              originalFilename: "recording.mp4",
+              inputBytes: 5000,
+              resultBytes: 4500,
+              outputKey: "results/batch/job-video/result.mp4",
+              createdAt: new Date("2026-11-04T09:31:00Z"),
+            },
+            {
+              id: "job-image",
+              status: JobStatus.COMPLETED,
+              originalFilename: "snapshot.jpg",
+              inputBytes: 1500,
+              resultBytes: 1200,
+              outputKey: "results/batch/job-image/result.jpg",
+              createdAt: new Date("2026-11-04T09:32:00Z"),
+            },
+          ],
+        },
+      ];
+
+      vi.spyOn(jobRepository, "listBatchesByUserId").mockResolvedValue(mockBatches as any);
+      vi.spyOn(jobRepository, "getAccountUsage").mockResolvedValue({ batches: 1, jobs: 2, bytes: 12200 });
+      const presignSpy = vi.spyOn(storage, "presignGetUrl").mockResolvedValue({
+        url: "http://localhost:9000/signed-image.jpg",
+        expiresAt: new Date().toISOString(),
+      });
+
+      const result = await listBatches(userId, { limit: 20 });
+      const item = result.batches[0];
+
+      expect(item.thumbnailUrl).toBe("http://localhost:9000/signed-image.jpg");
+      expect(item.hasVideo).toBe(true);
+      expect(presignSpy).toHaveBeenCalledTimes(1);
+      expect(presignSpy).toHaveBeenCalledWith(RESULTS_BUCKET, "results/batch/job-image/result.jpg", expect.any(Object));
+      expect(presignSpy).not.toHaveBeenCalledWith(
+        RESULTS_BUCKET,
+        "results/batch/job-video/result.mp4",
+        expect.any(Object),
+      );
+    });
+
+    it("returns thumbnailUrl: null and hasVideo: true for a video-only batch without presigning the video key", async () => {
+      const mockBatches = [
+        {
+          id: batchId,
+          name: "Video Only Batch",
+          startedAt: new Date("2026-11-04T10:00:00Z"),
+          createdAt: new Date("2026-11-04T09:30:00Z"),
+          jobs: [
+            {
+              id: "job-video-1",
+              status: JobStatus.COMPLETED,
+              originalFilename: "clip.mp4",
+              inputBytes: 10000,
+              resultBytes: 9500,
+              outputKey: "results/batch/job-video-1/result.mp4",
+              createdAt: new Date("2026-11-04T09:31:00Z"),
+            },
+          ],
+        },
+      ];
+
+      vi.spyOn(jobRepository, "listBatchesByUserId").mockResolvedValue(mockBatches as any);
+      vi.spyOn(jobRepository, "getAccountUsage").mockResolvedValue({ batches: 1, jobs: 1, bytes: 19500 });
+      const presignSpy = vi.spyOn(storage, "presignGetUrl");
+
+      const result = await listBatches(userId, { limit: 20 });
+      const item = result.batches[0];
+
+      expect(item.thumbnailUrl).toBeNull();
+      expect(item.hasVideo).toBe(true);
+      expect(presignSpy).not.toHaveBeenCalled();
     });
 
     it("handles pagination with nextCursor when more items exist", async () => {

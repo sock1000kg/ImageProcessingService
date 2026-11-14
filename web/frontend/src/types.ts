@@ -151,6 +151,7 @@ export type BatchSummaryItem = {
     failed: number;
   };
   thumbnailUrl: string | null;
+  hasVideo: boolean;
   bytes: number;
 };
 

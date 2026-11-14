@@ -45,7 +45,7 @@ import {
   validateBatchCreation,
   validateSingleUploadFile,
 } from "../dto";
-import { assertImageContents } from "../media-types";
+import { assertImageContents, isVideoFilename } from "../media-types";
 import { badRequest, conflict, gone, notFound, unavailable } from "../errors";
 
 /**
@@ -243,7 +243,7 @@ export async function startBatch(batchId: string, userId: string): Promise<Batch
   const batchConfig = parseBatchConfig(batch.config);
 
   for (const job of pendingJobs) {
-    const isVideo = path.extname(job.originalFilename).toLowerCase() === ".mp4";
+    const isVideo = isVideoFilename(job.originalFilename);
     const command = (isVideo ? buildVideoRedactCommand : buildImageRedactCommand)({
       jobId: job.id,
       batchId: batch.id,
@@ -443,15 +443,20 @@ export async function listBatches(
         jobs.map((j) => j.status),
         batch.startedAt,
       );
-      // Why presigned thumbnail: Signs thumbnail inline for library browsing with result TTL
-      const firstCompleted = jobs.find((j) => j.status === JobStatus.COMPLETED && j.outputKey);
+      // Why presigned thumbnail: Only completed image results are used as thumbnails. Videos are skipped because
+      // Safari downloads and autoplays MP4s inside <img>, wasting mobile bandwidth and holding open read locks
+      // in MinIO that prevent result deletion.
+      const firstCompletedImage = jobs.find(
+        (j) => j.status === JobStatus.COMPLETED && j.outputKey && !isVideoFilename(j.originalFilename),
+      );
       let thumbnailUrl: string | null = null;
-      if (firstCompleted?.outputKey) {
-        const signed = await storage.presignGetUrl(RESULTS_BUCKET, firstCompleted.outputKey, {
+      if (firstCompletedImage?.outputKey) {
+        const signed = await storage.presignGetUrl(RESULTS_BUCKET, firstCompletedImage.outputKey, {
           ttlSeconds: config.PRESIGN_RESULT_TTL_SECONDS,
         });
         thumbnailUrl = signed.url;
       }
+      const hasVideo = jobs.some((j) => isVideoFilename(j.originalFilename));
       const bytes = jobs.reduce((sum, j) => sum + (j.inputBytes ?? 0) + (j.resultBytes ?? 0), 0);
 
       return {
@@ -461,6 +466,7 @@ export async function listBatches(
         status,
         jobCounts: { total, completed, failed },
         thumbnailUrl,
+        hasVideo,
         bytes,
       };
     }),

@@ -326,6 +326,7 @@ export async function listBatchesByUserId(userId: string, options: { limit: numb
       jobs: {
         select: {
           id: true,
+          originalFilename: true,
           status: true,
           inputBytes: true,
           resultBytes: true,

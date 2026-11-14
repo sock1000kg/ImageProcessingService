@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowSquareOutIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
 import { downloadJobResult, openJobOriginal } from "../api";
 import { Detection, Job } from "../types";
@@ -26,6 +26,17 @@ export function VideoResultViewer({
   onRetry: (job: Job) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // An open read blocks MinIO from deleting the file, and a detached <video> can keep downloading.
+  useLayoutEffect(() => {
+    return () => {
+      const video = videoRef.current;
+      if (!video) return;
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, []);
   // The review row the user clicked: its box is drawn over the video until they press play (see showTrack).
   const [focused, setFocused] = useState<Detection | null>(null);
   // One player shows either the redacted result or the original. Switching swaps the source of the same element and

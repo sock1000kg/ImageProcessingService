@@ -538,6 +538,7 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
           createdAt: "2026-11-04T10:00:00Z",
           jobCounts: { total: 2, completed: 2, failed: 0 },
           thumbnailUrl: null,
+          hasVideo: false,
           bytes: 1000,
         },
         {
@@ -547,6 +548,7 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
           createdAt: "2026-11-04T10:00:00Z",
           jobCounts: { total: 1, completed: 0, failed: 0 },
           thumbnailUrl: null,
+          hasVideo: false,
           bytes: 500,
         },
         {
@@ -556,6 +558,7 @@ describe("Batch Rerun Frontend DOM Tests (Task 38)", () => {
           createdAt: "2026-11-04T10:00:00Z",
           jobCounts: { total: 0, completed: 0, failed: 0 },
           thumbnailUrl: null,
+          hasVideo: false,
           bytes: 0,
         },
       ],

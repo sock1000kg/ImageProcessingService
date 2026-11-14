@@ -162,6 +162,7 @@ describe("Error notices and toast behavior (Task 59)", () => {
                   status: "COMPLETED",
                   jobCounts: { total: 0, completed: 0, failed: 0 },
                   thumbnailUrl: null,
+                  hasVideo: false,
                   bytes: 100,
                 },
               ],

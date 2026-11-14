@@ -18,6 +18,7 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
         status: "COMPLETED",
         jobCounts: { total: 2, completed: 2, failed: 0 },
         thumbnailUrl: "/results/batch-1/job-1/result.jpg",
+        hasVideo: false,
         bytes: 1048576, // 1 MB
       },
       {
@@ -27,6 +28,7 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
         status: "PARTIAL",
         jobCounts: { total: 3, completed: 2, failed: 1 },
         thumbnailUrl: null,
+        hasVideo: false,
         bytes: 2097152, // 2 MB
       },
     ],
@@ -47,6 +49,7 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
         status: "DRAFT",
         jobCounts: { total: 1, completed: 0, failed: 0 },
         thumbnailUrl: null,
+        hasVideo: false,
         bytes: 512000,
       },
     ],
@@ -212,6 +215,83 @@ describe("Media Library Frontend DOM Tests (Task 36)", () => {
       expect.stringContaining("/api/batches/batch-1"),
       expect.objectContaining({ method: "DELETE" }),
     );
+  });
+
+  it("keeps delete dialog open with Deleting button while request is pending, then closes and removes card", async () => {
+    let resolveDelete!: () => void;
+    const deletePromise = new Promise<Response>((resolve) => {
+      resolveDelete = () =>
+        resolve({
+          ok: true,
+          status: 204,
+          json: async () => ({}),
+        } as Response);
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/batches") && init?.method === "DELETE") {
+          return deletePromise;
+        }
+        if (url.includes("/api/batches")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => mockBatchesPage1,
+          } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        } as Response;
+      }),
+    );
+
+    render(
+      <MemoryRouter>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("First Album")).toBeDefined();
+    });
+
+    const card = screen.getByRole("article", { name: "First Album" });
+    const deleteButton = within(card).getByRole("button", { name: /delete/i });
+    fireEvent.click(deleteButton);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeDefined();
+
+    const confirmButton = within(dialog).getByRole("button", { name: /delete/i });
+    fireEvent.click(confirmButton);
+
+    // Dialog stays open with a "Deleting" button
+    expect(within(dialog).getByRole("button", { name: /deleting/i })).toBeDefined();
+    expect(screen.getByRole("dialog")).toBeDefined();
+
+    // Cancel does nothing while deleting
+    const cancelButton = within(dialog).getByRole("button", { name: /cancel/i });
+    fireEvent.click(cancelButton);
+    expect(screen.getByRole("dialog")).toBeDefined();
+
+    // Second confirm does nothing while deleting
+    const deletingButton = within(dialog).getByRole("button", { name: /deleting/i });
+    fireEvent.click(deletingButton);
+    expect(screen.getByRole("dialog")).toBeDefined();
+
+    // Resolve the promise
+    resolveDelete();
+
+    // Dialog is gone and the batch card is removed
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByText("First Album")).toBeNull();
+    });
   });
 
   it("keeps Open, Rerun, and Download actions functional on each card", async () => {

@@ -197,6 +197,7 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
           status: "COMPLETED",
           jobCounts: { total: 3, completed: 3, failed: 0 },
           thumbnailUrl: null,
+          hasVideo: false,
           bytes: 1048576,
         },
         {
@@ -206,6 +207,7 @@ describe("Batch Zip Download Frontend DOM Tests (Task 37)", () => {
           status: "DRAFT",
           jobCounts: { total: 2, completed: 0, failed: 0 },
           thumbnailUrl: null,
+          hasVideo: false,
           bytes: 512000,
         },
       ],

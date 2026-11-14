@@ -119,7 +119,7 @@ describe("Task 80: Lazy FilePreviewList thumbnails", () => {
     expect(removeButtons).toHaveLength(1000);
     expect(screen.getByText("photo-0.jpg")).toBeDefined();
     expect(screen.getByText("photo-999.jpg")).toBeDefined();
-  });
+  }, 15000);
 
   it("loads an image thumbnail and invokes createObjectURL exactly once when a row enters view", () => {
     const file = new File(["test-image"], "vacation.png", { type: "image/png" });

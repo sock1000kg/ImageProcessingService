@@ -4,6 +4,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PlateAllowList } from "../src/components/PlateAllowList";
 import { VideoResultViewer } from "../src/components/VideoResultViewer";
+import { usePresignedUrl } from "../src/hooks/usePresignedUrl";
 import { Job } from "../src/types";
 
 vi.mock("../src/hooks/usePresignedUrl", () => ({
@@ -128,5 +129,34 @@ describe("VideoResultViewer", () => {
     expect(video.currentTime).toBe(66);
     expect(container.querySelector("svg rect")).not.toBeNull();
     expect(screen.getByText(/low confidence 0\.40/i)).toBeTruthy();
+  });
+
+  it("switches between the redacted result and the original on one player, keeping the same moment", () => {
+    const { container } = render(
+      <VideoResultViewer
+        job={job({
+          status: "COMPLETED",
+          progress: 100,
+          resultSummary: { video: { width: 1920, height: 1080 }, counts: { faceTracks: 1 } },
+        })}
+        onRetry={() => {}}
+      />,
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    expect(video.getAttribute("aria-label")).toMatch(/^Redacted/);
+    video.currentTime = 12.5;
+    Object.defineProperty(video, "paused", { value: true, configurable: true });
+
+    fireEvent.click(screen.getByRole("button", { name: /show original/i }));
+    const switched = container.querySelector("video") as HTMLVideoElement;
+    expect(switched.getAttribute("aria-label")).toMatch(/^Original/);
+    expect(usePresignedUrl).toHaveBeenCalledWith("/api/jobs/j1/original-url");
+
+    // The new source reports its metadata: the player returns to where the user was.
+    switched.currentTime = 0;
+    fireEvent.loadedMetadata(switched);
+    expect(switched.currentTime).toBe(12.5);
+
+    expect(screen.getByRole("button", { name: /show redacted/i })).toBeTruthy();
   });
 });

@@ -28,9 +28,30 @@ export function VideoResultViewer({
   const videoRef = useRef<HTMLVideoElement>(null);
   // The review row the user clicked: its box is drawn over the video until they press play (see showTrack).
   const [focused, setFocused] = useState<Detection | null>(null);
+  // One player shows either the redacted result or the original. Switching swaps the source of the same element and
+  // puts it back at the same moment (and play state), so both versions stay in sync and a flagged track's time span
+  // can be compared against the original.
+  const [showOriginal, setShowOriginal] = useState(false);
+  const resumeAt = useRef<{ time: number; playing: boolean } | null>(null);
   const completed = job.status === "COMPLETED";
-  const { url, loading, error } = usePresignedUrl(completed ? `/api/jobs/${job.id}/result-url` : null);
+  const result = usePresignedUrl(completed ? `/api/jobs/${job.id}/result-url` : null);
+  const original = usePresignedUrl(completed && showOriginal ? `/api/jobs/${job.id}/original-url` : null);
+  const { url, loading, error } = showOriginal ? original : result;
   const summary = readSummary(job);
+
+  const toggleOriginal = () => {
+    const video = videoRef.current;
+    if (video) resumeAt.current = { time: video.currentTime, playing: !video.paused };
+    setShowOriginal((value) => !value);
+  };
+  const restorePosition = () => {
+    const video = videoRef.current;
+    const saved = resumeAt.current;
+    if (!video || !saved) return;
+    resumeAt.current = null;
+    video.currentTime = saved.time;
+    if (saved.playing) void video.play?.();
+  };
 
   // Tracks the backend flagged for review (low confidence, or a gap where the redaction may have been lost), earliest
   // first. `detections` for a video are its tracks; trackId is only set for those, so images' detections are skipped.
@@ -60,10 +81,11 @@ export function VideoResultViewer({
           <video
             ref={videoRef}
             onPlay={() => setFocused(null)}
+            onLoadedMetadata={restorePosition}
             controls
             preload="metadata"
             src={url}
-            aria-label={`Redacted ${job.originalFilename}`}
+            aria-label={`${showOriginal ? "Original" : "Redacted"} ${job.originalFilename}`}
           >
             Your browser does not support video playback.
           </video>
@@ -101,7 +123,11 @@ export function VideoResultViewer({
     );
   } else if (completed) {
     stage = (
-      <div className="viewer-empty">{loading && !error ? "Loading video result…" : "Video result is unavailable."}</div>
+      <div className="viewer-empty">
+        {loading && !error
+          ? `Loading ${showOriginal ? "original video" : "video result"}…`
+          : `${showOriginal ? "Original video" : "Video result"} is unavailable.`}
+      </div>
     );
   } else {
     stage = <div className="viewer-empty">Result will appear here when processing completes.</div>;
@@ -129,6 +155,9 @@ export function VideoResultViewer({
         </span>
         {completed && (
           <>
+            <button type="button" className="ghost-button" aria-pressed={showOriginal} onClick={toggleOriginal}>
+              {showOriginal ? "Show redacted" : "Show original"}
+            </button>
             <a
               href="#"
               className="ghost-button"

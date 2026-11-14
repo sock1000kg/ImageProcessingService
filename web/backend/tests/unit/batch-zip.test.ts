@@ -303,6 +303,32 @@ describe("Batch Zip Download Unit Tests (Task 37)", () => {
       );
     });
 
+    it("returns 404 NOT_FOUND when batch has deleteRequestedAt set", async () => {
+      const token = createBatchDownloadToken(userId, batchId);
+      vi.spyOn(jobRepository, "getBatch").mockResolvedValue({
+        id: batchId,
+        userId,
+        name: "Deleted Batch",
+        deleteRequestedAt: new Date(),
+      } as any);
+
+      const req = new MockRequest({
+        params: { id: batchId },
+        query: { token },
+      });
+      const res = new MockResponse();
+      const next = vi.fn();
+
+      await downloadBatchZipHandler(req as any, res as any, next);
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 404,
+          code: "NOT_FOUND",
+        }),
+      );
+    });
+
     it("returns 404 NO_RESULTS when batch has 0 COMPLETED jobs", async () => {
       const token = createBatchDownloadToken(userId, batchId);
       const mockBatch = { id: batchId, userId, name: "Batch" };

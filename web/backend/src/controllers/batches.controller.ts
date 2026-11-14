@@ -303,7 +303,7 @@ export async function downloadBatchZipHandler(request: Request, response: Respon
     const { userId } = verifyBatchDownloadToken(token, id);
 
     const batch = await getBatch(id);
-    if (!batch) {
+    if (!batch || batch.deleteRequestedAt) {
       throw notFound("Batch not found");
     }
     if (!batch.userId || batch.userId !== userId) {

@@ -25,6 +25,7 @@ model Batch {
   whitelistKeys      String[]  @default([]) @map("whitelist_keys")
   whitelistNames     Json      @default("{}") @map("whitelist_names")
   whitelistDeletedAt DateTime? @map("whitelist_deleted_at") @db.Timestamptz
+  deleteRequestedAt  DateTime? @map("delete_requested_at") @db.Timestamptz
   startedAt          DateTime? @map("started_at") @db.Timestamptz
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
 

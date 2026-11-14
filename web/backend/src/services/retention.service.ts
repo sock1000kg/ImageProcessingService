@@ -1,11 +1,12 @@
 /**
- * Data retention: delete reference photos when a batch ends and clean up batches past their retention.
+ * Data retention: delete reference photos when a batch ends, and purge batches that are deleted, abandoned or past
+ * their retention.
  */
 import {
   deleteBatchRow,
   getBatch,
   getBatchesPendingWhitelistCleanup,
-  getExpiredBatches,
+  getBatchesToPurge,
   getJobsByBatchId,
   markBatchWhitelistDeleted,
 } from "../repositories/job.repository";
@@ -70,32 +71,45 @@ export async function retryPendingWhitelistCleanups(): Promise<void> {
   }
 }
 
-export async function cleanupExpiredBatches(): Promise<number> {
-  const expiredBatches = await getExpiredBatches();
+/**
+ * Deletes a batch's files in both buckets, then its row. Returns whether the row was deleted.
+ *
+ * Why the row stays on a storage failure: it is the only record that files remain, so the next timer run retries.
+ */
+export async function purgeBatch(batchId: string): Promise<boolean> {
+  let storageDeleted = true;
+  for (const bucket of [UPLOADS_BUCKET, RESULTS_BUCKET]) {
+    try {
+      await storage.deletePrefix(bucket, `${batchId}/`);
+    } catch (error) {
+      storageDeleted = false;
+      console.error(`Failed to delete objects for batch ${batchId} in ${bucket}`, error);
+    }
+  }
+
+  // Keep the batch row when storage deletion fails so future cleanup runs can retry removing any remaining files (including private originals).
+  if (!storageDeleted) {
+    return false;
+  }
+
+  try {
+    return await deleteBatchRow(batchId);
+  } catch (error) {
+    console.error(`Failed to delete batch row ${batchId}`, error);
+    return false;
+  }
+}
+
+/**
+ * Timer job: purges every batch from getBatchesToPurge and returns how many rows were deleted.
+ */
+export async function purgeDueBatches(): Promise<number> {
+  const dueBatches = await getBatchesToPurge();
   let deleted = 0;
 
-  for (const batch of expiredBatches) {
-    let storageDeleted = true;
-    for (const bucket of [UPLOADS_BUCKET, RESULTS_BUCKET]) {
-      try {
-        await storage.deletePrefix(bucket, `${batch.id}/`);
-      } catch (error) {
-        storageDeleted = false;
-        console.error(`Failed to clean expired objects for batch ${batch.id} in ${bucket}`, error);
-      }
-    }
-
-    // Keep the batch row when storage deletion fails so future cleanup runs can retry removing any remaining files (including private originals).
-    if (!storageDeleted) {
-      continue;
-    }
-
-    try {
-      if (await deleteBatchRow(batch.id)) {
-        deleted++;
-      }
-    } catch (error) {
-      console.error(`Failed to delete expired batch row ${batch.id}`, error);
+  for (const batch of dueBatches) {
+    if (await purgeBatch(batch.id)) {
+      deleted++;
     }
   }
 

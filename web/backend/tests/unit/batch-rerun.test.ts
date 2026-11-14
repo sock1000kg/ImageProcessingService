@@ -273,7 +273,8 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
     vi.spyOn(prisma.uploadSession, "findMany").mockResolvedValue([]);
     vi.spyOn(jobRepository, "batchHasActiveJobs").mockResolvedValue(false);
     const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockResolvedValue(undefined);
-    const deleteRowSpy = vi.spyOn(jobRepository, "deleteBatchRowOwnedByUser").mockResolvedValue(true);
+    const markDeleteSpy = vi.spyOn(jobRepository, "markBatchDeleteRequested").mockResolvedValue(true);
+    vi.spyOn(jobRepository, "deleteBatchRow").mockResolvedValue(true);
 
     let draftId = "";
     vi.spyOn(jobRepository, "createDraftBatch").mockImplementation(async (data: any) => {
@@ -309,9 +310,8 @@ describe("Batch Rerun Unit Tests (Task 38)", () => {
       code: "NO_ORIGINALS",
     });
 
-    // Verify draft was deleted
-    expect(deletePrefixSpy).toHaveBeenCalledWith(UPLOADS_BUCKET, `${draftId}/`);
-    expect(deleteRowSpy).toHaveBeenCalledWith(draftId, userId);
+    // Verify draft was marked for deletion
+    expect(markDeleteSpy).toHaveBeenCalledWith(draftId, userId);
   });
 
   it("returns skipped count when some originals are missing", async () => {

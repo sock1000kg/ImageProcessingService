@@ -166,7 +166,7 @@ export async function getJob(id: string) {
 }
 
 export async function getJobOwnedByUser(id: string, userId: string) {
-  return prisma.job.findFirst({ where: { id, batch: { userId } } });
+  return prisma.job.findFirst({ where: { id, batch: { userId, deleteRequestedAt: null } } });
 }
 
 export async function getActiveRetryJob(job: { id: string; batchId: string; inputKey: string }) {
@@ -274,7 +274,7 @@ export async function getBatch(id: string) {
 }
 
 export async function getBatchOwnedByUser(id: string, userId: string) {
-  return prisma.batch.findFirst({ where: { id, userId } });
+  return prisma.batch.findFirst({ where: { id, userId, deleteRequestedAt: null } });
 }
 
 export async function getJobsByBatchId(batchId: string) {
@@ -304,6 +304,14 @@ export async function deleteBatchRowOwnedByUser(id: string, userId: string): Pro
   return result.count > 0;
 }
 
+export async function markBatchDeleteRequested(id: string, userId: string): Promise<boolean> {
+  const result = await prisma.batch.updateMany({
+    where: { id, userId, deleteRequestedAt: null },
+    data: { deleteRequestedAt: new Date() },
+  });
+  return result.count > 0;
+}
+
 export async function updateBatchName(id: string, name: string) {
   return prisma.batch.update({
     where: { id },
@@ -319,7 +327,7 @@ export async function countJobsByBatchId(batchId: string): Promise<number> {
 
 export async function listBatchesByUserId(userId: string, options: { limit: number; cursor?: string }) {
   const query = {
-    where: { userId },
+    where: { userId, deleteRequestedAt: null },
     orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
     take: options.limit + 1,
     include: {
@@ -357,6 +365,7 @@ export async function getAccountUsage(userId: string): Promise<{ bytes: number; 
     FROM batches b
     LEFT JOIN jobs j ON j.batch_id = b.id
     WHERE b.user_id = ${userId}::uuid
+      AND b.delete_requested_at IS NULL
   `;
   const row = rows[0];
   return {
@@ -439,7 +448,11 @@ export async function getBatchesPendingWhitelistCleanup(): Promise<Array<{ id: s
   });
 }
 
-export async function getExpiredBatches(retentionDays?: number) {
+/**
+ * Batches the cleanup timer should delete: older than RETENTION_DAYS (when set), drafts never started after 24 hours,
+ * and batches the user deleted (deleteRequestedAt set). Batches with unfinished jobs are always left alone.
+ */
+export async function getBatchesToPurge(retentionDays?: number) {
   const days = retentionDays !== undefined ? retentionDays : config.RETENTION_DAYS;
   if (days !== undefined) {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -448,7 +461,11 @@ export async function getExpiredBatches(retentionDays?: number) {
     // regardless of the retention period configured for completed batches.
     return prisma.batch.findMany({
       where: {
-        OR: [{ createdAt: { lt: cutoff } }, { startedAt: null, createdAt: { lt: draftCutoff } }],
+        OR: [
+          { createdAt: { lt: cutoff } },
+          { startedAt: null, createdAt: { lt: draftCutoff } },
+          { deleteRequestedAt: { not: null } },
+        ],
         jobs: { none: { status: { notIn: [JobStatus.COMPLETED, JobStatus.FAILED] } } },
       },
       select: { id: true },
@@ -457,8 +474,7 @@ export async function getExpiredBatches(retentionDays?: number) {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return prisma.batch.findMany({
     where: {
-      startedAt: null,
-      createdAt: { lt: cutoff },
+      OR: [{ startedAt: null, createdAt: { lt: cutoff } }, { deleteRequestedAt: { not: null } }],
       jobs: { none: { status: { notIn: [JobStatus.COMPLETED, JobStatus.FAILED] } } },
     },
     select: { id: true },
@@ -468,7 +484,7 @@ export async function getExpiredBatches(retentionDays?: number) {
 export async function getStats(userId: string): Promise<Record<string, number>> {
   const groups = await prisma.job.groupBy({
     by: ["status"],
-    where: { batch: { userId } },
+    where: { batch: { userId, deleteRequestedAt: null } },
     _count: { _all: true },
   });
   return Object.fromEntries(groups.map((group) => [group.status, group._count._all]));

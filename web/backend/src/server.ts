@@ -7,14 +7,14 @@ import { closeDatabase, pendingMigrations, verifyDatabase } from "./db";
 import { closeMessaging, connectMessaging } from "./messaging";
 import { verifyBuckets } from "./storage";
 import { cleanupAbandonedUploads } from "./services/upload-cleanup.service";
-import { cleanupExpiredBatches, retryPendingWhitelistCleanups } from "./services/retention.service";
+import { purgeDueBatches, retryPendingWhitelistCleanups } from "./services/retention.service";
 
 let cleanupTimer: NodeJS.Timeout | null = null;
 
 function startCleanupTimer(): void {
   cleanupTimer = setInterval(() => {
-    cleanupExpiredBatches().catch((error) => {
-      console.error("Cleanup expired batches failed", error);
+    purgeDueBatches().catch((error) => {
+      console.error("Purging due batches failed", error);
     });
     retryPendingWhitelistCleanups().catch((error) => {
       console.error("Retry pending whitelist cleanups failed", error);

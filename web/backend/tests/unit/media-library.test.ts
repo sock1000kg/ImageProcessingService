@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkAndCleanBatchWhitelist,
-  cleanupExpiredBatches,
+  purgeDueBatches,
   retryPendingWhitelistCleanups,
 } from "../../src/services/retention.service";
 import { deleteJobById, retryFailedJob } from "../../src/services/job.service";
@@ -296,13 +296,11 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       vi.spyOn(jobRepository, "batchHasActiveJobs").mockResolvedValue(false);
       const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockResolvedValue();
       vi.spyOn(jobRepository, "countJobsByBatchId").mockResolvedValue(1);
-      const deleteBatchRowSpy = vi.spyOn(jobRepository, "deleteBatchRowOwnedByUser").mockResolvedValue(true);
+      const markDeleteSpy = vi.spyOn(jobRepository, "markBatchDeleteRequested").mockResolvedValue(true);
 
       await deleteJobById(jobId, userId);
 
-      expect(deletePrefixSpy).toHaveBeenCalledWith("uploads", `${batchId}/`);
-      expect(deletePrefixSpy).toHaveBeenCalledWith("results", `${batchId}/`);
-      expect(deleteBatchRowSpy).toHaveBeenCalledWith(batchId, userId);
+      expect(markDeleteSpy).toHaveBeenCalledWith(batchId, userId);
     });
   });
 
@@ -317,19 +315,26 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
     });
   });
 
-  describe("Retention Rules (getExpiredBatches)", () => {
+  describe("Retention Rules (getBatchesToPurge)", () => {
     it("when retentionDays is unset, finds only draft batches older than 24h", async () => {
       const findManySpy = vi.spyOn(prisma.batch, "findMany").mockResolvedValue([{ id: "expired-draft" }] as any);
 
-      const expired = await jobRepository.getExpiredBatches(undefined);
+      const expired = await jobRepository.getBatchesToPurge(undefined);
 
       expect(findManySpy).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            startedAt: null,
-            createdAt: expect.objectContaining({
-              lt: expect.any(Date),
-            }),
+            OR: expect.arrayContaining([
+              expect.objectContaining({
+                startedAt: null,
+                createdAt: expect.objectContaining({
+                  lt: expect.any(Date),
+                }),
+              }),
+              expect.objectContaining({
+                deleteRequestedAt: { not: null },
+              }),
+            ]),
           }),
         }),
       );
@@ -355,9 +360,10 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
 
       const findManySpy = vi.spyOn(prisma.batch, "findMany").mockImplementation(async (args: any) => {
         const where = args.where;
-        const matches = (b: (typeof batches)[0]) => {
+        const matches = (b: (typeof batches)[0] & { deleteRequestedAt?: Date | null }) => {
           if (where.OR) {
             return where.OR.some((cond: any) => {
+              if (cond.deleteRequestedAt && !b.deleteRequestedAt) return false;
               if (cond.startedAt === null && b.startedAt !== null) return false;
               if (cond.createdAt?.lt && !(b.createdAt < cond.createdAt.lt)) return false;
               return true;
@@ -370,7 +376,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
         return batches.filter(matches).map((b) => ({ id: b.id })) as any;
       });
 
-      const expired = await jobRepository.getExpiredBatches(7);
+      const expired = await jobRepository.getBatchesToPurge(7);
 
       expect(findManySpy).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -380,6 +386,9 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
               expect.objectContaining({
                 startedAt: null,
                 createdAt: expect.objectContaining({ lt: expect.any(Date) }),
+              }),
+              expect.objectContaining({
+                deleteRequestedAt: { not: null },
               }),
             ]),
           }),
@@ -394,10 +403,10 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
     });
   });
 
-  describe("Batch Retention Cleanup (cleanupExpiredBatches)", () => {
+  describe("Batch Retention Cleanup (purgeDueBatches)", () => {
     it("keeps the row and does not count the batch if deletePrefix fails in either bucket", async () => {
       // 1. Uploads bucket deletePrefix fails
-      vi.spyOn(jobRepository, "getExpiredBatches").mockResolvedValue([{ id: "batch-uploads-fail" }] as any);
+      vi.spyOn(jobRepository, "getBatchesToPurge").mockResolvedValue([{ id: "batch-uploads-fail" }] as any);
       const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockImplementation(async (bucket) => {
         if (bucket === UPLOADS_BUCKET) {
           throw new Error("MinIO uploads error");
@@ -406,14 +415,14 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       const deleteBatchRowSpy = vi.spyOn(jobRepository, "deleteBatchRow").mockResolvedValue(true);
       const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      let count = await cleanupExpiredBatches();
+      let count = await purgeDueBatches();
 
       expect(count).toBe(0);
       expect(deleteBatchRowSpy).not.toHaveBeenCalled();
       expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("batch-uploads-fail"), expect.any(Error));
 
       // 2. Results bucket deletePrefix fails
-      vi.spyOn(jobRepository, "getExpiredBatches").mockResolvedValue([{ id: "batch-results-fail" }] as any);
+      vi.spyOn(jobRepository, "getBatchesToPurge").mockResolvedValue([{ id: "batch-results-fail" }] as any);
       deletePrefixSpy.mockImplementation(async (bucket) => {
         if (bucket === RESULTS_BUCKET) {
           throw new Error("MinIO results error");
@@ -422,7 +431,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       deleteBatchRowSpy.mockClear();
       consoleErrorSpy.mockClear();
 
-      count = await cleanupExpiredBatches();
+      count = await purgeDueBatches();
 
       expect(count).toBe(0);
       expect(deleteBatchRowSpy).not.toHaveBeenCalled();
@@ -431,7 +440,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
 
     it("deletes and counts the batch on a following run when storage works", async () => {
       const batch = { id: "batch-retry-success" };
-      vi.spyOn(jobRepository, "getExpiredBatches").mockResolvedValue([batch] as any);
+      vi.spyOn(jobRepository, "getBatchesToPurge").mockResolvedValue([batch] as any);
 
       // Run 1: storage fails
       const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockImplementation(async (bucket) => {
@@ -440,7 +449,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       const deleteBatchRowSpy = vi.spyOn(jobRepository, "deleteBatchRow").mockResolvedValue(true);
       vi.spyOn(console, "error").mockImplementation(() => {});
 
-      const firstRunCount = await cleanupExpiredBatches();
+      const firstRunCount = await purgeDueBatches();
       expect(firstRunCount).toBe(0);
       expect(deleteBatchRowSpy).not.toHaveBeenCalled();
 
@@ -448,7 +457,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       deletePrefixSpy.mockResolvedValue(undefined as any);
       deleteBatchRowSpy.mockClear();
 
-      const secondRunCount = await cleanupExpiredBatches();
+      const secondRunCount = await purgeDueBatches();
       expect(secondRunCount).toBe(1);
       expect(deleteBatchRowSpy).toHaveBeenCalledWith(batch.id);
     });
@@ -456,7 +465,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
     it("does not stop another batch being deleted when one batch fails", async () => {
       const failingBatch = { id: "failing-batch" };
       const healthyBatch = { id: "healthy-batch" };
-      vi.spyOn(jobRepository, "getExpiredBatches").mockResolvedValue([failingBatch, healthyBatch] as any);
+      vi.spyOn(jobRepository, "getBatchesToPurge").mockResolvedValue([failingBatch, healthyBatch] as any);
 
       vi.spyOn(storage, "deletePrefix").mockImplementation(async (bucket, prefix) => {
         if (prefix.startsWith(`${failingBatch.id}/`)) {
@@ -466,7 +475,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       const deleteBatchRowSpy = vi.spyOn(jobRepository, "deleteBatchRow").mockResolvedValue(true);
       vi.spyOn(console, "error").mockImplementation(() => {});
 
-      const count = await cleanupExpiredBatches();
+      const count = await purgeDueBatches();
 
       expect(count).toBe(1);
       expect(deleteBatchRowSpy).not.toHaveBeenCalledWith(failingBatch.id);

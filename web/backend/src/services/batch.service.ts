@@ -8,13 +8,13 @@ import {
   addJobToBatchWithLock,
   batchHasActiveJobs,
   createDraftBatch as createDraftBatchRepository,
-  deleteBatchRowOwnedByUser,
   getAccountUsage,
   getBatch,
   getBatchOwnedByUser,
   getJobsByBatchId,
   getPendingJobsByBatchId,
   listBatchesByUserId,
+  markBatchDeleteRequested,
   setBatchStarted,
   updateBatchName,
   updateJobQueued,
@@ -24,6 +24,7 @@ import { parseFaceNamesMap, sanitizeFaceFileName } from "./face-list.service";
 import { publishJob } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
 import { abortBatchUploads } from "./upload-cleanup.service";
+import { purgeBatch } from "./retention.service";
 import { BatchConfig } from "../types";
 import { JobStatus } from "../generated/prisma/client";
 import { buildImageRedactCommand, buildVideoRedactCommand, deriveBatchStatus, resolveOutputExtension } from "../domain";
@@ -304,9 +305,11 @@ export async function deleteBatchById(id: string, userId: string): Promise<boole
 
   // Unfinished video uploads hold parts in storage that deleting the prefix below does not remove.
   await abortBatchUploads(id);
-  await storage.deletePrefix(UPLOADS_BUCKET, `${id}/`);
-  await storage.deletePrefix(RESULTS_BUCKET, `${id}/`);
-  return deleteBatchRowOwnedByUser(id, userId);
+  await markBatchDeleteRequested(id, userId);
+  void purgeBatch(id).catch((error) => {
+    console.error(`Immediate purge failed for batch ${id}`, error);
+  });
+  return true;
 }
 
 /**

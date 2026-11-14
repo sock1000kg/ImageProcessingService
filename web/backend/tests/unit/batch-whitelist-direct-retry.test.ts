@@ -87,9 +87,11 @@ describe("Task 53: Batches use allow-list photos directly; retry warns when face
     } as any);
     vi.spyOn(prisma.uploadSession, "findMany").mockResolvedValue([]);
     vi.spyOn(jobRepository, "batchHasActiveJobs").mockResolvedValue(false);
-    vi.spyOn(jobRepository, "deleteBatchRowOwnedByUser").mockResolvedValue(true);
+    vi.spyOn(jobRepository, "markBatchDeleteRequested").mockResolvedValue(true);
+    vi.spyOn(jobRepository, "deleteBatchRow").mockResolvedValue(true);
 
     await deleteBatchById(batchId, userId);
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(deletePrefixSpy).toHaveBeenCalledWith(UPLOADS_BUCKET, `${batchId}/`);
     expect(deletePrefixSpy).not.toHaveBeenCalledWith(UPLOADS_BUCKET, expect.stringContaining("lists/"));

@@ -79,6 +79,7 @@ export interface BatchSummaryItemDTO {
     failed: number;
   };
   thumbnailUrl: string | null;
+  hasVideo: boolean;
   bytes: number;
 }
 

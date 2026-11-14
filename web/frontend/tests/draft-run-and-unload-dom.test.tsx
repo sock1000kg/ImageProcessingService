@@ -228,6 +228,7 @@ describe("Task 81: Tab unload warning and draft batch execution", () => {
           createdAt: "2026-11-04T10:00:00Z",
           jobCounts: { total: 4, completed: 0, failed: 0 },
           thumbnailUrl: null,
+          hasVideo: false,
           bytes: 4096,
         },
         {
@@ -237,6 +238,7 @@ describe("Task 81: Tab unload warning and draft batch execution", () => {
           createdAt: "2026-11-04T10:00:00Z",
           jobCounts: { total: 0, completed: 0, failed: 0 },
           thumbnailUrl: null,
+          hasVideo: false,
           bytes: 0,
         },
         {
@@ -246,6 +248,7 @@ describe("Task 81: Tab unload warning and draft batch execution", () => {
           createdAt: "2026-11-04T10:00:00Z",
           jobCounts: { total: 2, completed: 2, failed: 0 },
           thumbnailUrl: null,
+          hasVideo: false,
           bytes: 2048,
         },
       ],

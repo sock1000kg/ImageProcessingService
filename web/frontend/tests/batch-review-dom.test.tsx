@@ -7,7 +7,7 @@
  * - Verifies resilience when scrollIntoView is undefined
  * - Verifies Open original and Download result link attributes
  */
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { BatchDetails } from "../src/components/BatchDetails";
@@ -387,5 +387,109 @@ describe("Batch review DOM and interaction tests (Task 72)", () => {
     const titleElement = await screen.findByTitle(longName);
     expect(titleElement).toBeDefined();
     expect(titleElement.classList.contains("row-name")).toBe(true);
+  });
+
+  it("keeps delete dialog open with Deleting button while onDelete is pending, then closes when resolved", async () => {
+    let resolveDelete!: () => void;
+    const deletePromise = new Promise<void>((resolve) => {
+      resolveDelete = resolve;
+    });
+    const onDelete = vi.fn().mockImplementation(() => deletePromise);
+
+    render(
+      <MemoryRouter>
+        <BatchDetails batch={createBatch("COMPLETED")} onRefresh={vi.fn()} onDelete={onDelete} onMessage={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    // Click "Delete batch" in header
+    const deleteBtn = screen.getByRole("button", { name: /delete batch/i });
+    fireEvent.click(deleteBtn);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeDefined();
+
+    // Confirm deletion
+    const confirmBtn = within(dialog).getByRole("button", { name: /delete batch/i });
+    fireEvent.click(confirmBtn);
+
+    expect(onDelete).toHaveBeenCalledTimes(1);
+
+    // Dialog stays open with a "Deleting" button
+    expect(within(dialog).getByRole("button", { name: /deleting/i })).toBeDefined();
+    expect(screen.getByRole("dialog")).toBeDefined();
+
+    // Cancel does nothing while deleting
+    const cancelBtn = within(dialog).getByRole("button", { name: /cancel/i });
+    fireEvent.click(cancelBtn);
+    expect(screen.getByRole("dialog")).toBeDefined();
+
+    // A second confirm does nothing while deleting
+    const deletingBtn = within(dialog).getByRole("button", { name: /deleting/i });
+    fireEvent.click(deletingBtn);
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog")).toBeDefined();
+
+    // Resolve the promise
+    resolveDelete();
+
+    // Dialog closes
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
+  it("stops video playback and unmounts player when confirming batch delete", async () => {
+    const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    let resolveDelete!: () => void;
+    const deletePromise = new Promise<void>((resolve) => {
+      resolveDelete = resolve;
+    });
+    vi.spyOn(api, "deleteBatch").mockReturnValue(deletePromise);
+
+    const videoBatch: Batch = {
+      ...createBatch("COMPLETED"),
+      jobs: [
+        {
+          id: "job-video-1",
+          batchId: "batch-105",
+          originalFilename: "traffic.mp4",
+          status: "COMPLETED",
+          progress: 100,
+          stage: "COMPLETED",
+          resultSummary: {
+            video: { width: 1280, height: 720, fps: 30, durationMs: 4000 },
+            counts: { faceTracks: 1, plateTracks: 0, redactedTracks: 1 },
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    };
+
+    render(
+      <MemoryRouter>
+        <BatchDetails
+          batch={videoBatch}
+          onRefresh={vi.fn()}
+          onDelete={() => api.deleteBatch(videoBatch.id)}
+          onMessage={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    // Initial state: video player with label starting with "Redacted" is present
+    expect(screen.getByLabelText(/^redacted/i)).toBeDefined();
+
+    // Open delete dialog and confirm
+    fireEvent.click(screen.getByRole("button", { name: /delete batch/i }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /delete batch/i }));
+
+    // Player is gone and pause was called
+    expect(screen.queryByLabelText(/^redacted/i)).toBeNull();
+    expect(pauseSpy).toHaveBeenCalled();
+
+    resolveDelete();
   });
 });

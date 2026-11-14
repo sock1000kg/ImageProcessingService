@@ -30,6 +30,7 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
   const [selectedId, setSelectedId] = useState(batch.jobs[0]?.id ?? null);
   const [report, setReport] = useState<Report | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [missingFacesConfirm, setMissingFacesConfirm] = useState<{
     job: Job;
     missing: number;
@@ -136,6 +137,17 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
     }
   };
 
+  const handleDeleteBatch = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await onDelete();
+    } finally {
+      setDeleting(false);
+      setConfirm(false);
+    }
+  };
+
   return (
     <section className="details-card">
       <BatchHeader batch={batch} onDelete={() => setConfirm(true)} onBatchUpdated={() => void onRefresh()} />
@@ -170,7 +182,7 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
 
         <div>
           {selected && isVideoFilename(selected.originalFilename) ? (
-            <VideoResultViewer job={selected} detections={detections} onRetry={(job) => void retry(job)} />
+            !deleting && <VideoResultViewer job={selected} detections={detections} onRetry={(job) => void retry(job)} />
           ) : selected ? (
             <ImageResultViewer
               job={selected}
@@ -215,11 +227,11 @@ export function BatchDetails({ batch, onRefresh, onDelete, onMessage }: BatchDet
 
       <DeleteBatchDialog
         open={confirm}
-        onCancel={() => setConfirm(false)}
-        onConfirm={() => {
-          setConfirm(false);
-          void onDelete();
+        confirmLabel={deleting ? "Deleting…" : "Delete batch"}
+        onCancel={() => {
+          if (!deleting) setConfirm(false);
         }}
+        onConfirm={() => void handleDeleteBatch()}
       />
 
       <DeleteBatchDialog

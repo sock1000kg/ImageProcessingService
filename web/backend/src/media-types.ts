@@ -1,10 +1,18 @@
 /**
  * Image types the service accepts, and a check of what an uploaded file actually contains.
  */
+import path from "path";
 import { fileTypeFromBuffer } from "file-type";
 import { badRequest } from "./errors";
 
 export const ALLOWED_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+const VIDEO_EXT = ".mp4";
+
+export const isVideoFilename = (filename: string): boolean => {
+  if (!filename) return false;
+  return path.extname(filename).toLowerCase() === VIDEO_EXT;
+};
 
 /**
  * Rejects an uploaded image whose content is not really JPEG, PNG or WEBP. The browser's declared MIME type and the

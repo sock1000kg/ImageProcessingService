@@ -9,7 +9,7 @@ import { InlineRename } from "../components/InlineRename";
 import { Banner } from "../components/ui/Banner";
 import { StatTile } from "../components/ui/StatTile";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { ImageIcon, ImagesIcon, TrashIcon } from "@phosphor-icons/react";
+import { ImageIcon, ImagesIcon, TrashIcon, VideoIcon } from "@phosphor-icons/react";
 import { AccountUsage, BatchSummaryItem, MessageHandler } from "../types";
 import { formatBytes } from "../utils/format";
 
@@ -26,6 +26,7 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingBatch, setDeletingBatch] = useState<BatchSummaryItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [startingBatchId, setStartingBatchId] = useState<string | null>(null);
 
   const fetchInitialBatches = async () => {
@@ -69,9 +70,9 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
   };
 
   const handleDeleteConfirm = async () => {
-    if (!deletingBatch) return;
+    if (!deletingBatch || deleting) return;
     const target = deletingBatch;
-    setDeletingBatch(null);
+    setDeleting(true);
     try {
       await deleteBatch(target.id);
       setBatches((prev) => prev.filter((item) => item.id !== target.id));
@@ -87,6 +88,9 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
       onMessage?.("Batch deleted");
     } catch (err) {
       onMessage?.(err instanceof Error ? err.message : "Failed to delete batch", { variant: "error" });
+    } finally {
+      setDeleting(false);
+      setDeletingBatch(null);
     }
   };
 
@@ -151,8 +155,11 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
                   {batch.thumbnailUrl ? (
                     <img src={batch.thumbnailUrl} alt={batch.name} className="library-thumbnail" loading="lazy" />
                   ) : (
-                    <div className="library-thumbnail placeholder" aria-label="No thumbnail">
-                      <ImageIcon aria-hidden />
+                    <div
+                      className="library-thumbnail placeholder"
+                      aria-label={batch.hasVideo ? "Video batch" : "No thumbnail"}
+                    >
+                      {batch.hasVideo ? <VideoIcon aria-hidden /> : <ImageIcon aria-hidden />}
                     </div>
                   )}
                   <div className="library-card-body">
@@ -235,8 +242,10 @@ export function LibraryPage({ onMessage }: LibraryPageProps) {
         open={Boolean(deletingBatch)}
         title="Delete this batch?"
         body="Original files and results will be removed. This cannot be undone."
-        confirmLabel="Delete batch"
-        onCancel={() => setDeletingBatch(null)}
+        confirmLabel={deleting ? "Deleting…" : "Delete batch"}
+        onCancel={() => {
+          if (!deleting) setDeletingBatch(null);
+        }}
         onConfirm={() => void handleDeleteConfirm()}
       />
     </section>

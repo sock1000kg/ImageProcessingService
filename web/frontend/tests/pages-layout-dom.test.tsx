@@ -22,6 +22,7 @@ describe("Pages Layout DOM Integration (Task 73)", () => {
         status: "COMPLETED",
         jobCounts: { total: 2, completed: 2, failed: 0 },
         thumbnailUrl: "/results/batch-1/job-1/result.jpg",
+        hasVideo: false,
         bytes: 1048576,
       },
     ],

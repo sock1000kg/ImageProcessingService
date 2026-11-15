@@ -37,6 +37,11 @@ resources:
 nodeSelector:
   kubernetes.io/hostname: home-server
 
+# Stop the old pod before starting the new one. The chart default (RollingUpdate, maxSurge 100%) briefly runs two
+# MinIO servers on the same RWO local-path volume (RWO limits nodes, not pods), which can corrupt object metadata.
+deploymentUpdate:
+  type: Recreate
+
 # our own setup Job owns buckets / anonymous policy (no lifecycle, the web owns retention):
 # disable every chart-managed bucket, user and policy resource
 buckets: []

@@ -11,4 +11,4 @@ resources:
 # To upgrade: pick a tag from Docker Hub (socknot1000kg/imgproc-engine) and change newTag.
 images:
   - name: socknot1000kg/imgproc-engine
-    newTag: 207807d529cf8464d9ac7401b69ec9523e1af3b9
+    newTag: 6b5c9b16d641a5932c36f3bd87f0ec2de181d698  # engine's error message: JOB_TIMEOUT, 3 h video deadline

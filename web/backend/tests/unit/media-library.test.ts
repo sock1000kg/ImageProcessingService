@@ -266,6 +266,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       } as any);
 
       const deleteObjectSpy = vi.spyOn(storage, "deleteObject").mockResolvedValue();
+      vi.spyOn(jobRepository, "countOtherJobsWithInput").mockResolvedValue(0);
       vi.spyOn(jobRepository, "countJobsByBatchId").mockResolvedValue(2);
       const deleteJobSpy = vi.spyOn(jobRepository, "deleteJob").mockResolvedValue();
       vi.spyOn(jobRepository, "getBatch").mockResolvedValue({
@@ -281,6 +282,51 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
       expect(deleteJobSpy).toHaveBeenCalledWith(jobId);
     });
 
+    it("keeps the input another job still uses (a retry reuses the failed job's input) and deletes only the result", async () => {
+      const sharedInput = `${batchId}/${jobId}/input.mp4`;
+      vi.spyOn(jobRepository, "getJobOwnedByUser").mockResolvedValue({
+        id: jobId,
+        batchId,
+        inputKey: sharedInput,
+        outputKey: `${batchId}/${jobId}/result.mp4`,
+        status: JobStatus.FAILED,
+      } as any);
+      const countOthersSpy = vi.spyOn(jobRepository, "countOtherJobsWithInput").mockResolvedValue(1);
+      const deleteObjectSpy = vi.spyOn(storage, "deleteObject").mockResolvedValue();
+      vi.spyOn(jobRepository, "countJobsByBatchId").mockResolvedValue(2);
+      const deleteJobSpy = vi.spyOn(jobRepository, "deleteJob").mockResolvedValue();
+      vi.spyOn(jobRepository, "getBatch").mockResolvedValue({
+        id: batchId,
+        startedAt: new Date(),
+        whitelistDeletedAt: new Date(),
+      } as any);
+
+      await deleteJobById(jobId, userId);
+
+      expect(countOthersSpy).toHaveBeenCalledWith(sharedInput, jobId);
+      expect(deleteObjectSpy).not.toHaveBeenCalledWith(UPLOADS_BUCKET, sharedInput);
+      expect(deleteObjectSpy).toHaveBeenCalledWith(RESULTS_BUCKET, `${batchId}/${jobId}/result.mp4`);
+      expect(deleteJobSpy).toHaveBeenCalledWith(jobId);
+    });
+
+    it("keeps the row and answers 503 when a file cannot be deleted, so deleting again retries", async () => {
+      vi.spyOn(jobRepository, "getJobOwnedByUser").mockResolvedValue({
+        id: jobId,
+        batchId,
+        inputKey: `${batchId}/${jobId}/input.jpg`,
+        outputKey: `${batchId}/${jobId}/result.jpg`,
+        status: JobStatus.COMPLETED,
+      } as any);
+      vi.spyOn(jobRepository, "countOtherJobsWithInput").mockResolvedValue(0);
+      vi.spyOn(storage, "deleteObject").mockRejectedValue(new Error("connect ECONNREFUSED"));
+      const deleteJobSpy = vi.spyOn(jobRepository, "deleteJob").mockResolvedValue();
+      const deleteBatchSpy = vi.spyOn(jobRepository, "markBatchDeleteRequested").mockResolvedValue(true);
+
+      await expect(deleteJobById(jobId, userId)).rejects.toMatchObject({ status: 503 });
+      expect(deleteJobSpy).not.toHaveBeenCalled();
+      expect(deleteBatchSpy).not.toHaveBeenCalled();
+    });
+
     it("deletes entire batch if deleting the last job in the batch", async () => {
       vi.spyOn(jobRepository, "getJobOwnedByUser").mockResolvedValue({
         id: jobId,
@@ -292,6 +338,7 @@ describe("Media Library Backend Unit Tests (Task 36)", () => {
 
       vi.spyOn(jobRepository, "getBatchOwnedByUser").mockResolvedValue({ id: batchId, userId } as any);
       vi.spyOn(storage, "deleteObject").mockResolvedValue();
+      vi.spyOn(jobRepository, "countOtherJobsWithInput").mockResolvedValue(0);
       vi.spyOn(prisma.uploadSession, "findMany").mockResolvedValue([]);
       vi.spyOn(jobRepository, "batchHasActiveJobs").mockResolvedValue(false);
       const deletePrefixSpy = vi.spyOn(storage, "deletePrefix").mockResolvedValue();

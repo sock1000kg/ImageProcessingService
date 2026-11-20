@@ -3,7 +3,6 @@
  */
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { config } from "../config";
 import {
   countJobsByBatchId,
   deleteJob,
@@ -15,6 +14,7 @@ import {
   insertEditJob,
   insertRetryJob,
   updateJobQueued,
+  countOtherJobsWithInput,
 } from "../repositories/job.repository";
 import { publishJob } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
@@ -42,16 +42,18 @@ export async function deleteJobById(id: string, userId: string): Promise<void> {
     throw conflict("Cannot delete an active job", "JOB_ACTIVE");
   }
 
+  // Files first, row last. If a file delete fails, the row stays as the only record of what is left and the user can
+  // delete again (S3 deletes of a missing key succeed, so retrying is safe). Swallowing the error here would delete the
+  // row and leave the file, possibly a private original, with nothing pointing at it.
   try {
-    await storage.deleteObject(UPLOADS_BUCKET, job.inputKey);
-  } catch (err) {
-    console.error(`Failed to delete input object ${job.inputKey}`, err);
-  }
-
-  try {
+    // A retry reuses the failed job's input, so other jobs may still need this file (to run, or for "Show original").
+    if ((await countOtherJobsWithInput(job.inputKey, job.id)) === 0) {
+      await storage.deleteObject(UPLOADS_BUCKET, job.inputKey);
+    }
     await storage.deleteObject(RESULTS_BUCKET, job.outputKey);
   } catch (err) {
-    console.error(`Failed to delete result object ${job.outputKey}`, err);
+    console.error(`Failed to delete files of job ${job.id}`, err);
+    throw unavailable("Storage is unavailable, the job was not deleted. Try again.");
   }
 
   const totalJobs = await countJobsByBatchId(job.batchId);

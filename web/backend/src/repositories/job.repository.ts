@@ -325,6 +325,13 @@ export async function countJobsByBatchId(batchId: string): Promise<number> {
   });
 }
 
+/** How many other jobs read the same input file (a retry reuses the failed job's input instead of copying it). */
+export async function countOtherJobsWithInput(inputKey: string, excludeJobId: string): Promise<number> {
+  return prisma.job.count({
+    where: { inputKey, id: { not: excludeJobId } },
+  });
+}
+
 export async function listBatchesByUserId(userId: string, options: { limit: number; cursor?: string }) {
   const query = {
     where: { userId, deleteRequestedAt: null },

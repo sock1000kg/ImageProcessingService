@@ -256,25 +256,25 @@ def test_image_redact_with_plate_whitelist_e2e():
 
 def test_fuzzy_levenshtein_plate_matching():
     """Verify Levenshtein distance matches blurred plates under vibration with matching province."""
-    norm_wl = PlateWhitelistManager.normalize_whitelist(["67L1-785.60", "29V1-678.90"])
+    norm_wl = PlateWhitelistManager.normalize_whitelist(["51F2-347.80", "29V1-678.90"])
 
     # 1. One dropped digit due to vibration
-    is_m, target = PlateWhitelistManager.is_plate_match("67L17560", norm_wl)
+    is_m, target = PlateWhitelistManager.is_plate_match("51F23780", norm_wl)
     assert is_m is True
-    assert target == "67L178560"
+    assert target == "51F234780"
 
     # 2. One misread digit
-    is_m2, target2 = PlateWhitelistManager.is_plate_match("67L178660", norm_wl)
+    is_m2, target2 = PlateWhitelistManager.is_plate_match("51F234880", norm_wl)
     assert is_m2 is True
-    assert target2 == "67L178560"
+    assert target2 == "51F234780"
 
     # 3. Screw prefix + one dropped digit
-    is_m3, target3 = PlateWhitelistManager.is_plate_match("J67L17560", norm_wl)
+    is_m3, target3 = PlateWhitelistManager.is_plate_match("J51F23780", norm_wl)
     assert is_m3 is True
-    assert target3 == "67L178560"
+    assert target3 == "51F234780"
 
     # 3b. Two or more differing characters are a different plate: with up to 3 edits allowed, a 20-plate whitelist
-    # matched 3% of strangers (training/ocr/results/whitelist_rules.json), so the Engine allows one.
+    # matched 3% of strangers (training/whitelist/plate/results/whitelist_rules.json), so the Engine allows one.
     assert PlateWhitelistManager.is_plate_match("67L17550", norm_wl) == (False, None)  # 2 edits
     assert PlateWhitelistManager.is_plate_match("67L13550", norm_wl) == (False, None)  # 3 edits
 

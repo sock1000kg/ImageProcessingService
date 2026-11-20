@@ -38,7 +38,7 @@ class Settings(BaseModel):
 
     # Model weights directory & default model
     models_dir: str = os.getenv("MODELS_DIR", "./models")
-    yolo_model_name: str = os.getenv("YOLO_MODEL_NAME", "yolo26n-1280-e20-crowd.pt")
+    yolo_model_name: str = os.getenv("YOLO_MODEL_NAME", "yolo26n-1280-e5-dashcam.pt")
     # YOLO input size in px (multiple of 32). Larger finds smaller faces/plates but is slower.
     yolo_imgsz: int = int(os.getenv("YOLO_IMGSZ", "1280"))
     face_embedding_model: str = os.getenv("FACE_EMBEDDING_MODEL", "w600k_mbf.onnx")
@@ -47,11 +47,11 @@ class Settings(BaseModel):
     # Format: <model_file>@<imgsz>:face=<face_threshold>,plate=<plate_threshold>
     mode_fast: str = os.getenv(
         "MODE_FAST",
-        "yolo26n-1280-e20-crowd.pt@1280:face=0.17,plate=0.11",
+        "yolo26n-1280-e5-dashcam.pt@1280:face=0.17,plate=0.11",
     )
     mode_max_privacy: str = os.getenv(
         "MODE_MAX_PRIVACY",
-        "yolo26s-1280-e5-plates-frozen-x3.pt@1280:face=0.06,plate=0.05",
+        "yolo26s-1280-e5-dashcam.pt@1280:face=0.06,plate=0.05",
     )
 
     # Resilience & Fault Tolerance

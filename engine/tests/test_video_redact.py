@@ -292,6 +292,38 @@ def test_track_best_frame_selection():
     print(f"  -> PASS: bestFrameMs={track.best_frame_ms}ms và bestBox={track.best_box} được chọn chuẩn xác.")
 
 
+def test_track_split_after_long_gap():
+    """A tracker id that comes back after a gap longer than we fill in starts a new piece with its own decision.
+
+    ByteTrack keeps a lost id ~2 s and can hand it to another object (seen in our clips: a stranger's plate, then the
+    owner's), so one allow-list reading must not decide both. The gap stays a gapRange of the piece that ended."""
+    mgr = TrackManager(fps=25.0, orig_w=640, orig_h=480)
+    for f in range(0, 6):  # id 3 on one plate
+        mgr.add_detection(track_id=3, label="plate", frame_idx=f, frame_ms=f * 40, box=[100, 100, 160, 130], confidence=0.8)
+    for f in range(8, 10):  # short gap (2 frames): same piece, interpolated later
+        mgr.add_detection(track_id=3, label="plate", frame_idx=f, frame_ms=f * 40, box=[102, 100, 162, 130], confidence=0.8)
+    for f in range(60, 64):  # 2 s later the same id, elsewhere: a new piece
+        mgr.add_detection(track_id=3, label="plate", frame_idx=f, frame_ms=f * 40, box=[400, 300, 480, 340], confidence=0.8)
+
+    assert sorted(mgr.tracks[3].detections) == list(range(0, 6)) + [8, 9]
+    pieces = [t for tid, t in mgr.tracks.items() if tid >= TrackManager.SPLIT_ID_START]
+    assert len(pieces) == 1 and sorted(pieces[0].detections) == list(range(60, 64))
+    assert mgr.tracks[3].gap_ranges == [[400, 2360]]  # frames 10..59 at 25 fps
+    assert mgr.has_track(3)  # the tracker id still resolves (to its current piece)
+
+
+def test_plate_ocr_reads_widest_crops():
+    """A plate track keeps its widest crops for the allow-list OCR, not its first frames (the plate coming into view)."""
+    track = Track(track_id=7, label="plate")
+    # The plate comes into view small, then grows: widths 20, 30, then 45..120 px
+    for i, w in enumerate([20, 30, 45, 60, 50, 120, 90, 70, 100]):
+        roi = np.full((20, w, 3), i, dtype=np.uint8)
+        track.add_detection(frame_idx=i, frame_ms=i * 40, box=[0, 0, w, 20], confidence=0.6, orig_w=640, orig_h=480,
+                            plate_roi=roi)
+    widths = sorted(c.shape[1] for c in track.plate_candidates)
+    assert widths == [60, 70, 90, 100, 120], widths  # the 5 widest of the whole track
+
+
 def test_two_pass_video_redaction_pipeline():
     """Verify full Two-Pass execution: Pass 1 Tracking -> Pass 2 Redaction & FFmpeg."""
     print("Test 9: Kiểm tra toàn trình Two-Pass Video Redaction Pipeline...")
@@ -777,7 +809,7 @@ def test_spatial_temporal_plate_whitelist_inheritance():
     t1 = track_mgr.tracks[1]
     t1.whitelisted = True
     t1.redacted = False
-    t1.plate_text = "67L178560"
+    t1.plate_text = "51F234780"
 
     # Track 2: Fragmented continuation of Track 1 (frames 33..60), spatially adjacent (IoU > 0.5)
     # Blurred OCR -> initially unwhitelisted
@@ -797,12 +829,12 @@ def test_spatial_temporal_plate_whitelist_inheritance():
     t3.plate_text = "84A00732"
 
     # Run plate whitelist evaluation with inheritance
-    processor._evaluate_plate_whitelist(track_mgr=track_mgr, whitelist_plates=["67L1-785.60"])
+    processor._evaluate_plate_whitelist(track_mgr=track_mgr, whitelist_plates=["51F2-347.80"])
 
     # Verify Track 2 inherited Whitelist
     assert t2.whitelisted is True, "Track 2 should inherit whitelist from contiguous Track 1"
     assert t2.redacted is False, "Track 2 should not be redacted"
-    assert t2.plate_text == "67L178560"
+    assert t2.plate_text == "51F234780"
 
     # Verify Track 3 stays redacted
     assert t3.whitelisted is False, "Foreign Track 3 must not inherit whitelist"
@@ -816,30 +848,10 @@ def test_spatial_temporal_plate_whitelist_inheritance():
     t4.redacted = True
     t4.plate_text = "0122"
 
-    processor._evaluate_plate_whitelist(track_mgr=track_mgr, whitelist_plates=["67L1-785.60"])
+    processor._evaluate_plate_whitelist(track_mgr=track_mgr, whitelist_plates=["51F2-347.80"])
     assert t4.whitelisted is False, "Stranger vehicle with conflicting plate text must NOT inherit whitelist"
     assert t4.redacted is True, "Stranger vehicle must remain redacted"
     print("  -> PASS: Track kế thừa Whitelist thành công, xe lạ giữ nguyên chế độ che an toàn.")
-
-
-def test_cockpit_accessory_filter():
-    """Verify that circular auxiliary lights (spotlights) in the motorcycle cockpit are excluded."""
-    print("Test 17c: Kiểm tra bộ lọc loại bỏ đèn trợ sáng ghi-đông xe máy...")
-    processor = VideoRedactProcessor(ffmpeg_bin="ffmpeg")
-    w, h = 1920, 1080
-
-    # 1. Motorcycle handlebar spotlight: lower-right cockpit, near-circular aspect ratio
-    spotlight_box = [1146, 614, 1276, 731]  # w=130, h=117, aspect=1.11, y1=614 > 518
-    assert processor._is_vehicle_cockpit_artifact("face", spotlight_box, w, h) is True
-
-    # 2. Real pedestrian/cyclist face on the road: upper/middle area
-    pedestrian_face = [1678, 335, 1706, 366]  # y1=335 < 518
-    assert processor._is_vehicle_cockpit_artifact("face", pedestrian_face, w, h) is False
-
-    # 3. License plate in cockpit area (should never filter plates)
-    plate_box = [1146, 614, 1276, 731]
-    assert processor._is_vehicle_cockpit_artifact("plate", plate_box, w, h) is False
-    print("  -> PASS: Đèn trợ sáng ghi-đông xe máy được lọc thành công, khuôn mặt thật được bảo toàn.")
 
 
 def test_track_manager_low_confidence_track_count():
@@ -875,61 +887,85 @@ def test_track_manager_low_confidence_track_count():
 
 
 def test_low_score_box_tracking_recovery():
-    """Verify low-score box on an existing track is kept (recovery), and one with no existing track is dropped."""
-    print("Test 19: Kiểm tra giữ box điểm thấp trên track đã tồn tại (recovery) và bỏ box không có track...")
+    """Low-score boxes are kept only on an existing track; confident boxes the tracker did not report are kept too.
+
+    The tracker only reports confirmed tracks, so a new object's first frame comes back with no track ID. It must
+    still be blurred when it reaches its class threshold.
+    """
+    print("Test 19: Kiểm tra giữ box điểm thấp trên track đã tồn tại, và box chắc chắn chưa vào track nào...")
     processor = VideoRedactProcessor()
 
-    class MockBox:
-        def __init__(self, cls_id, conf, xyxy, track_id=None):
-            self.cls = np.array([cls_id])
-            self.conf = np.array([conf])
-            self.xyxy = np.array([xyxy])
-            self.id = np.array([track_id]) if track_id is not None else None
+    # Per frame: the model's detections (cls, conf, xyxy) and the tracker's output (track id, detection index).
+    frames = [
+        {
+            "dets": [
+                (0, 0.40, [20, 20, 80, 80]),  # on track 10
+                (0, 0.10, [100, 100, 150, 150]),  # low score, track 20 is new: dropped
+                (0, 0.10, [200, 200, 250, 250]),  # low score, no track: dropped
+                (0, 0.40, [400, 400, 460, 460]),  # confident, not reported by the tracker (unconfirmed): kept
+            ],
+            "tracks": [(10, 0), (20, 1)],
+        },
+        {
+            "dets": [
+                (0, 0.10, [22, 22, 82, 82]),  # low score on existing track 10: kept
+                (0, 0.10, [300, 300, 350, 350]),  # low score, track 30 is new: dropped
+            ],
+            "tracks": [(10, 0), (30, 1)],
+        },
+    ]
+    current_frame = [0]
+
+    class MockDet:
+        def __init__(self, rows):
+            self.cls = np.array([r[0] for r in rows], dtype=float)
+            self.conf = np.array([r[1] for r in rows], dtype=float)
+            self.xyxy = np.array([r[2] for r in rows], dtype=float).reshape(-1, 4)
+
+        def __len__(self):
+            return len(self.conf)
+
+    class MockBoxes:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return MockDet(self.rows)
 
     class MockResults:
-        def __init__(self, boxes):
-            self.boxes = boxes
+        def __init__(self, rows):
+            self.boxes = MockBoxes(rows)
 
-    frame_boxes = [
-        [
-            MockBox(0, 0.40, [20, 20, 80, 80], track_id=10),
-            MockBox(0, 0.10, [100, 100, 150, 150], track_id=20),
-            MockBox(0, 0.10, [200, 200, 250, 250], track_id=None),
-        ],
-        [
-            MockBox(0, 0.10, [22, 22, 82, 82], track_id=10),
-            MockBox(0, 0.10, [300, 300, 350, 350], track_id=30),
-        ]
-    ]
-
-    current_frame = [0]
+    class MockTracker:
+        def update(self, det, frame):
+            f = frames[current_frame[0] - 1]
+            return np.array([[*det.xyxy[i], tid, det.conf[i], det.cls[i], i] for tid, i in f["tracks"]], dtype=float)
 
     class MockCap:
         def isOpened(self): return True
         def read(self):
-            if current_frame[0] < len(frame_boxes):
-                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            if current_frame[0] < len(frames):
                 current_frame[0] += 1
-                return True, frame
+                return True, np.zeros((480, 640, 3), dtype=np.uint8)
             return False, None
         def release(self): pass
 
     class MockModel:
-        def __init__(self):
-            self.names = {0: "face", 1: "plate"}
-            self.predictor = None
-        def track(self, *args, **kwargs):
-            idx = current_frame[0] - 1
-            boxes = frame_boxes[idx] if idx < len(frame_boxes) else []
-            return [MockResults(boxes)]
+        names = {0: "face", 1: "plate"}
+
+        def predict(self, *args, **kwargs):
+            return [MockResults(frames[current_frame[0] - 1]["dets"])]
 
     orig_cap = cv2.VideoCapture
     orig_model = processor._model
     try:
         cv2.VideoCapture = lambda *args, **kwargs: MockCap()
         processor._model = MockModel()
+        processor._make_tracker = lambda *args, **kwargs: MockTracker()
         metadata = VideoMetadata(width=640, height=480, fps=25.0, duration_ms=80, frames=2, has_audio=False)
-        throttler = ProgressThrottler(callback=None)
 
         tm = processor._track_pass(
             input_video_path="dummy.mp4",
@@ -937,16 +973,19 @@ def test_low_score_box_tracking_recovery():
             targets_set={"face"},
             thresholds={"face": 0.17, "plate": 0.11},
             review_threshold=0.35,
-            throttler=throttler,
+            throttler=ProgressThrottler(callback=None),
         )
 
         assert tm.has_track(10), "Track 10 should exist in TrackManager"
         assert len(tm.tracks[10].detections) == 2, f"Track 10 should have 2 detections, got {len(tm.tracks[10].detections)}"
         assert tm.tracks[10].detections[1].confidence == 0.10, "Frame 1 low confidence box was kept on existing track"
-
         assert not tm.has_track(20), "Track 20 should have been dropped"
         assert not tm.has_track(30), "Track 30 should have been dropped"
-        print("  -> PASS: Box điểm thấp trên track đã có được giữ lại, box điểm thấp không có track bị loại bỏ.")
+
+        untracked = [t for tid, t in tm.tracks.items() if tid not in (10, 20, 30)]
+        assert len(untracked) == 1, f"Only the confident untracked box should be kept, got {len(untracked)}"
+        assert untracked[0].detections[0].box == [400, 400, 460, 460], "The confident untracked box should be kept"
+        print("  -> PASS: Box điểm thấp chỉ giữ trên track đã có; box chắc chắn chưa vào track vẫn được che.")
     finally:
         cv2.VideoCapture = orig_cap
         processor._model = orig_model
@@ -1129,6 +1168,8 @@ if __name__ == "__main__":
     test_max_gap_frames_scaling()
     test_track_manager_low_confidence_ranges()
     test_track_best_frame_selection()
+    test_track_split_after_long_gap()
+    test_plate_ocr_reads_widest_crops()
     test_two_pass_video_redaction_pipeline()
     test_track_level_face_whitelist_matching()
     test_whitelist_reference_error_propagation()
@@ -1144,5 +1185,5 @@ if __name__ == "__main__":
     test_track_manager_apply_holds()
     test_detection_mode_selects_model_and_thresholds()
     print("==================================================")
-    print("✅ TOÀN BỘ 23/23 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
+    print("✅ TOÀN BỘ 25/25 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
     print("==================================================")

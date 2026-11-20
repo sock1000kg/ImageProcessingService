@@ -48,13 +48,13 @@ def test_parse_mode_config_robust_fallbacks():
     """Verify safe fallbacks when config string is empty, missing elements, or malformed."""
     # Empty string -> default model & thresholds
     cfg_empty = parse_mode_config("fast", "")
-    assert cfg_empty.model_name == "yolo26n-1280-e20-crowd.pt"
+    assert cfg_empty.model_name == "yolo26n-1280-e5-dashcam.pt"
     assert cfg_empty.imgsz == 1280
     assert cfg_empty.confidence_thresholds["face"] == 0.17
 
     # None -> default model & thresholds
     cfg_none = parse_mode_config("fast", None)
-    assert cfg_none.model_name == "yolo26n-1280-e20-crowd.pt"
+    assert cfg_none.model_name == "yolo26n-1280-e5-dashcam.pt"
 
     # Only model name without @ or thresholds
     cfg_model_only = parse_mode_config("custom", "my_custom_model.pt")
@@ -74,18 +74,18 @@ def test_get_detection_mode_config_settings_resolution():
     """Verify get_detection_mode_config resolves default settings properly."""
     fast_cfg = get_detection_mode_config("fast")
     assert fast_cfg.mode == "fast"
-    assert fast_cfg.model_name == "yolo26n-1280-e20-crowd.pt"
+    assert fast_cfg.model_name == "yolo26n-1280-e5-dashcam.pt"
     assert fast_cfg.confidence_thresholds == {"face": 0.17, "plate": 0.11}
 
     # Accurate or max_privacy aliases to max_privacy
     acc_cfg = get_detection_mode_config("accurate")
     assert acc_cfg.mode == "max_privacy"
-    assert acc_cfg.model_name == "yolo26s-1280-e5-plates-frozen-x3.pt"
+    assert acc_cfg.model_name == "yolo26s-1280-e5-dashcam.pt"
     assert acc_cfg.confidence_thresholds == {"face": 0.06, "plate": 0.05}
 
     max_cfg = get_detection_mode_config("max_privacy")
     assert max_cfg.mode == "max_privacy"
-    assert max_cfg.model_name == "yolo26s-1280-e5-plates-frozen-x3.pt"
+    assert max_cfg.model_name == "yolo26s-1280-e5-dashcam.pt"
     assert max_cfg.confidence_thresholds == {"face": 0.06, "plate": 0.05}
 
     # Unknown mode falls back to fast

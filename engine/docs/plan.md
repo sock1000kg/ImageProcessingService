@@ -62,8 +62,8 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
       ảnh có thể nằm trong dataset khác hoặc mirror khác. Ưu tiên train trên một dataset biển số VN khác; nếu buộc phải dùng repo UET thì báo **[Cần
       Infra]** để chia lại (ví dụ train trên `Test`, benchmark chỉ dùng `Valid`).
     - Ghi rõ dataset, split và số ảnh đã dùng để train vào `engine/docs/`, để báo cáo nêu được là kết quả đo trên dữ liệu model chưa từng thấy.
-- [x] Fine-tune YOLO26n / YOLO26s (nâng cấp vượt bậc so với YOLOv8n ban đầu). Báo cáo mAP@50 tổng và **theo từng lớp**, precision/recall chi tiết lưu tại `engine/training/results/README.md` và `engine/training/bench/comparison.md`.
-- [x] So sánh với `yolov8n-oiv7` trên cùng tập test (nhất là biển số VN 2 dòng, góc nghiêng, ngược sáng): chạy benchmark (`engine/training/bench.py`, `compare.py`, `accuracy/evaluate.py`) với `YOLO_MODEL_NAME` trỏ tới trọng số mới, so sánh chuẩn mực với deface và model gốc OIV7.
+- [x] Fine-tune YOLO26n / YOLO26s (nâng cấp vượt bậc so với YOLOv8n ban đầu). Báo cáo mAP@50 tổng và **theo từng lớp**, precision/recall chi tiết lưu tại `engine/training/detection/results/README.md` và `engine/training/detection/bench/comparison.md`.
+- [x] So sánh với `yolov8n-oiv7` trên cùng tập test (nhất là biển số VN 2 dòng, góc nghiêng, ngược sáng): chạy benchmark (`engine/training/detection/bench.py`, `compare.py`, `accuracy/evaluate.py`) với `YOLO_MODEL_NAME` trỏ tới trọng số mới, so sánh chuẩn mực với deface và model gốc OIV7.
 - [x] Đạt ngưỡng → xuất model ra `engine/models/yolo26n-1280-e20-crowd.pt` và `engine/models/yolo26s-1280-e5-plates-frozen-x3.pt`, nạp linh hoạt qua env `YOLO_MODEL_NAME` + bảng map lớp. Field `model` trong `resultSummary` ghi nhận chính xác tên model và ngưỡng chạy.
 
 ---
@@ -92,8 +92,8 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
 
   | Chế độ | Model | Ngưỡng mặt | Ngưỡng biển số |
   | --- | --- | --- | --- |
-  | `fast` (Mặc định) | `yolo26n-1280-e20-crowd.pt` | 0.17 | 0.11 |
-  | `max_privacy` | `yolo26s-1280-e5-plates-frozen-x3.pt` | 0.06 | 0.05 |
+  | `fast` (Mặc định) | `yolo26n-1280-e5-dashcam.pt` (trước 20/11: `yolo26n-1280-e20-crowd.pt`) | 0.17 | 0.11 |
+  | `max_privacy` | `yolo26s-1280-e5-dashcam.pt` (trước 20/11: `yolo26s-1280-e5-plates-frozen-x3.pt`) | 0.06 | 0.05 |
 
   Ngưỡng theo class trong `processors/image_redact.py`: `model.predict(conf=` ngưỡng thấp nhất `)`, rồi lọc từng box theo ngưỡng của class đó (label đã có trong vòng lặp). Worker chỉ nạp model mà job cần, lúc dùng lần đầu, giữ một model và đổi khi job sau dùng chế độ khác (nạp lại ~1-2 s); giữ RAM luôn <= 1.5 GB. `resultSummary.model` ghi model và ngưỡng thật đã chạy. Image engine cần Ultralytics >= 8.4 (YOLO26).
 

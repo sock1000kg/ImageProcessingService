@@ -89,6 +89,9 @@ docker compose -f ".\infra\docker-compose.yaml" up -d
 docker compose -f ".\infra\docker-compose.yaml" ps
 ```
 
+To run the whole app the same way instead (web on http://localhost:3000 and both Engine workers, built from this
+checkout; sign-up key `local`): `docker compose -f ".\infra\docker-compose.yaml" --profile app up -d --build`.
+
 Expected running services:
 
 ```text

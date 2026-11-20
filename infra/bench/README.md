@@ -374,7 +374,7 @@ Each run folder contains:
 
 ## 8. Accuracy
 
-The accuracy benchmark (precision/recall/AP, privacy recall, review warnings) moved to [`engine/training/accuracy`](../../engine/training/accuracy/README.md); every scored run (ours and deface's) and the comparison are in [`engine/training/bench/`](../../engine/training/bench/comparison.md). It still uses this folder's dataset (`dataset/fetch.sh --labels`). Results here are throughput only.
+The accuracy benchmark (precision/recall/AP, privacy recall, review warnings) moved to [`engine/training/detection/accuracy`](../../engine/training/detection/accuracy/README.md); every scored run (ours and deface's) and the comparison are in [`engine/training/detection/bench/`](../../engine/training/detection/bench/comparison.md). It still uses this folder's dataset (`dataset/fetch.sh --labels`). Results here are throughput only.
 
 ## 9. Benchmarking trained models (accuracy + throughput)
 
@@ -393,10 +393,10 @@ All commands from the repo root.
 | 2a. Compare a selection | `python3 infra/bench/summarize.py <run dir> <run dir> … [--deface <deface run dirs>] --table-only --out infra/bench/results/<name>.md` | that file |
 | 2b. Compare everything for the report | `bash infra/bench/compare/comparison.sh` (new runs are picked up from their `<model>/<size>px/` folders; row names start with the model) | raw tables in `infra/bench/results/comparison.md` (the final comparison below them is written by hand) |
 | 3. CPU cost per model (no cluster) | `engine/training/.venv/bin/python infra/bench/compare/cpu_speed.py yolo --weights engine/models/<file>@1280 …` (`--device 0`: GPU); for the report, add it to `WEIGHTS` in `compare/comparison.sh` | printed rows / the CPU table in `comparison.md` |
-| 4. Accuracy through the pipeline (optional) | step 1 plus `--confidence 0.05 --save-detections --out "$PWD/engine/training/bench/<exp>-<run>@1280-pipeline"`, then `engine/training/.venv/bin/python engine/training/compare.py` | `engine/training/bench/` (`detections.jsonl.gz`, `accuracy.md`, `comparison.md`) |
+| 4. Accuracy through the pipeline (optional) | step 1 plus `--confidence 0.05 --save-detections --out "$PWD/engine/training/bench/<exp>-<run>@1280-pipeline"`, then `engine/training/.venv/bin/python engine/training/detection/compare.py` | `engine/training/detection/bench/` (`detections.jsonl.gz`, `accuracy.md`, `comparison.md`) |
 
 - Run every model through the same steps (same `--dataset`, `--workers`, `--preload`, `--imgsz`) so rows compare.
-- Step 4 is only needed to check the pipeline end to end: `engine/training/bench.py` produces the same detections without the
+- Step 4 is only needed to check the pipeline end to end: `engine/training/detection/bench.py` produces the same detections without the
   cluster (verified: the base model scores identically both ways), so model-vs-model accuracy is faster there.
 - **Lab**: there is no mount; the model has to be in the engine image (Engine), selected with `YOLO_MODEL_NAME` /
   `YOLO_IMGSZ`. Then step 1 without `--model`, with `--machine home-server`.

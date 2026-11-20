@@ -41,7 +41,7 @@ Mỗi mục theo format **Vấn đề → Lựa chọn → Quyết định → V
 - **Cách đo:** mọi mô hình được chấm trên cùng một bộ benchmark 3.726 ảnh chưa từng đưa vào huấn luyện (3.226 ảnh
   WIDER val + 500 ảnh biển số VN), **ở cùng độ chính xác (precision) mặt = 0,79**, nên so sánh được trực tiếp. Chỉ số
   "privacy" là tỉ lệ mặt (biển số) được che từ 70% diện tích trở lên. Dữ liệu huấn luyện: WIDER FACE train (12.225
-  ảnh) + biển số VN (3.428 ảnh). (`engine/training/results/README.md`, `engine/training/bench/comparison.md`)
+  ảnh) + biển số VN (3.428 ảnh). (`engine/training/detection/results/README.md`, `engine/training/detection/bench/comparison.md`)
 
 | Bước | Thử gì | Face AP | Mặt được che | Biển được che |
 | :--- | :--- | :---: | :---: | :---: |
@@ -69,8 +69,16 @@ Mỗi mục theo format **Vấn đề → Lựa chọn → Quyết định → V
 
 | Chế độ | Mô hình | Ngưỡng mặt | Ngưỡng biển số |
 | :--- | :--- | :---: | :---: |
-| Fast | YOLO26n | 0,17 | 0,11 |
-| Maximum privacy | YOLO26s (frozen ×3), ngưỡng rất thấp | 0,06 | 0,05 |
+| Fast | YOLO26n (e5-dashcam) | 0,17 | 0,11 |
+| Maximum privacy | YOLO26s (e5-dashcam), ngưỡng rất thấp | 0,06 | 0,05 |
+
+- **Cập nhật 20/11 (bước 8): huấn luyện thêm trên khung hình dashcam.** Bộ biển số dùng để huấn luyện và bộ benchmark ảnh
+  đều là ảnh cận cảnh (biển rộng ~20% ảnh), trong khi biển trên dashcam chỉ ~2% khung hình. 468 khung dashcam được gán nhãn
+  bằng CVAT (250 khung BDD100K và 218 khung từ hai clip giao thông Việt Nam), huấn luyện tiếp từ chính model của từng chế độ,
+  giữ dữ liệu cũ và đóng băng backbone. Mặt không đổi; biển đọc được (rộng từ 40 px) bị sót trên video giảm ~4 lần với
+  YOLO26s (9,8% → 2,3%; 32,8% → 9,4%), ~2 lần với YOLO26n; biển bị che một phần 30,6% → 11,9%. Cái giá: logo trên đồng hồ
+  xe của chính người quay bị che (chỉ ảnh hưởng thẩm mỹ); thêm ảnh đồng hồ làm mẫu âm không sửa được với YOLO26s.
+  (`engine/training/video/results/comparison.md`, mục "Dashcam fine-tune and allow-list fixes".)
 
 - **Vì sao:** Ở cùng precision của deface (0,64), Fast che 80,4% số mặt so với 72,3% của deface, và Accurate 82,7%.
   Tách hai chế độ để người dùng đổi tốc độ lấy độ an toàn: ngưỡng thấp hơn = bắt thêm mặt mờ/nhỏ nhưng che nhầm nhiều
@@ -93,14 +101,22 @@ Mỗi mục theo format **Vấn đề → Lựa chọn → Quyết định → V
 - **Mô hình riêng cho hai lớp, đầu vào 1280 px** (mục B): fine-tune trên dữ liệu mặt đám đông + biển số VN; ngưỡng tin
   cậy theo từng lớp (mặt 0,17, biển 0,11) thay vì một ngưỡng chung, vì biển số có điểm thấp hơn mặt nhưng vẫn đáng giữ.
 - **Dữ liệu cho mặt nhỏ:** 45 ảnh đám đông (> 300 mặt/ảnh) bị loại vì tràn bộ nhớ GPU được cắt thành 236 ô và thêm lại.
-- **Lọc nhiễu thật sự gặp trên video hành trình:** bộ lọc "phụ kiện buồng lái" bỏ các box `face` tròn nằm ở góc dưới
-  bên phải (đèn trợ sáng xe máy bị nhận nhầm là mặt), gỡ 533 khung bị che nhầm.
+- **Không lọc theo vị trí trong khung hình.** Từng có bộ lọc "phụ kiện buồng lái" bỏ mọi box `face` gần vuông ở góc dưới
+  bên phải (để tránh che nhầm đèn trợ sáng xe máy). Bộ lọc này chạy trên mọi video nên bỏ cả mặt người thật đứng ở vị
+  trí đó: trên một clip điện thoại, 83 khung mặt người lạ bị lộ. Đã gỡ, vì che nhầm một chiếc đèn rẻ hơn lộ một khuôn mặt
+  (`engine/training/video/results/comparison.md`).
 - **Video: theo dõi thay vì phát hiện từng khung.** ByteTrack gán `trackId` cho mỗi người/biển số; mất phát hiện vài
   khung thì nội suy box; giữ vết che thêm ~200 ms hai phía mỗi chuỗi phát hiện để mặt không lộ khi vừa xuất hiện hoặc
   vừa khuất. Box có điểm thấp vẫn được giữ nếu track đã tồn tại (khôi phục điểm thấp), box không có ID được nối với
   track cũ bằng IoU > 0,4 trước khi tạo ID mới.
+  Model và ByteTrack chạy riêng: ByteTrack chỉ trả về track đã xác nhận, nên khung đầu của mỗi vật mới và phát hiện chưa
+  vào track nào từng bị bỏ mất. Nay mọi phát hiện đạt ngưỡng của lớp đều được che, có ID hay không (mặt bị sót trên
+  clip điện thoại 1,9-5,0% → 0-0,4%, biển số 22,8% → 10,6%; `engine/training/video/results/comparison.md`).
 - **Whitelist mặt theo track, không theo khung:** nhúng ArcFace một lần ở khung đẹp nhất của track (xét diện tích,
   confidence và độ sắc nét Laplacian), gán nhãn cho cả track. Giảm 99,94% số lần gọi model so với quét từng khung.
+- **Ngưỡng whitelist mặt mặc định 0,45** (`DEFAULT_FACE_SIMILARITY`): trên LFW (600 chủ, 1,8 triệu cặp người lạ), người lạ
+  đạt 0,45 chỉ ~3 lần trên 1.000.000 lần so sánh, nên một video có 1.000 mặt lạ và 5 người trong danh sách chỉ ~2% khả năng
+  lọt một người. Cái giá là giữ chủ: 84% ở ảnh đầy đủ, 35% khi mặt rộng 40 px; khi phân vân thì che (hợp đồng tích hợp).
 - **Whitelist biển số bằng OCR, thiết kế quanh các lỗi thật của biển VN** (`engine/docs/plate-ocr-technical-report.md`):
   - RapidOCR (PP-OCRv4, ONNX) chỉ ở chế độ **nhận dạng** trên crop YOLO đã có (chạy thêm text detector làm lặp ký tự,
     chậm hơn 10 lần).
@@ -111,6 +127,13 @@ Mỗi mục theo format **Vấn đề → Lựa chọn → Quyết định → V
     Levenshtein ≤ 1 cho chuỗi dài, nhưng chỉ khi OCR đủ chắc.
   - Kết quả: 100% (80/80) trên tập biển UET tự gán nhãn, 88,6% trên 536 biển xe máy/ô tô, ~73 ms/biển (nhanh hơn 10,4
     lần so với pipeline đầy đủ), RAM ~175 MB, thay thế Tesseract (18,3%).
+  - **OCR đọc các crop rộng nhất của cả track, không phải 5 khung đầu.** Khung đầu thường là lúc biển mới xuất hiện,
+    nhỏ hoặc bị che; chữ đọc sai từ đó từng làm một track dài trên biển của chủ xe bị coi là người lạ (giữ biển chủ xe trên
+    clip `plate-test2`: 34% → 82%). Không đặt độ rộng tối thiểu: OCR + so khớp mờ vẫn khớp được biển 37 px.
+  - **Mất dấu lâu hơn 167 ms rồi gặp lại thì tính là track mới.** ByteTrack giữ ID bị mất ~2 giây và có thể gán lại cho
+    biển khác (thấy thật: một ID từ biển xe lạ chuyển sang biển chủ xe). Mỗi đoạn được quyết định riêng; không dùng ngưỡng
+    khoảng cách (người đi khuất sau người khác rồi hiện ở chỗ khác vẫn là một người). Khoảng mất dấu vẫn được ghi vào
+    `gapRanges` của đoạn trước, nên cảnh báo trên web không đổi.
   - **Kế thừa quỹ đạo có kiểm soát:** một track biển số chỉ được "kế thừa" trạng thái whitelist từ track đã khớp OCR
     trực tiếp khi nằm trong 1,5× kích thước và không có track nào đọc ra chữ xung đột. Chặn việc xe lạ đi qua bị
     miễn che do dây chuyền kế thừa.

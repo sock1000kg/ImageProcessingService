@@ -151,6 +151,15 @@ def test_invalid_input_file():
     except InvalidInputFileError as e:
         print(f"  ✅ Corrupt data correctly raised InvalidInputFileError: {e}")
 
+    # A video sent to the image pool: the message must say it is not an image, not name Ultralytics' HEIC plugin
+    try:
+        processor.process(b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2mp41" + b"\x00" * 64,
+                          params={}, output_key="result.jpg")
+        assert False, "Should have raised InvalidInputFileError for an MP4"
+    except InvalidInputFileError as e:
+        assert "not a JPEG, PNG or WEBP image" in str(e) and "pi_heif" not in str(e), str(e)
+        print(f"  ✅ MP4 bytes correctly raised InvalidInputFileError: {e}")
+
     print("=> TEST 4 PASSED!\n")
 
 

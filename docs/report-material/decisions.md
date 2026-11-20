@@ -291,7 +291,7 @@ chỉ để con người xác nhận hai loại sai: che nhầm người quen, h
 ### G.4 Chọn `ack_wait` / `max_deliver`
 - **Vấn đề:** Job video chạy hàng phút, job ảnh nhanh, event backend xử lý rất nhanh.
 - **Quyết định:** `video-workers` 5 phút, `image-workers` 1 phút, `backend-job-events` 30 giây; `max_deliver` lần lượt
-  5 / 5 / 10. Phía Engine, một job còn có thời hạn riêng (`JOB_DEADLINE_SECONDS`: 300 s cho ảnh, 3600 s cho video).
+  5 / 5 / 10. Phía Engine, một job còn có thời hạn riêng (`JOB_DEADLINE_SECONDS`: 300 s cho ảnh, 10800 s cho video). Quá hạn thì job báo `JOB_TIMEOUT` một lần, không bị giao lại.
 - **Vì sao:** `ack_wait` phải dài hơn thời gian xử lý thật để không giao lại giữa chừng; event cần fail-fast để backend
   không bị nghẽn.
 

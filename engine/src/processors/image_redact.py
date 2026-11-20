@@ -15,6 +15,7 @@ from .base import (
     DEFAULT_REVIEW_THRESHOLD,
     DEFAULT_REDACTION_STRENGTHS,
     apply_redaction_style,
+    describe_image_error,
     get_detection_mode_config,
 )
 from .face_embedding import FaceEmbedder
@@ -188,7 +189,7 @@ class ImageRedactProcessor(BaseProcessor):
             elif pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
         except Exception as e:
-            raise InvalidInputFileError(f"Cannot identify or decode image file: {e}")
+            raise InvalidInputFileError(f"Cannot identify or decode image file: {describe_image_error(e)}")
 
         orig_w, orig_h = pil_img.size
         if orig_w <= 0 or orig_h <= 0:

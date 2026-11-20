@@ -401,6 +401,55 @@ def test_worker_image_render_invalid_box_emits_failure():
     print("  -> PASS: Bắt đúng mã lỗi INVALID_INPUT_FILE khi box sai quy cách.")
 
 
+def test_worker_deadline_reports_job_timeout():
+    """A job past JOB_DEADLINE_SECONDS fails once with JOB_TIMEOUT and is ACKed (not redelivered), then the worker exits."""
+    import time
+    import src.main as worker_main
+
+    class SlowProcessor:
+        def process(self, input_bytes, params, output_key, storage, on_progress):
+            time.sleep(0.5)
+            return b"out", {}, "video/mp4"
+
+    worker = EngineWorker(pool_type="video")
+    worker.storage = MockStorageClient()
+    worker.messaging = MockMessagingClient()
+    worker.processors = {"video-redact": SlowProcessor()}
+    worker.storage.buckets["uploads"]["in.mp4"] = b"DUMMY"
+    command = {
+        "jobId": "job-vid-timeout",
+        "batchId": "batch-t",
+        "type": "video-redact",
+        "input": {"bucket": "uploads", "key": "in.mp4"},
+        "output": {"bucket": "results", "key": "out.mp4"},
+        "params": {},
+    }
+
+    exits = []
+
+    def fake_exit(code):
+        # The real worker process dies here; stop the heartbeat instead so the test can inspect what was sent.
+        exits.append(code)
+        raise asyncio.CancelledError()
+
+    real_sleep, real_exit, real_deadline = asyncio.sleep, worker_main.os._exit, worker_main.settings.job_deadline_seconds
+    asyncio.sleep = lambda _seconds: real_sleep(0.01)  # the heartbeat checks every 15 s; check at once
+    worker_main.os._exit = fake_exit
+    worker_main.settings.job_deadline_seconds = 0
+    try:
+        msg = MockNatsMessage(command)
+        asyncio.run(worker.handle_job(msg))
+    finally:
+        asyncio.sleep, worker_main.os._exit = real_sleep, real_exit
+        worker_main.settings.job_deadline_seconds = real_deadline
+
+    assert exits == [1], "the worker must still exit: the processing thread cannot be stopped"
+    failed = [e for e in worker.messaging.events if e["status"] == "FAILED"]
+    assert failed and failed[0]["error"]["code"] == "JOB_TIMEOUT", worker.messaging.events
+    assert msg.acked is True and msg.naked is False, "a timeout must not be delivered again"
+    print("  -> PASS: JOB_TIMEOUT emitted once and ACKed.")
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY KIỂM THỬ TÍCH HỢP WORKER E2E (GIAI ĐOẠN 6)")
@@ -412,6 +461,7 @@ if __name__ == "__main__":
     test_processor_registry_pools()
     test_worker_image_render_success()
     test_worker_image_render_invalid_box_emits_failure()
+    test_worker_deadline_reports_job_timeout()
     print("==================================================")
-    print("✅ TOÀN BỘ 7/7 TEST CASES WORKER E2E PASS 100%!")
+    print("✅ TOÀN BỘ 8/8 TEST CASES WORKER E2E PASS 100%!")
     print("==================================================")

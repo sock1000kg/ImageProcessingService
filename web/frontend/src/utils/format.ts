@@ -35,6 +35,13 @@ export function formatJobErrorMessage(error?: { code?: string; message?: string 
     }
     return error.message;
   }
+  // The Engine stops a job at its pool's time limit; the same settings would only run out of time again.
+  if (error.code === "JOB_TIMEOUT") {
+    return `${error.message || "Processing took too long"}. Try Fast mode, or a shorter or lower-resolution file.`;
+  }
+  if (error.code === "WORKER_CRASHED") {
+    return "The worker stopped while processing this file, several times in a row. Retry it, or try Fast mode.";
+  }
   return error.message ?? "";
 }
 

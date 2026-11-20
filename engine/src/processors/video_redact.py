@@ -497,7 +497,7 @@ class VideoProbe:
     def probe(video_path: str, ffprobe_bin: str = "ffprobe", ffmpeg_bin: str = "ffmpeg") -> VideoMetadata:
         """Extract metadata from video file."""
         if not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
-            raise InvalidInputFileError(f"Video file is empty or does not exist: {video_path}")
+            raise InvalidInputFileError("Video file is empty or missing")
 
         resolved_ffprobe = resolve_ffprobe_bin(ffprobe_bin)
         metadata = VideoProbe._probe_with_ffprobe(video_path, resolved_ffprobe)
@@ -573,7 +573,7 @@ class VideoProbe:
     def _probe_with_opencv(video_path: str, ffmpeg_bin: str) -> VideoMetadata:
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
-            raise InvalidInputFileError(f"Cannot identify or decode video file: {video_path}")
+            raise InvalidInputFileError("Cannot identify or decode video file: not a readable MP4 video")
 
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -1257,7 +1257,7 @@ class VideoRedactProcessor(BaseProcessor):
         """Pass 1: Detect and track faces/plates across all frames using ByteTrack."""
         cap = cv2.VideoCapture(input_video_path)
         if not cap.isOpened():
-            raise InvalidInputFileError(f"Cannot read video stream from {input_video_path}")
+            raise InvalidInputFileError("Cannot read the video stream: not a readable MP4 video")
 
         track_mgr = TrackManager(fps=metadata.fps, orig_w=metadata.width, orig_h=metadata.height)
         model = self._get_model()
@@ -1406,7 +1406,7 @@ class VideoRedactProcessor(BaseProcessor):
         """Pass 2: Apply padding, mask targets, and encode output video via FFmpeg pipe."""
         cap = cv2.VideoCapture(input_video_path)
         if not cap.isOpened():
-            raise InvalidInputFileError(f"Cannot reopen video for rendering: {input_video_path}")
+            raise InvalidInputFileError("Cannot reopen the video for rendering")
 
         ffmpeg_writer = self._create_ffmpeg_writer(
             output_video_path=output_video_path,

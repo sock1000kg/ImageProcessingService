@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 from PIL import Image
 
+from .base import describe_image_error
 from .face_embedding import FaceEmbedder
 from ..config import settings
 
@@ -125,7 +126,7 @@ class WhitelistManager:
                 pil_img = pil_img.convert("RGB")
         except Exception as e:
             raise WhitelistReferenceError(
-                f"Cannot identify or decode whitelist reference image '{ref_identifier}': {e}"
+                f"Cannot identify or decode whitelist reference image '{ref_identifier}': {describe_image_error(e)}"
             )
 
         w, h = pil_img.size

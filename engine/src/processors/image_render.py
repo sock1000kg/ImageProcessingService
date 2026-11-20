@@ -12,6 +12,7 @@ from .base import (
     BaseProcessor,
     DEFAULT_REDACTION_STRENGTHS,
     apply_redaction_style,
+    describe_image_error,
 )
 from .image_redact import InvalidInputFileError
 
@@ -94,7 +95,7 @@ class ImageRenderProcessor(BaseProcessor):
                 else:
                     img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
             except Exception as e:
-                raise InvalidInputFileError(f"Cannot identify or decode image file: {e}")
+                raise InvalidInputFileError(f"Cannot identify or decode image file: {describe_image_error(e)}")
 
         if orig_w <= 0 or orig_h <= 0 or img_bgr is None:
             raise InvalidInputFileError(f"Invalid image dimensions: {orig_w}x{orig_h}")

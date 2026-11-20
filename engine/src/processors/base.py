@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Tuple, Dict, Any, Optional, Callable
 import cv2
 import numpy as np
+from PIL import UnidentifiedImageError
 
 DEFAULT_CONFIDENCE_THRESHOLDS: Dict[str, float] = {"face": 0.17, "plate": 0.11}
 DEFAULT_REVIEW_THRESHOLD: float = 0.25
@@ -196,3 +197,15 @@ class BaseProcessor(ABC):
             content_type: MIME type of the output file (e.g. 'image/jpeg', 'video/mp4').
         """
         pass
+
+
+def describe_image_error(err: Exception) -> str:
+    """The reason an input could not be opened as an image, worded for the user.
+
+    Why: Ultralytics patches PIL's Image.open so that a file Pillow does not recognise makes it try to load the HEIC
+    plugin pi_heif (not installed). The error then names pi_heif, not the real problem: the file is not an image
+    format we accept (for example a video sent to the image pool).
+    """
+    if isinstance(err, (UnidentifiedImageError, ImportError)):
+        return "not a JPEG, PNG or WEBP image"
+    return str(err)

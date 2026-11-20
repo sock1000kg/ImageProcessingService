@@ -19,7 +19,14 @@ import {
 import { publishJob } from "../messaging";
 import { RESULTS_BUCKET, storage, UPLOADS_BUCKET } from "../storage";
 import { JobStatus } from "../generated/prisma/client";
-import { buildImageRedactCommand, buildImageRenderCommand, RenderBox, resolveOutputExtension } from "../domain";
+import {
+  buildImageRedactCommand,
+  buildImageRenderCommand,
+  buildVideoRedactCommand,
+  RenderBox,
+  resolveOutputExtension,
+} from "../domain";
+import { isVideoFilename } from "../media-types";
 import { DEFAULT_REDACTION_STRENGTHS, EditJobInput, JobResponseDTO, parseBatchConfigJson, toJobResponse } from "../dto";
 import { badRequest, conflict, gone, notFound, unavailable } from "../errors";
 import { deleteBatchById } from "./batch.service";
@@ -112,23 +119,23 @@ export async function retryFailedJob(
       : [];
 
   const batchConfig = parseBatchConfigJson(batch.config);
+  // A video goes back to the video pool, as when the batch started (startBatch); the image worker cannot read it.
+  const isVideo = isVideoFilename(failedJob.originalFilename);
+  const outputExt = isVideo ? "mp4" : resolveOutputExtension(batchConfig.format, failedJob.originalFilename);
   const retryJobId = randomUUID();
   const retryJob = {
     id: retryJobId,
     batchId: failedJob.batchId,
     originalFilename: failedJob.originalFilename,
     inputKey: failedJob.inputKey,
-    outputKey: `${failedJob.batchId}/${retryJobId}/result.${resolveOutputExtension(
-      batchConfig.format,
-      failedJob.originalFilename,
-    )}`,
+    outputKey: `${failedJob.batchId}/${retryJobId}/result.${outputExt}`,
     inputBytes: failedJob.inputBytes,
     whitelistRefs,
   };
   await insertRetryJob(retryJob);
 
   try {
-    const command = buildImageRedactCommand({
+    const command = (isVideo ? buildVideoRedactCommand : buildImageRedactCommand)({
       jobId: retryJob.id,
       batchId: retryJob.batchId,
       inputKey: retryJob.inputKey,
@@ -136,7 +143,7 @@ export async function retryFailedJob(
       config: batchConfig,
       whitelistKeys: survivingKeys,
     });
-    await publishJob("jobs.image", command);
+    await publishJob(isVideo ? "jobs.video" : "jobs.image", command);
     await updateJobQueued(retryJob.id);
   } catch (error) {
     await deleteJob(retryJob.id);
@@ -171,6 +178,11 @@ export async function editJob(id: string, userId: string, input: EditJobInput): 
 
   if (job.status !== JobStatus.COMPLETED) {
     throw conflict("Only COMPLETED jobs can be edited", "JOB_NOT_EDITABLE");
+  }
+
+  // Editing re-renders one image from its boxes; the Engine has no render job for video.
+  if (isVideoFilename(job.originalFilename)) {
+    throw conflict("Videos cannot be edited", "JOB_NOT_EDITABLE");
   }
 
   if (!(await storage.objectExists(UPLOADS_BUCKET, job.inputKey))) {

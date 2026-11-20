@@ -4,6 +4,8 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    # Ultralytics must not pip-install packages at runtime (it tries pi-heif for any file Pillow cannot open)
+    YOLO_AUTOINSTALL=false \
     MODELS_DIR=/app/models
 
 WORKDIR /app

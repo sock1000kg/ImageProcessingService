@@ -26,7 +26,7 @@ class EngineWorker:
             settings.nats_stream_name = "VIDEO_JOBS"
             settings.nats_consumer_name = "video-workers"
             settings.nats_subjects = ["jobs.video"]
-            settings.job_deadline_seconds = int(os.getenv("JOB_DEADLINE_SECONDS", "3600"))
+            settings.job_deadline_seconds = int(os.getenv("JOB_DEADLINE_SECONDS", "10800"))
         elif pool_type == "image":
             settings.nats_stream_name = "IMAGE_JOBS"
             settings.nats_consumer_name = "image-workers"
@@ -59,8 +59,27 @@ class EngineWorker:
                     if elapsed > settings.job_deadline_seconds:
                         logger.critical(
                             f"Job {job_id} exceeded deadline of {settings.job_deadline_seconds}s "
-                            f"(elapsed: {elapsed:.1f}s). Exiting worker process per contract §4!"
+                            f"(elapsed: {elapsed:.1f}s). Failing it and exiting worker process per contract §4!"
                         )
+                        # A job this slow is as slow on the next attempt, so fail it once with JOB_TIMEOUT instead of
+                        # letting NATS deliver it again. If NATS cannot be reached, exit anyway: the message is then
+                        # redelivered and ends as WORKER_CRASHED, as before.
+                        minutes = settings.job_deadline_seconds // 60
+                        try:
+                            await asyncio.wait_for(
+                                self.messaging.emit_failure_event(
+                                    job_id,
+                                    "JOB_TIMEOUT",
+                                    f"Processing did not finish within the {minutes}-minute limit",
+                                    stage="PROCESSING",
+                                    batch_id=batch_id,
+                                ),
+                                timeout=10,
+                            )
+                            await asyncio.wait_for(msg.ack(), timeout=10)
+                        except Exception as err:
+                            logger.error(f"Could not report JOB_TIMEOUT for job {job_id}: {err}")
+                        # The processing thread cannot be stopped, so the process exits and the pod restarts.
                         os._exit(1)
                     try:
                         await msg.in_progress()

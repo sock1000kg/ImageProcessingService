@@ -65,6 +65,9 @@ spec:
               value: /tmp/Ultralytics
             - name: YOLO_IMGSZ
               value: "960"
+            # 3 h: a 33 s 1440p clip in Max privacy needs about 2.5 h on this CPU. Past it the job fails with JOB_TIMEOUT.
+            - name: JOB_DEADLINE_SECONDS
+              value: "10800"
             - name: HOME
               value: /tmp
           resources:

@@ -35,6 +35,7 @@ from .base import (
     BaseProcessor,
     get_detection_mode_config,
     parse_confidence_thresholds,
+    DEFAULT_FACE_SIMILARITY,
     DEFAULT_REVIEW_THRESHOLD,
     DEFAULT_REDACTION_STRENGTHS,
     apply_redaction_style,
@@ -115,6 +116,13 @@ TRACK_HOLD_MS = 200
 def hold_frames_for_fps(fps: float) -> int:
     """Calculate hold frames around detected frames based on video frame rate."""
     return max(1, round(fps * TRACK_HOLD_MS / 1000))
+
+
+# Plate crops read by OCR for the allow list: the widest few of the whole track.
+# Why: the first frames of a track are usually the plate coming into view, small or half hidden; read alone they gave
+# garbage that made a long track on the owner's plate count as a stranger. No minimum width: OCR still matches 37 px
+# plates, and the widest crops already skip small ones when the track has larger (video bench, 2026-11-20).
+PLATE_OCR_CANDIDATES = 5
 
 
 @dataclass
@@ -209,12 +217,17 @@ class Track:
                 self.best_face_roi = face_roi.copy()
             if plate_roi is not None and plate_roi.size > 0:
                 self.best_plate_roi = plate_roi.copy()
-                if len(self.plate_candidates) < 5:
-                    self.plate_candidates.append(plate_roi.copy())
-                else:
-                    self.plate_candidates[-1] = plate_roi.copy()
-        elif plate_roi is not None and plate_roi.size > 0 and len(self.plate_candidates) < 5:
+        if plate_roi is not None and plate_roi.size > 0:
+            self._keep_plate_candidate(plate_roi)
+
+    def _keep_plate_candidate(self, plate_roi: np.ndarray):
+        """Keep the PLATE_OCR_CANDIDATES widest crops of the track (a wider crop replaces the narrowest)."""
+        if len(self.plate_candidates) < PLATE_OCR_CANDIDATES:
             self.plate_candidates.append(plate_roi.copy())
+            return
+        narrowest = min(range(len(self.plate_candidates)), key=lambda i: self.plate_candidates[i].shape[1])
+        if plate_roi.shape[1] > self.plate_candidates[narrowest].shape[1]:
+            self.plate_candidates[narrowest] = plate_roi.copy()
 
 
 class TrackManager:
@@ -225,6 +238,30 @@ class TrackManager:
         self.orig_w = orig_w
         self.orig_h = orig_h
         self.tracks: Dict[int, Track] = {}
+        # Tracker id -> id of its current piece. A tracker id lost for longer than the gap we fill in can come back on
+        # a different object (ByteTrack keeps lost ids ~2 s and re-matches them by predicted position), so a long gap
+        # starts a new piece and each piece gets its own allow-list decision. Pieces count up from SPLIT_ID_START.
+        self._piece: Dict[int, int] = {}
+        self._last_frame: Dict[int, int] = {}
+        self._next_piece_id = self.SPLIT_ID_START
+
+    SPLIT_ID_START = 900000  # clear of tracker ids and the 500000+ ids of untracked boxes
+
+    def _piece_for(self, track_id: int, frame_idx: int) -> int:
+        """The piece a detection of this tracker id belongs to; starts a new one after a gap longer than we fill in.
+
+        The gap stays visible to the reviewer: it is recorded in the ended piece's gap_ranges, as interpolate_gaps
+        does for a gap inside a track."""
+        piece = self._piece.get(track_id, track_id)
+        last = self._last_frame.get(piece)
+        if last is not None and frame_idx - last - 1 > max_gap_frames_for_fps(self.fps):
+            self.tracks[piece].gap_ranges.append([int(((last + 1) / self.fps) * 1000),
+                                                  int(((frame_idx - 1) / self.fps) * 1000)])
+            piece = self._next_piece_id
+            self._next_piece_id += 1
+            self._piece[track_id] = piece
+        self._last_frame[piece] = frame_idx
+        return piece
 
     def get_or_create_track(self, track_id: int, label: str) -> Track:
         if track_id not in self.tracks:
@@ -232,8 +269,8 @@ class TrackManager:
         return self.tracks[track_id]
 
     def has_track(self, track_id: int) -> bool:
-        """Check if track ID is already registered in active tracks."""
-        return track_id in self.tracks
+        """Check if track ID (a tracker id or a piece id) is already registered in active tracks."""
+        return self._piece.get(track_id, track_id) in self.tracks
 
     def add_detection(
         self,
@@ -247,7 +284,7 @@ class TrackManager:
         plate_roi: Optional[np.ndarray] = None,
         sharpness: float = 0.0,
     ):
-        track = self.get_or_create_track(track_id, label)
+        track = self.get_or_create_track(self._piece_for(track_id, frame_idx), label)
         track.add_detection(
             frame_idx=frame_idx,
             frame_ms=frame_ms,
@@ -659,7 +696,7 @@ class VideoRedactProcessor(BaseProcessor):
 
     def __init__(
         self,
-        model_name: str = "yolo26n-1280-e20-crowd.pt",
+        model_name: str = "yolo26n-1280-e5-dashcam.pt",
         face_embedding_model: str = "w600k_mbf.onnx",
         class_mapping: Optional[Dict[str, str]] = None,
         imgsz: int = 1280,
@@ -727,8 +764,8 @@ class VideoRedactProcessor(BaseProcessor):
             os.path.join("engine", "models", model_name),
             os.path.join("/app", "models", model_name),
             model_name,
-            "engine/models/yolo26n-1280-e20-crowd.pt",
-            "models/yolo26n-1280-e20-crowd.pt",
+            "engine/models/yolo26n-1280-e5-dashcam.pt",
+            "models/yolo26n-1280-e5-dashcam.pt",
             "engine/models/yolov8n-oiv7.pt",
             "models/yolov8n-oiv7.pt",
         ]
@@ -984,27 +1021,6 @@ class VideoRedactProcessor(BaseProcessor):
         cy2 = (b2[1] + b2[3]) / 2.0
         return float(math.hypot(cx1 - cx2, cy1 - cy2))
 
-    @staticmethod
-    def _is_vehicle_cockpit_artifact(label: str, box: List[int], width: int, height: int) -> bool:
-        """Filter out false positive detections on host vehicle accessories (e.g. handlebar spotlights).
-
-        In dashcam or chest-mounted motorbike footage, circular auxiliary lights (đèn trợ sáng)
-        under the handlebar mirror frequently trigger false positive 'Human face' detections with
-        near-square/circular bounding boxes in the lower-right cockpit quadrant.
-        """
-        if label == "face":
-            x1, y1, x2, y2 = box
-            # Spotlight is located in the host motorcycle cockpit zone (lower-right: y > 0.48*H, x in 0.50*W..0.75*W)
-            # with circular/square aspect ratio (0.70 <= w/h <= 1.35)
-            if y1 > height * 0.48 and y2 < height * 0.85:
-                if width * 0.50 <= x1 and x2 <= width * 0.75:
-                    w = x2 - x1
-                    h = y2 - y1
-                    aspect = w / h if h > 0 else 1.0
-                    if 0.70 <= aspect <= 1.35:
-                        return True
-        return False
-
     def process(
         self,
         input_bytes: bytes,
@@ -1055,7 +1071,8 @@ class VideoRedactProcessor(BaseProcessor):
         # Parse Whitelist configuration
         whitelist_cfg = params.get("whitelist", {}) if isinstance(params.get("whitelist"), dict) else {}
         face_specs = whitelist_cfg.get("faces", []) if isinstance(whitelist_cfg, dict) else []
-        similarity_threshold = float(whitelist_cfg.get("similarityThreshold", 0.45)) if isinstance(whitelist_cfg, dict) else 0.45
+        similarity_threshold = (float(whitelist_cfg.get("similarityThreshold", DEFAULT_FACE_SIMILARITY))
+                                if isinstance(whitelist_cfg, dict) else DEFAULT_FACE_SIMILARITY)
         has_face_whitelist = bool(face_specs and len(face_specs) > 0)
 
         plate_specs = whitelist_cfg.get("plates", []) if isinstance(whitelist_cfg, dict) else []
@@ -1182,6 +1199,51 @@ class VideoRedactProcessor(BaseProcessor):
 
         return output_bytes, result_summary, "video/mp4"
 
+    def _make_tracker(self, fps: float, floor: float, track_low_thresh: float):
+        """A fresh tracker for one video (no IDs carried over from the previous job).
+
+        Default ByteTrack settings for redaction: the class floor starts and keeps tracks, a 2-second buffer and
+        match_thresh 0.75 keep IDs through camera shake. Any other configured tracker YAML is used as is.
+        """
+        from ultralytics.trackers.track import TRACKER_MAP
+        from ultralytics.utils import YAML, IterableSimpleNamespace
+        from ultralytics.utils.checks import check_yaml
+
+        configured_tracker = getattr(settings, "video_tracker", self.tracker_config)
+        if configured_tracker == "bytetrack.yaml" and self.tracker_config == "bytetrack.yaml":
+            cfg = {
+                "tracker_type": "bytetrack",
+                "track_high_thresh": floor,
+                "new_track_thresh": floor,
+                "track_low_thresh": track_low_thresh,
+                "track_buffer": max(60, round(fps * 2)),
+                "match_thresh": 0.75,
+                "fuse_score": True,
+            }
+        else:
+            cfg = YAML.load(check_yaml(self.tracker_config))
+        args = IterableSimpleNamespace(**cfg)
+        return TRACKER_MAP[args.tracker_type](args=args)
+
+    @staticmethod
+    def _tracked_and_untracked(tracker, det, frame) -> List[Tuple[List[float], Optional[int], float, int]]:
+        """Run the tracker on one frame's detections; return every detection, with its track ID when it has one.
+
+        The tracker only reports confirmed tracks, so a new object's first frame and a detection that does not join
+        a track would be lost (Ultralytics' model.track() drops them). Here they come back with no ID, and the
+        caller keeps them if they reach their class threshold. Rows are (xyxy, track_id or None, conf, cls).
+        """
+        tracks = tracker.update(det, frame)
+        rows = []
+        used = set()
+        for t in tracks:
+            rows.append(([float(v) for v in t[:4]], int(t[4]), float(t[5]), int(t[6])))
+            used.add(int(t[7]))
+        for i in range(len(det)):
+            if i not in used:
+                rows.append((det.xyxy[i].tolist(), None, float(det.conf[i]), int(det.cls[i])))
+        return rows
+
     def _track_pass(
         self,
         input_video_path: str,
@@ -1200,20 +1262,6 @@ class VideoRedactProcessor(BaseProcessor):
         track_mgr = TrackManager(fps=metadata.fps, orig_w=metadata.width, orig_h=metadata.height)
         model = self._get_model()
 
-        # Reset predictor tracker state cleanly if previously cached to prevent ID collisions
-        if hasattr(model, "predictor") and model.predictor is not None:
-            if hasattr(model.predictor, "trackers"):
-                try:
-                    for t in (model.predictor.trackers or []):
-                        if hasattr(t, "reset"):
-                            t.reset()
-                except Exception:
-                    pass
-                try:
-                    delattr(model.predictor, "trackers")
-                except Exception:
-                    model.predictor.trackers = None
-
         frame_idx = 0
         total_frames = max(1, metadata.frames)
         untracked_counter = 500000
@@ -1222,27 +1270,7 @@ class VideoRedactProcessor(BaseProcessor):
         floor = min(target_thresholds) if target_thresholds else min(thresholds.values())
         track_low_thresh = min(0.05, floor)
 
-        temp_tracker_path = None
-        configured_tracker = getattr(settings, "video_tracker", self.tracker_config)
-        if configured_tracker == "bytetrack.yaml" and self.tracker_config == "bytetrack.yaml":
-            # 2-second buffer prevents ID fragmentation over vibration/camera shake.
-            # match_thresh 0.75 prevents track breakage during bumps.
-            track_buffer = max(60, round(metadata.fps * 2))
-            temp_tracker = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
-            temp_tracker.write(
-                f"tracker_type: bytetrack\n"
-                f"track_high_thresh: {floor}\n"
-                f"new_track_thresh: {floor}\n"
-                f"track_low_thresh: {track_low_thresh}\n"
-                f"track_buffer: {track_buffer}\n"
-                f"match_thresh: 0.75\n"
-                f"fuse_score: True\n"
-            )
-            temp_tracker.close()
-            temp_tracker_path = temp_tracker.name
-            active_tracker = temp_tracker_path
-        else:
-            active_tracker = self.tracker_config
+        tracker = self._make_tracker(metadata.fps, floor, track_low_thresh)
 
         try:
             while True:
@@ -1253,10 +1281,8 @@ class VideoRedactProcessor(BaseProcessor):
                 frame_ms = int((frame_idx / metadata.fps) * 1000)
 
                 try:
-                    results = model.track(
+                    results = model.predict(
                         source=frame,
-                        persist=True,
-                        tracker=active_tracker,
                         conf=track_low_thresh,
                         imgsz=imgsz or self.imgsz,
                         verbose=False,
@@ -1264,21 +1290,17 @@ class VideoRedactProcessor(BaseProcessor):
                     if not results or len(results) == 0 or results[0] is None:
                         frame_idx += 1
                         continue
-                    res = results[0]
-                    boxes = res.boxes
-                    if boxes is not None and len(boxes) > 0:
-                        for box in boxes:
-                            cls_id = int(box.cls[0].item())
+                    boxes = self._tracked_and_untracked(tracker, results[0].boxes.cpu().numpy(), frame)
+                    if boxes:
+                        for xyxy, box_id, conf, cls_id in boxes:
                             raw_label = model.names.get(cls_id, str(cls_id))
                             norm_label = self.class_mapping.get(raw_label)
 
                             if not norm_label or norm_label not in targets_set:
                                 continue
 
-                            conf = float(box.conf[0].item())
                             class_threshold = thresholds.get(norm_label, floor)
 
-                            xyxy = box.xyxy[0].tolist()
                             x1 = max(0, min(metadata.width, int(round(xyxy[0]))))
                             y1 = max(0, min(metadata.height, int(round(xyxy[1]))))
                             x2 = max(0, min(metadata.width, int(round(xyxy[2]))))
@@ -1287,15 +1309,11 @@ class VideoRedactProcessor(BaseProcessor):
                             if x2 <= x1 or y2 <= y1:
                                 continue
 
-                            # Skip false positive detections on host vehicle accessories (e.g. handlebar spotlights)
-                            if self._is_vehicle_cockpit_artifact(norm_label, [x1, y1, x2, y2], metadata.width, metadata.height):
-                                continue
-
                             # Keep a box if its confidence reaches its class's threshold,
                             # or if its track ID is already in the TrackManager (low-score recovery).
-                            # If box.id is None, perform spatial IoU recovery before creating untracked ID.
-                            if box.id is not None:
-                                track_id = int(box.id[0].item())
+                            # If box_id is None, perform spatial IoU recovery before creating untracked ID.
+                            if box_id is not None:
+                                track_id = box_id
                                 if conf < class_threshold and not track_mgr.has_track(track_id):
                                     continue
                             else:
@@ -1362,11 +1380,6 @@ class VideoRedactProcessor(BaseProcessor):
 
         finally:
             cap.release()
-            if temp_tracker_path and os.path.exists(temp_tracker_path):
-                try:
-                    os.remove(temp_tracker_path)
-                except Exception:
-                    pass
 
         # Bridge tracking dropouts and record gaps
         track_mgr.interpolate_gaps()

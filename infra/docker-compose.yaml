@@ -1,7 +1,10 @@
 # Local parity environment for teammates (no Kubernetes needed).
 #
 #   cp infra/.env.example infra/.env     # then edit if you like
-#   docker compose -f infra/docker-compose.yaml up -d
+#   docker compose -f infra/docker-compose.yaml up -d                            # services: NATS, Postgres, MinIO
+#   docker compose -f infra/docker-compose.yaml --profile app up -d --build      # + web (http://localhost:3000) and
+#                                                                                #   both Engine workers, built from here
+#   (the app profile also needs --profile app on stop/down/logs; run web or the Engine from source without it)
 #   docker compose -f infra/docker-compose.yaml run --rm nats-setup    # idempotent re-run
 #   docker compose -f infra/docker-compose.yaml run --rm minio-setup
 #   docker compose -f infra/docker-compose.yaml down -v
@@ -87,6 +90,69 @@ services:
       - ./app/minio/setup-buckets.sh:/scripts/setup-buckets.sh:ro
     entrypoint: ["/bin/sh", "/scripts/setup-buckets.sh"]
     restart: "no"
+
+  # --- the application: same images and settings as the lab (infra/app/web, infra/app/engine-workers) ---
+  web:
+    profiles: [app]
+    build: ../web
+    image: imgproc-web:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-setup:
+        condition: service_completed_successfully
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      PORT: "3000"
+      DATABASE_URL: postgresql://imgproc:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/.env}@postgres:5432/imgproc
+      NATS_URL: nats://nats:4222
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in infra/.env}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in infra/.env}
+      # presigned URLs are opened by the browser, so they point at the host port, not the compose network
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      # signs login tokens; this default is for a local machine only (set JWT_SECRET in infra/.env to change it)
+      JWT_SECRET: ${JWT_SECRET:-local-only-jwt-secret-not-for-deployment-0000}
+      COOKIE_SECURE: "false"  # plain http on localhost
+      # the sign-up page asks for this key; without one registration is disabled (set REGISTER_KEY in infra/.env)
+      REGISTER_KEY: ${REGISTER_KEY:-local}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  image-worker: &engine-worker
+    profiles: [app]
+    build: ../engine
+    image: imgproc-engine:local
+    depends_on:
+      nats-setup:
+        condition: service_completed_successfully
+      minio-setup:
+        condition: service_completed_successfully
+    environment: &engine-env
+      NATS_URL: nats://nats:4222
+      NATS_STREAM_NAME: IMAGE_JOBS
+      NATS_CONSUMER_NAME: image-workers
+      NATS_SUBJECTS: jobs.image
+      NATS_EVENTS_SUBJECT: jobs.events
+      MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in infra/.env}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in infra/.env}
+      YOLO_CONFIG_DIR: /tmp/Ultralytics
+      HOME: /tmp
+    restart: unless-stopped
+
+  video-worker:
+    <<: *engine-worker
+    environment:
+      <<: *engine-env
+      NATS_STREAM_NAME: VIDEO_JOBS
+      NATS_CONSUMER_NAME: video-workers
+      NATS_SUBJECTS: jobs.video
 
 volumes:
   nats-data:

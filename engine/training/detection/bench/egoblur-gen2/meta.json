@@ -1,0 +1,12 @@
+{
+  "mode": "local",
+  "tool": "EgoBlur Gen2 (camera-rgb resize 1200)",
+  "weights": [
+    "ego_blur_face_gen2.jit",
+    "ego_blur_lp_gen2.jit"
+  ],
+  "dataset": "max",
+  "confidence_threshold": 0.05,
+  "padding": 0.1,
+  "seconds": 2258
+}

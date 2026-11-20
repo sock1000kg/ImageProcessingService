@@ -89,6 +89,7 @@ Hệ thống loại bỏ hoàn toàn các chuỗi fallback cồng kềnh (Paddle
    - Khống chế khoảng cách tâm ngặt nghèo $\le 1.5 \times \text{size}$ (không dùng ngưỡng cố định $300\text{px}$).
    - Bác bỏ kế thừa nếu track liền kề nhận diện được bất kỳ ký tự nào ($\ge 3$ ký tự) xung đột với biển số quen, bảo đảm xe lạ vượt qua luôn luôn bị che.
 6. **Bộ lọc phụ kiện buồng lái/ghi-đông (`_is_vehicle_cockpit_artifact`):**
+   - **Đã gỡ (2026-11-18):** bộ lọc chạy trên mọi video và bỏ cả mặt người thật ở vùng đó (83 khung mặt người lạ bị lộ trên một clip điện thoại, `engine/training/video/results/comparison.md`).
    - Loại trừ các phát hiện nhãn `face` hình tròn ($0.70 \le w/h \le 1.35$) nằm ở góc dưới bên phải thuộc buồng lái xe chủ ($y > 0.48H, x \in [0.50W, 0.75W]$), giải quyết triệt để 533 frames bị che nhầm đèn trợ sáng xe máy.
 
 ---

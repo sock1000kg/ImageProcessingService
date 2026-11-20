@@ -11,6 +11,7 @@ from PIL import Image
 from .base import (
     BaseProcessor,
     parse_confidence_thresholds,
+    DEFAULT_FACE_SIMILARITY,
     DEFAULT_REVIEW_THRESHOLD,
     DEFAULT_REDACTION_STRENGTHS,
     apply_redaction_style,
@@ -46,7 +47,7 @@ class ImageRedactProcessor(BaseProcessor):
 
     def __init__(
         self,
-        model_name: str = "yolo26n-1280-e20-crowd.pt",
+        model_name: str = "yolo26n-1280-e5-dashcam.pt",
         face_embedding_model: str = "w600k_mbf.onnx",
         class_mapping: Optional[Dict[str, str]] = None,
         imgsz: int = 1280,
@@ -82,8 +83,8 @@ class ImageRedactProcessor(BaseProcessor):
             os.path.join("engine", "models", model_name),
             os.path.join("/app", "models", model_name),
             model_name,
-            os.path.join("engine", "models", "yolo26n-1280-e20-crowd.pt"),
-            os.path.join("models", "yolo26n-1280-e20-crowd.pt"),
+            os.path.join("engine", "models", "yolo26n-1280-e5-dashcam.pt"),
+            os.path.join("models", "yolo26n-1280-e5-dashcam.pt"),
             os.path.join("engine", "models", "yolov8n-oiv7.pt"),
             os.path.join("models", "yolov8n-oiv7.pt"),
         ]
@@ -98,7 +99,7 @@ class ImageRedactProcessor(BaseProcessor):
         Complies with K8s RAM constraint (<= 1.5GB/Pod):
         - Holds only 1 YOLO model instance in memory at a time.
         - If target_model_name matches currently loaded model (e.g. consecutive jobs
-          sharing 'yolo26s-1280-e5-plates-frozen-x3.pt' or 'yolo26n-1280-e20-crowd.pt'),
+          sharing 'yolo26s-1280-e5-dashcam.pt' or 'yolo26n-1280-e5-dashcam.pt'),
           reuses the instance immediately with 0 reload latency and 0 extra RAM.
         - If a different model is requested, drops old model, forces garbage collection,
           and loads the new weights.
@@ -244,7 +245,8 @@ class ImageRedactProcessor(BaseProcessor):
         whitelist_cfg = params.get("whitelist", {}) if params else {}
         face_specs = whitelist_cfg.get("faces", []) if isinstance(whitelist_cfg, dict) else []
         plate_specs = whitelist_cfg.get("plates", []) if isinstance(whitelist_cfg, dict) else []
-        similarity_threshold = float(whitelist_cfg.get("similarityThreshold", 0.45)) if isinstance(whitelist_cfg, dict) else 0.45
+        similarity_threshold = (float(whitelist_cfg.get("similarityThreshold", DEFAULT_FACE_SIMILARITY))
+                                if isinstance(whitelist_cfg, dict) else DEFAULT_FACE_SIMILARITY)
         has_face_whitelist = bool(face_specs and len(face_specs) > 0)
         has_plate_whitelist = bool(plate_specs and len(plate_specs) > 0)
 

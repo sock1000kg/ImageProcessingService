@@ -3,7 +3,7 @@
 > End-to-end runs through the real pipeline (web API → NATS → engine workers on k3s → MinIO/Postgres) with
 > `infra/bench/run.sh`, summarised by `summarize.py`, plus a model-only CPU timing (`compare/cpu_speed.py`).
 > Laptop = RTX 3050 Laptop 4 GB, i5-12500H (development). Lab = `home-server` (Intel i5-7200U, 2 cores / 4 threads, CPU
-> only, shared with the rest of the lab; workers 1 CPU / 1.5 GiB). Accuracy: `engine/training/bench/comparison.md`.
+> only, shared with the rest of the lab; workers 1 CPU / 1.5 GiB). Accuracy: `engine/training/detection/bench/comparison.md`.
 > Regenerate the raw part with `bash infra/bench/compare/comparison.sh`.
 
 <!-- generated:start (bash infra/bench/compare/comparison.sh) -->
@@ -257,7 +257,7 @@ CPU gives the gains above, the lab would not gain much), then fewer round trips 
 ### Against deface
 
 deface (CenterFace, v1.5.0) run on the same laptop and images: its own CLI on local files, default threshold 0.2, no pipeline
-around it, one process. Accuracy from `engine/training/bench/comparison.md`, at deface's precision so it compares fairly.
+around it, one process. Accuracy from `engine/training/detection/bench/comparison.md`, at deface's precision so it compares fairly.
 
 | Tool | Speed (img/min) | At face precision 0.64: all faces | Faces ≥ 16 px | Plates |
 | --- | --- | --- | --- | --- |

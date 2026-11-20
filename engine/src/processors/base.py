@@ -18,16 +18,23 @@ class DetectionModeConfig:
     confidence_thresholds: Dict[str, float]
 
 
+# Face allow list: cosine similarity a face needs to a reference photo to stay visible (job param similarityThreshold).
+# Why 0.45: on LFW (600 owners, 1.8 M stranger pairs, engine/training/whitelist/face/results/) a stranger reaches it in
+# about 3 of 1,000,000 comparisons, so a video with 1,000 stranger faces and 5 people on the list leaks one only ~2 %
+# of the time. The owner is kept in 84 % of tests at full size but only 35 % at 40 px: when in doubt, blur (contract).
+DEFAULT_FACE_SIMILARITY = 0.45
+
+
 def parse_mode_config(
     mode_name: str,
     config_str: str,
-    default_model: str = "yolo26n-1280-e20-crowd.pt",
+    default_model: str = "yolo26n-1280-e5-dashcam.pt",
     default_imgsz: int = 1280,
 ) -> DetectionModeConfig:
     """Parse configuration string in format '<model_name>@<imgsz>:face=<conf>,plate=<conf>'.
 
     Example:
-        'yolo26n-1280-e20-crowd.pt@1280:face=0.17,plate=0.11'
+        'yolo26n-1280-e5-dashcam.pt@1280:face=0.17,plate=0.11'
     """
     config_str = (config_str or "").strip()
     model_name = default_model
@@ -92,11 +99,11 @@ def get_detection_mode_config(mode: Optional[str] = "fast") -> DetectionModeConf
     norm_mode = (mode or "fast").lower().strip()
     if norm_mode in ("max_privacy", "accurate"):
         raw_cfg = settings.mode_max_privacy
-        default_model = "yolo26s-1280-e5-plates-frozen-x3.pt"
+        default_model = "yolo26s-1280-e5-dashcam.pt"
         return parse_mode_config("max_privacy", raw_cfg, default_model=default_model)
     else:
         raw_cfg = settings.mode_fast
-        default_model = "yolo26n-1280-e20-crowd.pt"
+        default_model = "yolo26n-1280-e5-dashcam.pt"
         return parse_mode_config("fast", raw_cfg, default_model=default_model)
 
 

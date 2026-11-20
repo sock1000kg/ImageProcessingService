@@ -1,0 +1,1184 @@
+{
+ "model": "yolo26s-1280-e5-dashcam.pt",
+ "owners": 600,
+ "photos": 3000,
+ "no_face_photos": 0,
+ "runs": {
+  "enrol1/margin0.00/clean": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.558763712644577,
+   "stranger_similarity_p99": 0.18330447480082512,
+   "stranger_similarity_max": 0.9595221281051636,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.9733333333333334,
+     "stranger_leaked_1": 9.790832220738763e-05,
+     "stranger_leaked_5": 0.0008666666666666666
+    },
+    "0.35": {
+     "owner_kept": 0.9533333333333334,
+     "stranger_leaked_1": 1.1125945705384958e-05,
+     "stranger_leaked_5": 6.666666666666667e-05
+    },
+    "0.40": {
+     "owner_kept": 0.93,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.8433333333333334,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.7033333333333334,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.33166666666666667,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2443,
+     "owner_kept": 0.9833333333333333
+    },
+    "0.0001": {
+     "threshold": 0.2992,
+     "owner_kept": 0.9733333333333334
+    }
+   }
+  },
+  "enrol1/margin0.00/64px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.48726722598075867,
+   "stranger_similarity_p99": 0.19062832951545716,
+   "stranger_similarity_max": 0.7782813906669617,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.9466666666666667,
+     "stranger_leaked_1": 0.00015131286159323541,
+     "stranger_leaked_5": 0.0011333333333333334
+    },
+    "0.35": {
+     "owner_kept": 0.8916666666666667,
+     "stranger_leaked_1": 2.0026702269692923e-05,
+     "stranger_leaked_5": 6.666666666666667e-05
+    },
+    "0.40": {
+     "owner_kept": 0.78,
+     "stranger_leaked_1": 3.894080996884735e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.64,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.4633333333333333,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.16166666666666665,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2528,
+     "owner_kept": 0.9666666666666667
+    },
+    "0.0001": {
+     "threshold": 0.3086,
+     "owner_kept": 0.9366666666666666
+    }
+   }
+  },
+  "enrol1/margin0.00/40px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.3961244225502014,
+   "stranger_similarity_p99": 0.20235399946570395,
+   "stranger_similarity_max": 0.6808051466941833,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.7833333333333333,
+     "stranger_leaked_1": 0.00026869158878504675,
+     "stranger_leaked_5": 0.0016
+    },
+    "0.35": {
+     "owner_kept": 0.6466666666666666,
+     "stranger_leaked_1": 4.227859368046284e-05,
+     "stranger_leaked_5": 0.00013333333333333334
+    },
+    "0.40": {
+     "owner_kept": 0.495,
+     "stranger_leaked_1": 9.457053849577213e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.3466666666666667,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.19333333333333333,
+     "stranger_leaked_1": 1.1125945705384958e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.03833333333333333,
+     "stranger_leaked_1": 1.1125945705384958e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2658,
+     "owner_kept": 0.8466666666666667
+    },
+    "0.0001": {
+     "threshold": 0.327,
+     "owner_kept": 0.7266666666666667
+    }
+   }
+  },
+  "enrol1/margin0.00/24px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.23937272280454636,
+   "stranger_similarity_p99": 0.2685821458697319,
+   "stranger_similarity_max": 0.6876516342163086,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.31666666666666665,
+     "stranger_leaked_1": 0.004291277258566978,
+     "stranger_leaked_5": 0.0192
+    },
+    "0.35": {
+     "owner_kept": 0.205,
+     "stranger_leaked_1": 0.0010436137071651091,
+     "stranger_leaked_5": 0.0051333333333333335
+    },
+    "0.40": {
+     "owner_kept": 0.13,
+     "stranger_leaked_1": 0.00023642634623943036,
+     "stranger_leaked_5": 0.0012666666666666666
+    },
+    "0.45": {
+     "owner_kept": 0.06,
+     "stranger_leaked_1": 4.283489096573209e-05,
+     "stranger_leaked_5": 0.0002
+    },
+    "0.50": {
+     "owner_kept": 0.03666666666666667,
+     "stranger_leaked_1": 8.900756564307967e-06,
+     "stranger_leaked_5": 6.666666666666667e-05
+    },
+    "0.60": {
+     "owner_kept": 0.01,
+     "stranger_leaked_1": 1.1125945705384958e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.3513,
+     "owner_kept": 0.20166666666666666
+    },
+    "0.0001": {
+     "threshold": 0.4235,
+     "owner_kept": 0.09166666666666666
+    }
+   }
+  },
+  "enrol1/margin0.15/clean": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.5853543877601624,
+   "stranger_similarity_p99": 0.16740581452846526,
+   "stranger_similarity_max": 0.9175008535385132,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.9783333333333334,
+     "stranger_leaked_1": 4.728526924788607e-05,
+     "stranger_leaked_5": 0.0003333333333333333
+    },
+    "0.35": {
+     "owner_kept": 0.965,
+     "stranger_leaked_1": 7.78816199376947e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.40": {
+     "owner_kept": 0.93,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.89,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.7783333333333333,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.43333333333333335,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2289,
+     "owner_kept": 0.9883333333333333
+    },
+    "0.0001": {
+     "threshold": 0.2844,
+     "owner_kept": 0.9833333333333333
+    }
+   }
+  },
+  "enrol1/margin0.15/64px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.4773668944835663,
+   "stranger_similarity_p99": 0.16815748006105424,
+   "stranger_similarity_max": 0.6989747285842896,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.92,
+     "stranger_leaked_1": 4.8954161103693814e-05,
+     "stranger_leaked_5": 0.0002666666666666667
+    },
+    "0.35": {
+     "owner_kept": 0.8483333333333334,
+     "stranger_leaked_1": 7.2318647085002226e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.40": {
+     "owner_kept": 0.72,
+     "stranger_leaked_1": 2.7814864263462396e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.5866666666666667,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.4216666666666667,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.12166666666666667,
+     "stranger_leaked_1": 1.1125945705384958e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2312,
+     "owner_kept": 0.9633333333333334
+    },
+    "0.0001": {
+     "threshold": 0.2849,
+     "owner_kept": 0.9366666666666666
+    }
+   }
+  },
+  "enrol1/margin0.15/40px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.3469986021518707,
+   "stranger_similarity_p99": 0.17826458930969238,
+   "stranger_similarity_max": 0.5713250041007996,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.6433333333333333,
+     "stranger_leaked_1": 9.679572763684913e-05,
+     "stranger_leaked_5": 0.0003333333333333333
+    },
+    "0.35": {
+     "owner_kept": 0.48833333333333334,
+     "stranger_leaked_1": 1.2794837561192702e-05,
+     "stranger_leaked_5": 0.0
+    },
+    "0.40": {
+     "owner_kept": 0.345,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.2,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.09666666666666666,
+     "stranger_leaked_1": 1.1125945705384958e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.015,
+     "stranger_leaked_1": 0.0,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2446,
+     "owner_kept": 0.8183333333333334
+    },
+    "0.0001": {
+     "threshold": 0.2994,
+     "owner_kept": 0.6466666666666666
+    }
+   }
+  },
+  "enrol1/margin0.15/24px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.20762214064598083,
+   "stranger_similarity_p99": 0.2895413458347321,
+   "stranger_similarity_max": 0.597849428653717,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.255,
+     "stranger_leaked_1": 0.008081330663106364,
+     "stranger_leaked_5": 0.0384
+    },
+    "0.35": {
+     "owner_kept": 0.15,
+     "stranger_leaked_1": 0.0027024922118380063,
+     "stranger_leaked_5": 0.013066666666666667
+    },
+    "0.40": {
+     "owner_kept": 0.085,
+     "stranger_leaked_1": 0.0007615709835336003,
+     "stranger_leaked_5": 0.0036666666666666666
+    },
+    "0.45": {
+     "owner_kept": 0.04666666666666667,
+     "stranger_leaked_1": 0.00018635959056519804,
+     "stranger_leaked_5": 0.0011333333333333334
+    },
+    "0.50": {
+     "owner_kept": 0.015,
+     "stranger_leaked_1": 3.7828215398308854e-05,
+     "stranger_leaked_5": 0.0005333333333333334
+    },
+    "0.60": {
+     "owner_kept": 0.005,
+     "stranger_leaked_1": 0.0,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.3898,
+     "owner_kept": 0.1
+    },
+    "0.0001": {
+     "threshold": 0.471,
+     "owner_kept": 0.03333333333333333
+    }
+   }
+  },
+  "enrol1/margin0.30/clean": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.5862069129943848,
+   "stranger_similarity_p99": 0.16706723228096965,
+   "stranger_similarity_max": 0.6517679691314697,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.98,
+     "stranger_leaked_1": 4.617267467734758e-05,
+     "stranger_leaked_5": 0.0002
+    },
+    "0.35": {
+     "owner_kept": 0.9616666666666667,
+     "stranger_leaked_1": 5.562972852692479e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.40": {
+     "owner_kept": 0.935,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.8816666666666667,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.8,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.4583333333333333,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2287,
+     "owner_kept": 0.9866666666666667
+    },
+    "0.0001": {
+     "threshold": 0.2868,
+     "owner_kept": 0.98
+    }
+   }
+  },
+  "enrol1/margin0.30/64px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.4277985692024231,
+   "stranger_similarity_p99": 0.1705232274532318,
+   "stranger_similarity_max": 0.5639156103134155,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.8466666666666667,
+     "stranger_leaked_1": 5.841121495327103e-05,
+     "stranger_leaked_5": 0.0004
+    },
+    "0.35": {
+     "owner_kept": 0.7466666666666667,
+     "stranger_leaked_1": 7.78816199376947e-06,
+     "stranger_leaked_5": 6.666666666666667e-05
+    },
+    "0.40": {
+     "owner_kept": 0.6083333333333333,
+     "stranger_leaked_1": 2.7814864263462396e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.41333333333333333,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.27166666666666667,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.04833333333333333,
+     "stranger_leaked_1": 0.0,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2329,
+     "owner_kept": 0.94
+    },
+    "0.0001": {
+     "threshold": 0.2877,
+     "owner_kept": 0.8733333333333333
+    }
+   }
+  },
+  "enrol1/margin0.30/40px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.3093467503786087,
+   "stranger_similarity_p99": 0.18920103162527088,
+   "stranger_similarity_max": 0.5130690336227417,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.535,
+     "stranger_leaked_1": 0.00019470404984423675,
+     "stranger_leaked_5": 0.001
+    },
+    "0.35": {
+     "owner_kept": 0.36333333333333334,
+     "stranger_leaked_1": 2.7814864263462394e-05,
+     "stranger_leaked_5": 6.666666666666667e-05
+    },
+    "0.40": {
+     "owner_kept": 0.20666666666666667,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.09,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.03833333333333333,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.011666666666666667,
+     "stranger_leaked_1": 0.0,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2568,
+     "owner_kept": 0.655
+    },
+    "0.0001": {
+     "threshold": 0.3191,
+     "owner_kept": 0.46
+    }
+   }
+  },
+  "enrol1/margin0.30/24px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.2069660797715187,
+   "stranger_similarity_p99": 0.41102147579193116,
+   "stranger_similarity_max": 0.7232158184051514,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.255,
+     "stranger_leaked_1": 0.05620827770360481,
+     "stranger_leaked_5": 0.21586666666666668
+    },
+    "0.35": {
+     "owner_kept": 0.18333333333333332,
+     "stranger_leaked_1": 0.02823319982198487,
+     "stranger_leaked_5": 0.1208
+    },
+    "0.40": {
+     "owner_kept": 0.11833333333333333,
+     "stranger_leaked_1": 0.012311415220293725,
+     "stranger_leaked_5": 0.058333333333333334
+    },
+    "0.45": {
+     "owner_kept": 0.07,
+     "stranger_leaked_1": 0.004390298175344904,
+     "stranger_leaked_5": 0.023133333333333332
+    },
+    "0.50": {
+     "owner_kept": 0.04833333333333333,
+     "stranger_leaked_1": 0.0012555629728526925,
+     "stranger_leaked_5": 0.0054
+    },
+    "0.60": {
+     "owner_kept": 0.015,
+     "stranger_leaked_1": 3.671562082777036e-05,
+     "stranger_leaked_5": 0.00013333333333333334
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.5075,
+     "owner_kept": 0.045
+    },
+    "0.0001": {
+     "threshold": 0.5751,
+     "owner_kept": 0.018333333333333333
+    }
+   }
+  },
+  "enrol3/margin0.00/clean": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.6273322701454163,
+   "stranger_similarity_p99": 0.2080751359462738,
+   "stranger_similarity_max": 0.9595221281051636,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.9933333333333333,
+     "stranger_leaked_1": 0.00027481085892300846,
+     "stranger_leaked_5": 0.0019333333333333333
+    },
+    "0.35": {
+     "owner_kept": 0.9883333333333333,
+     "stranger_leaked_1": 2.5589675122385404e-05,
+     "stranger_leaked_5": 0.00013333333333333334
+    },
+    "0.40": {
+     "owner_kept": 0.9833333333333333,
+     "stranger_leaked_1": 5.562972852692479e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.9616666666666667,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.8966666666666666,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.605,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2684,
+     "owner_kept": 0.995
+    },
+    "0.0001": {
+     "threshold": 0.3219,
+     "owner_kept": 0.9916666666666667
+    }
+   }
+  },
+  "enrol3/margin0.00/64px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.5635890662670135,
+   "stranger_similarity_p99": 0.21687990307807925,
+   "stranger_similarity_max": 0.7782813906669617,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.985,
+     "stranger_leaked_1": 0.000401646639964397,
+     "stranger_leaked_5": 0.0026666666666666666
+    },
+    "0.35": {
+     "owner_kept": 0.975,
+     "stranger_leaked_1": 4.227859368046284e-05,
+     "stranger_leaked_5": 0.0002
+    },
+    "0.40": {
+     "owner_kept": 0.9383333333333334,
+     "stranger_leaked_1": 5.006675567423231e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.865,
+     "stranger_leaked_1": 2.7814864263462396e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.73,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.37166666666666665,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2769,
+     "owner_kept": 0.9883333333333333
+    },
+    "0.0001": {
+     "threshold": 0.3319,
+     "owner_kept": 0.98
+    }
+   }
+  },
+  "enrol3/margin0.00/40px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.4801105409860611,
+   "stranger_similarity_p99": 0.23008006811141973,
+   "stranger_similarity_max": 0.6808051466941833,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.9283333333333333,
+     "stranger_leaked_1": 0.0007276368491321763,
+     "stranger_leaked_5": 0.0036666666666666666
+    },
+    "0.35": {
+     "owner_kept": 0.8716666666666667,
+     "stranger_leaked_1": 0.00010013351134846461,
+     "stranger_leaked_5": 0.0004
+    },
+    "0.40": {
+     "owner_kept": 0.7483333333333333,
+     "stranger_leaked_1": 1.5020026702269693e-05,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.5933333333333334,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.42,
+     "stranger_leaked_1": 1.1125945705384958e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.12833333333333333,
+     "stranger_leaked_1": 1.1125945705384958e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2919,
+     "owner_kept": 0.9383333333333334
+    },
+    "0.0001": {
+     "threshold": 0.35,
+     "owner_kept": 0.8716666666666667
+    }
+   }
+  },
+  "enrol3/margin0.00/24px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.33562204241752625,
+   "stranger_similarity_p99": 0.30758056163787845,
+   "stranger_similarity_max": 0.6876516342163086,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.6216666666666667,
+     "stranger_leaked_1": 0.012258566978193147,
+     "stranger_leaked_5": 0.05806666666666667
+    },
+    "0.35": {
+     "owner_kept": 0.44333333333333336,
+     "stranger_leaked_1": 0.0031130396083667113,
+     "stranger_leaked_5": 0.014333333333333333
+    },
+    "0.40": {
+     "owner_kept": 0.3016666666666667,
+     "stranger_leaked_1": 0.0006987093902981753,
+     "stranger_leaked_5": 0.003266666666666667
+    },
+    "0.45": {
+     "owner_kept": 0.17,
+     "stranger_leaked_1": 0.00013796172674677347,
+     "stranger_leaked_5": 0.0005333333333333334
+    },
+    "0.50": {
+     "owner_kept": 0.095,
+     "stranger_leaked_1": 2.8371161548731644e-05,
+     "stranger_leaked_5": 0.0002
+    },
+    "0.60": {
+     "owner_kept": 0.021666666666666667,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.3876,
+     "owner_kept": 0.34833333333333333
+    },
+    "0.0001": {
+     "threshold": 0.4605,
+     "owner_kept": 0.15333333333333332
+    }
+   }
+  },
+  "enrol3/margin0.15/clean": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.6509681344032288,
+   "stranger_similarity_p99": 0.19169084861874583,
+   "stranger_similarity_max": 0.9175008535385132,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.995,
+     "stranger_leaked_1": 0.00012572318647085002,
+     "stranger_leaked_5": 0.0006
+    },
+    "0.35": {
+     "owner_kept": 0.9916666666666667,
+     "stranger_leaked_1": 1.1682242990654205e-05,
+     "stranger_leaked_5": 0.0
+    },
+    "0.40": {
+     "owner_kept": 0.98,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.9683333333333334,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.935,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.71,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.253,
+     "owner_kept": 0.995
+    },
+    "0.0001": {
+     "threshold": 0.3051,
+     "owner_kept": 0.995
+    }
+   }
+  },
+  "enrol3/margin0.15/64px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.5515434145927429,
+   "stranger_similarity_p99": 0.19474458694458008,
+   "stranger_similarity_max": 0.6989747285842896,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.9783333333333334,
+     "stranger_leaked_1": 0.00013518024032042723,
+     "stranger_leaked_5": 0.00046666666666666666
+    },
+    "0.35": {
+     "owner_kept": 0.955,
+     "stranger_leaked_1": 1.5020026702269693e-05,
+     "stranger_leaked_5": 0.0
+    },
+    "0.40": {
+     "owner_kept": 0.91,
+     "stranger_leaked_1": 2.7814864263462396e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.825,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.685,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.30833333333333335,
+     "stranger_leaked_1": 1.1125945705384958e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.255,
+     "owner_kept": 0.99
+    },
+    "0.0001": {
+     "threshold": 0.3064,
+     "owner_kept": 0.9766666666666667
+    }
+   }
+  },
+  "enrol3/margin0.15/40px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.43074293434619904,
+   "stranger_similarity_p99": 0.20680749505758286,
+   "stranger_similarity_max": 0.5713250041007996,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.8683333333333333,
+     "stranger_leaked_1": 0.00027703604806408546,
+     "stranger_leaked_5": 0.0012666666666666666
+    },
+    "0.35": {
+     "owner_kept": 0.745,
+     "stranger_leaked_1": 3.560302625723187e-05,
+     "stranger_leaked_5": 6.666666666666667e-05
+    },
+    "0.40": {
+     "owner_kept": 0.5983333333333334,
+     "stranger_leaked_1": 3.894080996884735e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.4116666666666667,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.24166666666666667,
+     "stranger_leaked_1": 1.1125945705384958e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.06,
+     "stranger_leaked_1": 0.0,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2696,
+     "owner_kept": 0.9166666666666666
+    },
+    "0.0001": {
+     "threshold": 0.3273,
+     "owner_kept": 0.8233333333333334
+    }
+   }
+  },
+  "enrol3/margin0.15/24px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.3102916330099106,
+   "stranger_similarity_p99": 0.33638194888830186,
+   "stranger_similarity_max": 0.6309548616409302,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.5383333333333333,
+     "stranger_leaked_1": 0.021530373831775702,
+     "stranger_leaked_5": 0.0948
+    },
+    "0.35": {
+     "owner_kept": 0.35333333333333333,
+     "stranger_leaked_1": 0.007467734757454383,
+     "stranger_leaked_5": 0.03506666666666667
+    },
+    "0.40": {
+     "owner_kept": 0.22333333333333333,
+     "stranger_leaked_1": 0.0021934801958166444,
+     "stranger_leaked_5": 0.0096
+    },
+    "0.45": {
+     "owner_kept": 0.145,
+     "stranger_leaked_1": 0.0005485091232754785,
+     "stranger_leaked_5": 0.0028666666666666667
+    },
+    "0.50": {
+     "owner_kept": 0.07,
+     "stranger_leaked_1": 0.00012238540275923455,
+     "stranger_leaked_5": 0.0008666666666666666
+    },
+    "0.60": {
+     "owner_kept": 0.016666666666666666,
+     "stranger_leaked_1": 1.1125945705384958e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.4292,
+     "owner_kept": 0.17166666666666666
+    },
+    "0.0001": {
+     "threshold": 0.5064,
+     "owner_kept": 0.06833333333333333
+    }
+   }
+  },
+  "enrol3/margin0.30/clean": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.6538848280906677,
+   "stranger_similarity_p99": 0.19142848804593088,
+   "stranger_similarity_max": 0.6666353940963745,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.9966666666666667,
+     "stranger_leaked_1": 0.00012961726746773476,
+     "stranger_leaked_5": 0.0008
+    },
+    "0.35": {
+     "owner_kept": 0.9933333333333333,
+     "stranger_leaked_1": 8.344459279038718e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.40": {
+     "owner_kept": 0.9883333333333333,
+     "stranger_leaked_1": 2.7814864263462396e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.9666666666666667,
+     "stranger_leaked_1": 2.7814864263462396e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.9333333333333333,
+     "stranger_leaked_1": 2.7814864263462396e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.7066666666666667,
+     "stranger_leaked_1": 2.2251891410769917e-06,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2529,
+     "owner_kept": 0.9966666666666667
+    },
+    "0.0001": {
+     "threshold": 0.3057,
+     "owner_kept": 0.9966666666666667
+    }
+   }
+  },
+  "enrol3/margin0.30/64px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.504564106464386,
+   "stranger_similarity_p99": 0.19749408960342407,
+   "stranger_similarity_max": 0.5639156103134155,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.9683333333333334,
+     "stranger_leaked_1": 0.00015743213173119715,
+     "stranger_leaked_5": 0.0008666666666666666
+    },
+    "0.35": {
+     "owner_kept": 0.9166666666666666,
+     "stranger_leaked_1": 1.2794837561192702e-05,
+     "stranger_leaked_5": 6.666666666666667e-05
+    },
+    "0.40": {
+     "owner_kept": 0.8266666666666667,
+     "stranger_leaked_1": 3.894080996884735e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.6933333333333334,
+     "stranger_leaked_1": 3.3377837116154875e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.5166666666666667,
+     "stranger_leaked_1": 1.6688918558077438e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.17333333333333334,
+     "stranger_leaked_1": 0.0,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2584,
+     "owner_kept": 0.985
+    },
+    "0.0001": {
+     "threshold": 0.3107,
+     "owner_kept": 0.9533333333333334
+    }
+   }
+  },
+  "enrol3/margin0.30/40px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.382515087723732,
+   "stranger_similarity_p99": 0.21984432041645052,
+   "stranger_similarity_max": 0.5231260061264038,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.7883333333333333,
+     "stranger_leaked_1": 0.0005907877169559413,
+     "stranger_leaked_5": 0.0028666666666666667
+    },
+    "0.35": {
+     "owner_kept": 0.6316666666666667,
+     "stranger_leaked_1": 7.843791722296396e-05,
+     "stranger_leaked_5": 0.0002666666666666667
+    },
+    "0.40": {
+     "owner_kept": 0.43666666666666665,
+     "stranger_leaked_1": 1.1125945705384958e-05,
+     "stranger_leaked_5": 0.0
+    },
+    "0.45": {
+     "owner_kept": 0.27,
+     "stranger_leaked_1": 2.7814864263462396e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.50": {
+     "owner_kept": 0.14333333333333334,
+     "stranger_leaked_1": 2.7814864263462396e-06,
+     "stranger_leaked_5": 0.0
+    },
+    "0.60": {
+     "owner_kept": 0.03,
+     "stranger_leaked_1": 0.0,
+     "stranger_leaked_5": 0.0
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.2859,
+     "owner_kept": 0.8166666666666667
+    },
+    "0.0001": {
+     "threshold": 0.3457,
+     "owner_kept": 0.6516666666666666
+    }
+   }
+  },
+  "enrol3/margin0.30/24px": {
+   "owner_test_photos": 600,
+   "stranger_pairs": 1797600,
+   "owner_similarity_median": 0.31068022549152374,
+   "stranger_similarity_p99": 0.4539613801240921,
+   "stranger_similarity_max": 0.7232158184051514,
+   "by_threshold": {
+    "0.30": {
+     "owner_kept": 0.5333333333333333,
+     "stranger_leaked_1": 0.12665609701824654,
+     "stranger_leaked_5": 0.3542
+    },
+    "0.35": {
+     "owner_kept": 0.4,
+     "stranger_leaked_1": 0.06711559857587895,
+     "stranger_leaked_5": 0.228
+    },
+    "0.40": {
+     "owner_kept": 0.265,
+     "stranger_leaked_1": 0.030076769025367156,
+     "stranger_leaked_5": 0.12226666666666666
+    },
+    "0.45": {
+     "owner_kept": 0.17166666666666666,
+     "stranger_leaked_1": 0.010970738762794838,
+     "stranger_leaked_5": 0.0516
+    },
+    "0.50": {
+     "owner_kept": 0.11833333333333333,
+     "stranger_leaked_1": 0.0030735425011125944,
+     "stranger_leaked_5": 0.014866666666666667
+    },
+    "0.60": {
+     "owner_kept": 0.03166666666666667,
+     "stranger_leaked_1": 7.510013351134847e-05,
+     "stranger_leaked_5": 0.0002666666666666667
+    }
+   },
+   "threshold_for_stranger_leak": {
+    "0.001": {
+     "threshold": 0.5354,
+     "owner_kept": 0.07666666666666666
+    },
+    "0.0001": {
+     "threshold": 0.5951,
+     "owner_kept": 0.03333333333333333
+    }
+   }
+  }
+ }
+}

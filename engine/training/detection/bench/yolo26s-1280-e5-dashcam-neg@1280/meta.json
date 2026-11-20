@@ -1,0 +1,8 @@
+{
+  "mode": "local",
+  "weights": "kaggle-out/e5-dashcam-neg-s/runs/yolo26s-1280/e5-dashcam-neg/weights/last.pt",
+  "imgsz": 1280,
+  "dataset": "max",
+  "confidence_threshold": 0.05,
+  "padding": 0.1
+}

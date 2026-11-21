@@ -4,7 +4,7 @@ Same inputs and outputs as bench.py (infra/bench "max" set, bench/<name>/detecti
 face only: YuNet has no plate class, so ignore the plate rows in its report.
 
     engine/.venv/bin/python engine/training/detection/bench_yunet.py --name yunet-2023mar
-Needs datasets/yunet/yunet.onnx (OpenCV zoo, MIT: github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet).
+Uses engine/models/yunet.onnx (OpenCV zoo face_detection_yunet 2023mar, MIT: github.com/opencv/opencv_zoo).
 """
 
 import argparse
@@ -20,7 +20,7 @@ HERE = Path(__file__).resolve().parent
 BENCH = HERE.parents[2] / "infra" / "bench"
 IMAGES = BENCH / "dataset" / "images-max"
 LABELS = BENCH / "dataset" / "labels-max.jsonl"
-MODEL = HERE / "datasets" / "yunet" / "yunet.onnx"
+MODEL = HERE.parents[1] / "models" / "yunet.onnx"  # engine/models: the same file the Engine aligns faces with
 
 
 def main():

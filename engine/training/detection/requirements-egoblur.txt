@@ -1,0 +1,7 @@
+# EgoBlur Gen2 baseline only (detection/bench_egoblur.py, video/run_tool.py egoblur); not the Engine. Versions of the run
+# in detection/bench/egoblur-gen2 and video/results/comparison.md. The EgoBlur code itself comes from its git checkout.
+torch==2.9.1
+torchvision==0.24.1
+numpy==2.5.5
+opencv-python-headless==4.14.0.94
+imageio==2.38.2

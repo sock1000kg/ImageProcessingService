@@ -12,6 +12,21 @@ What each benchmark runs, the datasets and their terms: [benchmarks.md](benchmar
 (`plate/` here with the OCR in `engine/training/ocr/`, `face/` here, `engine/training/detection/accuracy/size_thresholds.py`).
 The same allow list on video (tracks, not photos) is measured in [../video/results/comparison.md](../video/results/comparison.md).
 
+## Run it
+
+From the repo root, with the Engine's venv (the scripts call the Engine's own detector, embedder, OCR and matcher):
+
+| Step | Command | What it does, on which data | Output |
+| --- | --- | --- | --- |
+| 1. Data | `bash engine/training/whitelist/face/fetch.sh`; `bash engine/training/ocr/fetch.sh`; `bash infra/bench/dataset/fetch.sh --set max` | LFW (13,233 photos); the trungdinh22 plate characters; the UET plate images | `engine/training/datasets/lfw/`, `…/vn-plate-ocr/`, `infra/bench/dataset/` |
+| 2. Faces | `MODELS_DIR=engine/models engine/.venv/bin/python engine/training/whitelist/face/eval_face_whitelist.py` | 600 LFW owners vs 600 strangers: owner kept / stranger leaked per threshold and face width (`--align`: whole-photo upper bound, `--model`: another detector) | `face/results/face_whitelist*.json` (`by-detector/` for `--model` runs) |
+| 2b. Small faces | `MODELS_DIR=engine/models engine/.venv/bin/python engine/training/whitelist/face/eval_align_cutoff.py` | same LFW faces at 64 down to 16 px, aligned vs plain resize: where alignment stops helping | `face/results/align_cutoff.json` |
+| 3. Plates | `engine/.venv/bin/python engine/training/whitelist/plate/eval_whitelist.py` | 616 Vietnamese plate crops (OCR sets): owner kept / stranger leaked with the Engine's OCR + matcher | `plate/results/whitelist.json` |
+| 3b. Matcher rules | `engine/.venv/bin/python engine/training/whitelist/plate/eval_whitelist_rules.py` | same plates, each matcher rule on or off alone | `plate/results/whitelist_rules.json` |
+| 4. Size thresholds | `engine/.venv/bin/python engine/training/detection/accuracy/size_thresholds.py yolo26n-1280-e20-crowd@1280` | a bench run's detections (WIDER val faces): size-dependent detection thresholds vs one global threshold | printed |
+
+`face_whitelist_raw_box.json` is the run before alignment; `face_whitelist_masked.json` the margin-painting test.
+
 ## Plates (done, in the Engine)
 
 Test: the 616 Vietnamese plates of `eval_ocr.py` (one-line and two-line mixed). Every plate is its own owner and every other
@@ -118,19 +133,6 @@ and the same leak rates: LFW faces are large frontal portraits that every model 
 **Plates on video:** two Engine fixes to the plate allow list (OCR reads the widest crops of a track; a track lost longer
 than 167 ms and found again is decided as a new one) are measured in
 [../video/results/comparison.md](../video/results/comparison.md), section "Dashcam fine-tune and allow-list fixes".
-
-## How to re-run
-
-```bash
-engine/training/face/fetch.sh                                   # LFW (local only, SHA-256 checked)
-MODELS_DIR=engine/models engine/.venv/bin/python engine/training/whitelist/face/eval_face_whitelist.py          # Engine path
-MODELS_DIR=engine/models engine/.venv/bin/python engine/training/whitelist/face/eval_face_whitelist.py --align  # upper bound
-MODELS_DIR=engine/models engine/.venv/bin/python engine/training/whitelist/face/eval_align_cutoff.py
-engine/.venv/bin/python engine/training/whitelist/plate/eval_whitelist.py                                         # plates
-engine/.venv/bin/python engine/training/detection/accuracy/size_thresholds.py yolo26n-1280-e20-crowd@1280
-```
-
-`face_whitelist_raw_box.json` is the run before alignment; `face_whitelist_masked.json` the margin-painting test.
 
 ## What these numbers do not show
 

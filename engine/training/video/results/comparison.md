@@ -170,7 +170,8 @@ Two tools run frame by frame on the same frames, scored against the same labels,
 ships with: **deface** 1.5.0 (CenterFace, faces only, MIT; threshold 0.2, blur box 1.3x = 15% each side) and **EgoBlur Gen2**
 (Meta, Apache 2.0; separate face and licence plate models, resize 1200 as for an RGB camera; threshold 0.674, boxes not
 grown). Neither has an allow list or tracking, so they blur the owner too; owner frames are left out of everyone's stranger
-numbers as before. Both also at the 0.05 floor in `results.json` (`after_fixes_and_tools`).
+numbers as before. Both also at the 0.05 floor in `results.json` (`after_fixes_and_tools`). How to run them again: [../README.md](../README.md),
+"Open-source tools on the same clips".
 
 | Strangers (faces at 70%, plates at 90%) | Our Engine, after the fixes | deface | EgoBlur Gen2 |
 | --- | --- | --- | --- |

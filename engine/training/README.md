@@ -8,7 +8,7 @@ its `results/` holds the numbers and the write-up.
 | [`detection/`](detection) | Training the face + plate detector, and the image benchmark (3,726 WIDER FACE + Vietnamese plate images) | [detection/README.md](detection/README.md) (how), [detection/results/README.md](detection/results/README.md) (the journey and picked models), [detection/bench/comparison.md](detection/bench/comparison.md) (every number) |
 | [`whitelist/`](whitelist) | The allow list: faces (LFW: owner kept vs stranger leaked) and plates (OCR text matching) | [whitelist/README.md](whitelist/README.md) (results), [whitelist/benchmarks.md](whitelist/benchmarks.md) (plan and status) |
 | [`ocr/`](ocr) | Reading plate text for the plate allow list | [ocr/README.md](ocr/README.md), [ocr/results/README.md](ocr/results/README.md) |
-| [`video/`](video) | Video bench: the whole Engine (detection, tracking, allow list, blur) on labelled clips | [video/results/comparison.md](video/results/comparison.md) |
+| [`video/`](video) | Video bench: the whole Engine (detection, tracking, allow list, blur) on labelled clips | [video/README.md](video/README.md) (how), [video/results/comparison.md](video/results/comparison.md) |
 
 Shared, not in git: `datasets/` (training zips, benchmark sets, the labelled clips), `runs/` (weights and checkpoints),
 `kaggle-out/` (Kaggle downloads). The picked models are in [`engine/models/`](../models); the Engine loads them from there.

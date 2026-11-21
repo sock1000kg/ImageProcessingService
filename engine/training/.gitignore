@@ -9,3 +9,5 @@ logs/
 __pycache__/
 *.pt
 *.log
+# other tools' checkouts, models and venvs (EgoBlur: detection/README.md, "Other tools")
+.cache/

@@ -11,6 +11,22 @@ in [infra/bench/results/comparison.md](../../../infra/bench/results/comparison.m
 [../video/results/comparison.md](../video/results/comparison.md). Run every command below from `engine/training/detection`;
 `datasets/`, `runs/` and `kaggle-out/` are one level up, shared with the other folders.
 
+## Run it
+
+From `engine/training/detection`, with the training venv `../.venv` (setup below). Each step, its data and its output:
+
+| Step | Command | What it does, on which data | Output |
+| --- | --- | --- | --- |
+| 1. Training data | copy `wider-face-yolo.zip`, `vn-plate-yolo.zip` to `../datasets/` | WIDER FACE train + Vietnamese plates, YOLO format (team Drive / Kaggle, below) | unzipped by `train.py` |
+| 1b. Fine-tune extras | `python3 fetch_extras.py bdd100k` / `gauges` | downloads the 250 BDD100K dashcam frames and 384 Open Images gauge photos we used (`lists/`) | `../datasets/bdd100k/`, `../datasets/gauge-negatives/` |
+| 1c. Benchmark data | `bash ../../../infra/bench/dataset/fetch.sh --set max --labels` | WIDER FACE val (3,226) + UET plates (500), SHA-256 checked | `infra/bench/dataset/` |
+| 2. Train | `../.venv/bin/python train.py --experiment … --run …` (laptop) or `bash kaggle/push.sh …` (Kaggle) | trains or fine-tunes YOLO on step 1's data (`--extra` adds 1b) | `../runs/<exp>/<run>/` |
+| 3. Benchmark | `../.venv/bin/python bench.py --weights … --name …` | runs a model like the Engine on the 3,726 benchmark images, then scores it | `bench/<name>/` |
+| 4. Compare | `../.venv/bin/python compare.py` | every run (and the other tools) at the same face precision | `bench/comparison.md` |
+| Other tools | `../.venv/bin/python bench_yunet.py --name yunet-2023mar`, `bench_egoblur.py` (below) | YuNet / EgoBlur on step 3's images | `bench/<name>/` |
+
+Details of every step follow.
+
 ## Flow
 
 ```
@@ -103,13 +119,54 @@ training mosaics) and a line in [results/README.md](results/README.md). A picked
 engine image needs a rebuild (Engine team); on the laptop cluster `infra/bench/run.sh --model <file in engine/models>`
 measures its throughput without one (see [infra/bench/README.md](../../../infra/bench/README.md) §9).
 
+## Other tools (EgoBlur, YuNet, deface)
+
+The open-source detectors we compare against, scored by the same scorer on the same data. Not part of the Engine.
+
+**Why the comparison is fair:** the same 3,726 benchmark images and labels (and, for video, the same exact frames,
+`ffmpeg -fps_mode passthrough`, against the same CVAT labels); every box >= 0.05 kept, written in `bench.py`'s format and
+scored by the same `accuracy/evaluate.py` (padding 0.1); each tool with its own recommended input size (EgoBlur: its
+RGB-camera resize, 1200 px). `compare.py` then puts every run at the same face precision before comparing recall. EgoBlur
+cannot go below face precision 0.82 even at 0.05, so it is shown there (a slightly harder point for it).
+
+| Tool | Image benchmark | Clips ([video](../video/README.md)) | Environment |
+| --- | --- | --- | --- |
+| YuNet (OpenCV zoo) | `bench_yunet.py --name yunet-2023mar` | — | `engine/.venv` |
+| deface (CenterFace) | `infra/bench/compare/deface.sh` | `video/run_tool.py deface` | `infra/bench/.cache/deface-venv` (made by `deface.sh`) |
+| EgoBlur Gen2 (Meta) | `bench_egoblur.py --name egoblur-gen2` | `video/run_tool.py egoblur` | `../.cache/egoblur/venv` (below) |
+
+**EgoBlur setup (once, from `engine/training/detection`; about 7 GB):**
+
+```bash
+git clone https://github.com/facebookresearch/EgoBlur.git ../.cache/egoblur/EgoBlur
+git -C ../.cache/egoblur/EgoBlur checkout 28133e5            # the version we ran
+python3 -m venv ../.cache/egoblur/venv
+../.cache/egoblur/venv/bin/pip install -r requirements-egoblur.txt
+```
+
+The models are not in git: download the Gen2 **face** and **licence plate** models from
+[projectaria.com/tools/egoblur](https://www.projectaria.com/tools/egoblur) (accept Meta's licence) and put
+`ego_blur_face_gen2.jit` and `ego_blur_lp_gen2.jit` in `../.cache/egoblur/models/`. `egoblur_detect.py` wraps them
+like EgoBlur's own detector but keeps every score.
+
+**Run:**
+
+```bash
+../.cache/egoblur/venv/bin/python bench_egoblur.py --name egoblur-gen2   # image benchmark, ~40 min on the laptop GPU
+```
+
+The same tools on the video clips: [../video/README.md](../video/README.md), "Open-source tools on the same clips".
+
 ## Files
 
 | Path | What | In git |
 | --- | --- | --- |
 | `train.py`, `bench.py`, `compare.py`, `pseudo_label.py`, `kaggle/` | the tools above | yes |
+| `fetch_extras.py`, `lists/` | downloads the fine-tune extras from the lists of images we used (BDD100K frames, gauge photos with their CC BY credits) | yes (lists only) |
+| `bench_yunet.py`, `bench_egoblur.py`, `egoblur_detect.py`, `requirements-egoblur.txt` | the other tools on the image benchmark (above) | yes |
 | `accuracy/` | the accuracy scorer (`evaluate.py`, `review.py`, tests) and its documentation | yes |
 | `results/` | training record of every run, and the journey ([results/README.md](results/README.md)) | yes |
 | `bench/` | benchmark detections and accuracy report per run, `comparison.md` | yes |
 | `../datasets/` | the two training zips (and what `train.py` derives from them) | no (too big) |
 | `../runs/`, `../datasets-pl/`, `../kaggle-out/` | weights and checkpoints, pseudo-labelled copy, Kaggle downloads | no |
+| `../.cache/egoblur/` | EgoBlur checkout, models and venv | no |

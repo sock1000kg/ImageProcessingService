@@ -7,12 +7,15 @@ to the picked method in [results/README.md](results/README.md), the last run's n
 
 ## Run it
 
-```bash
-engine/training/ocr/fetch.sh                  # 132 MB into engine/training/datasets/vn-plate-ocr/ (gitignored)
-infra/bench/dataset/fetch.sh --set max        # the UET plate images, if not already there
-pip install rapidocr-onnxruntime opencv-python
-python engine/training/ocr/eval_ocr.py        # prints a table and writes results/results.json
-```
+From the repo root, with the Engine's venv (it has RapidOCR and the Engine's `plate_ocr.py`):
+
+| Step | Command | What it does, on which data | Output |
+| --- | --- | --- | --- |
+| 1. Data | `bash engine/training/ocr/fetch.sh` | downloads the trungdinh22 character dataset (132 MB, SHA-256 checked) | `engine/training/datasets/vn-plate-ocr/` |
+| 1b. | `bash infra/bench/dataset/fetch.sh --set max` | the UET plate images (80 of them read by eye, `uet-plates-text.json`) | `infra/bench/dataset/` |
+| 2. Score | `engine/.venv/bin/python engine/training/ocr/eval_ocr.py` | each reading method on 536 trungdinh22 val plates + 80 UET plates, cropped by their labelled box | prints a table, `results/results.json` |
+
+The plate allow list built on this OCR is measured in [../whitelist/README.md](../whitelist/README.md).
 
 ## Files
 
@@ -20,8 +23,6 @@ python engine/training/ocr/eval_ocr.py        # prints a table and writes result
 | --- | --- |
 | `fetch.sh` | Downloads the trungdinh22 Character Detection Dataset (`OCR.zip`) and checks its SHA-256. Its licence isn't stated, so the images stay local |
 | `eval_ocr.py` | Scores each reading method on both sets |
-| `eval_whitelist.py` | Plate whitelist: owner kept vs stranger leaked, with the Engine's own OCR and matcher. Writes `results/whitelist.json` |
-| `eval_whitelist_rules.py` | Same test with each fuzzy rule of the matcher switched on or off alone. Writes `results/whitelist_rules.json` |
 | `uet-plates-text.json` | Text of 80 plates from the benchmark's UET set, read by eye, with their image and box |
 | `char_map.json` | The real class-number-to-character mapping of the trungdinh22 labels |
 | `results/` | `README.md` (the journey) and `results.json` |

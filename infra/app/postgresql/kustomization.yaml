@@ -7,7 +7,3 @@ helmCharts:
     version: 18.11.5
     releaseName: postgresql
     valuesFile: values.yaml
-
-# the chart's volume-permissions init container gets only CHOWN+FOWNER
-patches:
-  - path: patch-volume-permissions.yaml

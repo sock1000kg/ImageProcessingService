@@ -134,16 +134,20 @@ The runner script is [`infra/bench/run.sh`](run.sh).
 
 ### Workflow & Options
 ```bash
-infra/bench/run.sh [--workers N | --autoscale [--min M] [--max N]] [--imgsz N] [--dataset small|large|max] [--parallel P] [--preload] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
+infra/bench/run.sh [--workers N | --autoscale [--min M] [--max N]] [--detection-mode fast|max_privacy] [--whitelist-face FILE] [--whitelist-plates LIST] [--model FILE] [--imgsz N] [--dataset small|large|max] [--parallel P] [--preload] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 ```
 
 - `--workers N`: Fixed mode with 1 to 6 replicas.
 - `--autoscale`: Autoscale mode (defaults to 0 to 3 replicas).
 - `--min M`: Minimum replicas for autoscale mode (0 to 6).
 - `--max N`: Maximum replicas for autoscale mode (1 to 6).
-- `--imgsz N`: YOLO inference input dimension in pixels (must be a positive integer multiple of 32, e.g. 640, 960, 1280; when omitted, uses the value configured on `deployment/image-worker`, e.g. 960 on the lab, or defaults to 1280 if unset). Sets `YOLO_IMGSZ=N` on `deployment/image-worker` before starting, verifies after workers become Ready (or after the first worker pod becomes Ready in autoscale mode with `--min 0`) that worker pod logs contain `input size <N>px` (aborting immediately if unsupported), and restores or unsets the original environment variable on completion or interruption via `cleanup()`.
+- `--detection-mode fast|max_privacy`: the batch's detection mode, as a user picks it (default `fast`). Every job carries a mode, and the engine takes the model, input size and base thresholds from `MODE_FAST` / `MODE_MAX_PRIVACY` (`<file>@<px>:face=..,plate=..`; engine defaults in `engine/src/config.py`). The backend fills in that mode's thresholds unless `--confidence` is given. `YOLO_MODEL_NAME` / `YOLO_IMGSZ` only apply to jobs without a mode (and to the model a worker preloads), so they don't decide what a run measures.
+- `--whitelist-face FILE`: attaches FILE to every batch (warm-up included) as a face whitelist reference, so each detected face is embedded and compared. Folder suffix `-wlface`.
+- `--whitelist-plates LIST`: comma-separated plates to keep, so each detected plate is read by OCR. Folder suffix `-wlplate`.
+- `--model FILE` / `--imgsz N`: a model file from `engine/models` and/or an input size for the chosen mode, without changing the deployment for good. Sets `MODE_FAST` (or `MODE_MAX_PRIVACY`) to `<file>@<px>` plus `YOLO_MODEL_NAME=<file>` (so new workers preload the same model) on `deployment/image-worker`, and restores both in `cleanup()`. Works on the lab and the laptop: the engine image contains every file in `engine/models`, and the laptop cluster mounts the local folder over it.
+- Check: `jobs.csv` records each job's `resultSummary.model` (`<model>@<px>[<mode>:...]`), and the run fails if any completed job ran something other than the expected model, size and mode.
 - `--api URL`: URL to Web API. If omitted, starts `kubectl port-forward svc/web` automatically and waits for readiness.
-- `--out DIR`: Output directory (default: `infra/bench/results/<machine>-<set>/<model>/<imgsz>px/<UTC-timestamp>-<mode>/`, e.g. `results/laptop-rtx3050-max/yolo26n-1280-e20-crowd/640px/20261105-163221-fixed-3w/`).
+- `--out DIR`: Output directory (default: `infra/bench/results/<machine>-<set>/<model>/<imgsz>px/<UTC-timestamp>-<mode>[-preload][-maxprivacy][-wlface][-wlplate]/`, e.g. `results/laptop-rtx3050-max/yolo26n-1280-e5-dashcam/1280px/20261122-150000-fixed-3w-preload/`; `<model>` and `<imgsz>` are what the detection mode runs).
 - `--timeout SECONDS`: Maximum timeout in seconds (default: 1800; 7200 with `--dataset large`, 27000 with `--dataset max`).
 - `--dataset small|large|max`: `small` (default) = 100 images in 5 batches, `large` = 1000 images in 50 batches, `max` = 3726 images (see dataset sections). Runs default to `results/<machine>-<set>/<imgsz>px/` so datasets and resolutions never mix.
 - `--parallel P`: Upload up to $P$ batches at the same time (default 1 = one batch after another, as before). Even with 1000 images, sequential uploads can arrive slower than a fast worker drains them; `--parallel 4` keeps the queue full.
@@ -340,7 +344,7 @@ infra/bench/results/
 ```
 
 ### Layout Rules:
-- **Pipeline Runs (`run.sh`)**: Output directory defaults to `results/<machine>-<set>/<model>/<imgsz>px/<UTC>-<mode>/` where `<set>` is `100`, `1000`, or `max`, `<model>` is `--model`'s file, else the deployment's `YOLO_MODEL_NAME`, else `yolov8n-oiv7`, and `<imgsz>` is the input resolution (e.g. `640`, `960`, `1280`). `web_top.csv` records the `web` pods' CPU.
+- **Pipeline Runs (`run.sh`)**: Output directory defaults to `results/<machine>-<set>/<model>/<imgsz>px/<UTC>-<mode>/` where `<set>` is `100`, `1000`, or `max`, `<model>` and `<imgsz>` are the model and input size the detection mode runs (`--model` / `--imgsz`, else the deployed `MODE_FAST` / `MODE_MAX_PRIVACY`, else the engine's default), and the run name ends in `-preload`, `-maxprivacy`, `-wlface` or `-wlplate` when the run had it. `web_top.csv` records the `web` pods' CPU.
 - **Deface Runs (`deface.sh`)**: Deface operates independently of YOLO input size and is shared across input resolution evaluations. Output directory defaults to `results/<machine>-<set>/deface/<full|WxH>/<UTC>-deface-<gpu|cpu>/`.
 - **Summaries (`summarize.py`)**:
   - Accept `--deface DIR...` to include shared deface runs in the summary table.
@@ -378,18 +382,19 @@ The accuracy benchmark (precision/recall/AP, privacy recall, review warnings) mo
 
 ## 9. Benchmarking trained models (accuracy + throughput)
 
-Any model in `engine/models/` (the picked models trained in `engine/training`, and the base model) runs on the **laptop
-cluster** without rebuilding the engine: `local-cluster/up.sh` mounts `engine/models` read-only over the image workers'
-`/app/models`, and `run.sh --model <file>` points `YOLO_MODEL_NAME` at it for the run (then restores it). To run a model
-that is not picked yet, copy its `best.pt` into `engine/models/` first. `run.sh` checks the worker logs for that exact file, because the engine silently falls back to the base model
-when the file is missing. A cluster started before this mount existed needs `local-cluster/up.sh` once more.
+Any model in `engine/models/` runs on either cluster without rebuilding the engine: the engine image contains every file
+in `engine/models/`, `local-cluster/up.sh` also mounts the local folder read-only over the laptop workers' `/app/models`
+(for a model not in an image yet), and `run.sh --model <file>` points the detection mode's setting at it for the run
+(then restores it). To run a model that is not picked yet, copy its `best.pt` into `engine/models/` first (laptop only, until
+it is in an engine image). `run.sh` checks every job's `resultSummary.model`, because the engine silently falls back to its
+default model when the file is missing.
 
 All commands from the repo root.
 
 | Step | Command | Results |
 | --- | --- | --- |
 | 0. Cluster | `bash infra/bench/local-cluster/up.sh` | — |
-| 1. Throughput of one model at one size | `bash infra/bench/run.sh --machine laptop-rtx3050 --dataset max --preload --parallel 4 --workers 3 --imgsz 1280 --model yolo26n-1280-e20-crowd.pt` | `infra/bench/results/laptop-rtx3050-max/1280px/<UTC>-fixed-3w-yolo26n-1280-e20-crowd/` (`summary.md`, `jobs.csv`, …; `meta.json` has `"model"`) |
+| 1. Throughput of one model at one size | `bash infra/bench/run.sh --machine laptop-rtx3050 --dataset max --preload --parallel 4 --workers 3 --imgsz 1280 --model yolo26n-1280-e20-crowd.pt` | `infra/bench/results/laptop-rtx3050-max/yolo26n-1280-e20-crowd/1280px/<UTC>-fixed-3w-preload/` (`summary.md`, `jobs.csv`, …; `meta.json` has `"model"`) |
 | 2a. Compare a selection | `python3 infra/bench/summarize.py <run dir> <run dir> … [--deface <deface run dirs>] --table-only --out infra/bench/results/<name>.md` | that file |
 | 2b. Compare everything for the report | `bash infra/bench/compare/comparison.sh` (new runs are picked up from their `<model>/<size>px/` folders; row names start with the model) | raw tables in `infra/bench/results/comparison.md` (the final comparison below them is written by hand) |
 | 3. CPU cost per model (no cluster) | `engine/training/.venv/bin/python infra/bench/compare/cpu_speed.py yolo --weights engine/models/<file>@1280 …` (`--device 0`: GPU); for the report, add it to `WEIGHTS` in `compare/comparison.sh` | printed rows / the CPU table in `comparison.md` |
@@ -398,5 +403,5 @@ All commands from the repo root.
 - Run every model through the same steps (same `--dataset`, `--workers`, `--preload`, `--imgsz`) so rows compare.
 - Step 4 is only needed to check the pipeline end to end: `engine/training/detection/bench.py` produces the same detections without the
   cluster (verified: the base model scores identically both ways), so model-vs-model accuracy is faster there.
-- **Lab**: there is no mount; the model has to be in the engine image (Engine), selected with `YOLO_MODEL_NAME` /
-  `YOLO_IMGSZ`. Then step 1 without `--model`, with `--machine home-server`.
+- **Lab**: same commands with `KUBE_CONTEXT=default` and without `--machine`; `--model` takes the file from the deployed
+  engine image.

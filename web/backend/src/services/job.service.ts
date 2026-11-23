@@ -32,6 +32,11 @@ import { badRequest, conflict, gone, notFound, unavailable } from "../errors";
 import { deleteBatchById } from "./batch.service";
 import { checkAndCleanBatchWhitelist } from "./retention.service";
 
+/**
+ * Deletes one of the user's jobs and its files. 409 JOB_ACTIVE while the job is queued or processing.
+ * Deleting the last job deletes the whole batch; otherwise the batch's uploaded reference faces are cleaned up if
+ * this was the last unfinished job.
+ */
 export async function deleteJobById(id: string, userId: string): Promise<void> {
   const job = await getJobOwnedByUser(id, userId);
   if (!job) {
@@ -65,11 +70,19 @@ export async function deleteJobById(id: string, userId: string): Promise<void> {
   }
 }
 
+/** Returns one of the user's jobs, or null if it is missing, someone else's, or its batch is being deleted. */
 export async function getJobById(id: string, userId: string): Promise<JobResponseDTO | null> {
   const job = await getJobOwnedByUser(id, userId);
   return toJobResponse(job);
 }
 
+/**
+ * Runs a FAILED job again as a new job on the same input, with the batch's settings and reference faces.
+ *
+ * Why a new row instead of resetting the old one: the failed job keeps its error for the report, and the retry gets
+ * its own result key. 409 WHITELIST_FACES_MISSING when some reference faces were already deleted; the client can
+ * confirm with acceptMissingFaces to run with the faces that are left.
+ */
 export async function retryFailedJob(
   id: string,
   userId: string,
@@ -95,6 +108,8 @@ export async function retryFailedJob(
     throw gone("Original input has expired and cannot be retried", "INPUT_EXPIRED");
   }
 
+  // Someone already retried this job (double click, two tabs, or a client retrying after a timeout): any other job
+  // in the batch on the same input that has not failed is that retry. Return it instead of queuing a second copy.
   const activeRetry = await getActiveRetryJob(failedJob);
   if (activeRetry) {
     return toJobResponse(activeRetry)!;

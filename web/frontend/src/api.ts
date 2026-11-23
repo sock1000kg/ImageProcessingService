@@ -290,7 +290,7 @@ export async function uploadBatch(
   name?: string,
   faceListId?: string,
   faceListIds?: string[],
-): Promise<{ batch: Batch; failed: File[]; limitReason?: string }> {
+): Promise<{ batch: Batch; failed: File[]; limitReason?: string; reasons?: Map<File, string> }> {
   let batchId = existingBatchId;
   let batch: Batch;
 
@@ -304,6 +304,8 @@ export async function uploadBatch(
   }
 
   const failed: File[] = [];
+  // Why: the server's message for each failed file (e.g. a video too long), so the form can show it next to the file.
+  const reasons = new Map<File, string>();
   let done = 0;
   const total = files.length;
 
@@ -408,12 +410,15 @@ export async function uploadBatch(
             return;
           }
 
-          // Any other error: one immediate retry, then mark failed.
-          if (!hasRetried) {
+          // A file the server rejected (4xx: too long, wrong codec, unreadable) fails the same way again, so it is not
+          // retried; anything else (server or network error) gets one immediate retry.
+          const rejected = err instanceof ApiError && err.status >= 400 && err.status < 500;
+          if (!rejected && !hasRetried) {
             hasRetried = true;
             continue;
           }
 
+          if (err instanceof Error && err.message) reasons.set(file, err.message);
           failed.push(file);
           done++;
           onProgress?.({ done, total, failed: [...failed] });
@@ -429,7 +434,7 @@ export async function uploadBatch(
   await Promise.all(workers);
 
   if (failed.length > 0) {
-    return { batch, failed, ...(limitReason ? { limitReason } : {}) };
+    return { batch, failed, reasons, ...(limitReason ? { limitReason } : {}) };
   }
 
   const started = await startBatch(batchId);

@@ -332,11 +332,13 @@ chỉ để con người xác nhận hai loại sai: che nhầm người quen, h
   chờ rollout rồi chờ `apiservice/v1beta1.external.metrics.k8s.io` `Available`; `verify-render.sh` có allow-list
   `kube-system` và coi resource namespaced thiếu `metadata.namespace` là lỗi.
 
-### G.10 Init container `chown` thay vì `setfacl`
-- **Vấn đề:** Thư mục lưu trữ của lab có POSIX ACL với mask chặn lớp group, nên MinIO/Postgres chạy non-root không ghi được.
-- **Lựa chọn:** (a) `setfacl -k` toàn lab; (b) chạy bằng root; (c) init container chỉ `chown`.
-- **Quyết định:** (c): chạy uid 0 với `drop: ALL` + `CHOWN` + `FOWNER`, chỉ `chown` volume về đúng uid/gid. **Không sửa
-  ACL của lab** vì app khác có thể phụ thuộc vào nó; `verify-render.sh` chặn việc quay lại thiếu init container.
+### G.10 Quyền ghi volume local-path: bỏ ACL thay vì init container `chown`
+- **Vấn đề:** Thư mục lưu trữ local-path trên node home-server có default POSIX ACL (group/other `---`) do được đặt tay trước đó,
+  nên MinIO/Postgres chạy non-root không ghi được vào volume mới.
+- **Lựa chọn:** (a) xoá ACL trên thư mục lưu trữ; (b) chạy bằng root; (c) init container chạy root chỉ `chown` volume.
+- **Quyết định:** Ban đầu chọn (c) vì chưa rõ app khác có phụ thuộc ACL không. Sau khi kiểm tra chỉ có ứng dụng của nhóm
+  và một pod chạy root dùng local-path trên node này, chuyển sang (a): xoá ACL, bỏ init container, mọi workload non-root
+  (kể cả NATS) chỉ cần `fsGroup`; `verify-render.sh` kiểm tra điều này.
 
 ### G.11 Hợp nhất dev và prod thành một môi trường `imgproc`
 - **Vấn đề:** Chạy song song `imgproc-dev` và `imgproc-prod` làm gấp đôi tài nguyên nền trên một node 12GB chung.

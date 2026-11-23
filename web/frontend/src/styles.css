@@ -1946,10 +1946,11 @@ input[type="range"].comparison-range::-moz-range-thumb {
   background: color-mix(in srgb, var(--warn) 15%, var(--warn-soft));
   border-color: var(--warn);
 }
+/* Count, then one line per failed file with its reason, then the actions on their own row. */
 .upload-retry-area {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   margin-top: 12px;
   padding: 12px;
@@ -1958,6 +1959,11 @@ input[type="range"].comparison-range::-moz-range-thumb {
   background: var(--danger-soft);
   color: var(--danger);
   font-size: var(--text-sm);
+}
+.upload-retry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .upload-retry-area button {
   padding: 6px 10px;

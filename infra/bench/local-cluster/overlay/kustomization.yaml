@@ -42,12 +42,12 @@ patches:
       apiVersion: gateway.networking.k8s.io/v1
       kind: HTTPRoute
       metadata:
-        name: minio-results
+        name: minio-blob
         namespace: imgproc
       $patch: delete
     target:
       kind: HTTPRoute
-      name: minio-results
+      name: minio-blob
   - patch: |-
       apiVersion: gateway.networking.k8s.io/v1
       kind: HTTPRoute
@@ -59,8 +59,8 @@ patches:
       kind: HTTPRoute
       name: web
 
-  # Web: the benchmark uploads thousands of images as fast as it can, so lift the per-account rate limits, and run the
-  # locally built image (build-web.sh: the working tree's web/, imported into k3s) instead of pulling :main.
+  # Web: the benchmark uploads thousands of images as fast as it can, so lift the per-account transfer rate limits.
+  # Same image as the lab (:main); the limit is an env setting of the backend.
   - patch: |-
       apiVersion: apps/v1
       kind: Deployment
@@ -72,8 +72,6 @@ patches:
           spec:
             containers:
               - name: web
-                image: imgproc-web:bench
-                imagePullPolicy: Never
                 env:
                   - name: TRANSFER_RATE_LIMIT_MULTIPLIER
                     value: "100"

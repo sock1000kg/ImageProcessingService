@@ -188,7 +188,7 @@ sys.exit(1 if problems else 0)
 KEDA
 }
 
-# Rule 6: Non-root workload with PVC must have root CHOWN init container
+# Rule 6: Non-root workload with PVC must set a pod fsGroup, so kubelet makes the volume writable for it
 check_volume_ownership() {
   python3 - "$1" <<'OWN'
 import sys, yaml
@@ -218,20 +218,10 @@ for doc in yaml.safe_load_all(open(sys.argv[1])):
     if not main:
         continue   # runs as root
 
-    inits = spec.get("initContainers") or []
-    for volume in sorted(pvc_volumes):
-        fixer = None
-        for ic in inits:
-            sc = ic.get("securityContext") or {}
-            caps = ((sc.get("capabilities") or {}).get("add") or [])
-            mounts = {m.get("name") for m in (ic.get("volumeMounts") or [])}
-            if sc.get("runAsUser") == 0 and "CHOWN" in caps and volume in mounts:
-                fixer = ic
-                break
-        if fixer is None:
-            problems.append(
-                f"{where}: volume {volume} is mounted by non-root container but lacks root/CHOWN init container"
-            )
+    if pod_sc.get("fsGroup") is None:
+        problems.append(
+            f"{where}: volumes {sorted(pvc_volumes)} are mounted by a non-root container but the pod sets no fsGroup"
+        )
 
 for p in problems:
     print("PROBLEM:", p)
@@ -467,9 +457,9 @@ if [ -n "${out:-}" ]; then
   fi
 
   if check_volume_ownership "$out"; then
-    pass "$ns: non-root workloads with PVC have root/CHOWN init container"
+    pass "$ns: non-root workloads with PVC set a pod fsGroup"
   else
-    fail "$ns: missing root/CHOWN init container on PVC workload"
+    fail "$ns: non-root PVC workload without a pod fsGroup"
   fi
 
   if check_blob_route "$out"; then

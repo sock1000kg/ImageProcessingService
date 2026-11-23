@@ -40,30 +40,6 @@ primary:
       # trimmed from the plan's 512Mi to fit the ~2.5Gi steady-state budget
       memory: 384Mi
 
-# The lab's local-path storage dir carries inherited POSIX ACLs whose mask caps
-# the group class, so the chart's fsGroup-only fixup cannot create
-# /bitnami/postgresql as uid 1001. The init container chowns the data volume to
-# 1001:1001 (the owner class is not affected by the ACL mask) instead.
-# The image is pinned by digest; `bitnami/os-shell` only carries a rolling
-# `latest`, so the versioned image comes from the legacy repo.
-# Verified pullable: GET manifest registry-1.docker.io/v2/bitnamilegacy/os-shell/
-#   manifests/sha256:77e65e9d633ec1463f8bea185763aa7ef91e5ddbe0b60beb1b0b5d4da58882b6 -> 200
-volumePermissions:
-  enabled: true
-  image:
-    registry: docker.io
-    repository: bitnamilegacy/os-shell
-    tag: 12-debian-12-r51
-    digest: sha256:77e65e9d633ec1463f8bea185763aa7ef91e5ddbe0b60beb1b0b5d4da58882b6
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 10m
-      memory: 16Mi
-    limits:
-      cpu: 100m
-      memory: 32Mi
-
 metrics:
   enabled: true
   image:

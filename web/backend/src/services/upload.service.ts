@@ -38,6 +38,12 @@ async function findOwnedSession(userId: string, sessionId: string) {
   return session;
 }
 
+/**
+ * Starts a video upload: checks the declared file, opens an S3 multipart upload for it, and records the session.
+ *
+ * Why a session row: parts arrive in separate requests, so the row ties them to the user, batch and S3 upload id,
+ * and lets the abandoned-upload cleanup find and abort uploads the client never finished.
+ */
 export async function beginMultipartUpload(
   userId: string,
   batchId: string,

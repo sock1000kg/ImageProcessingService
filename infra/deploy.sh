@@ -67,40 +67,11 @@ wait_for_setup_jobs() {
   done
 }
 
-# true when the keda metrics apiserver has a pod stuck in CrashLoopBackOff
-metrics_apiserver_crashlooping() {
-  "${KUBECTL[@]}" -n keda get pod \
-    -l app.kubernetes.io/name=keda-operator-metrics-apiserver \
-    -o jsonpath='{.items[*].status.containerStatuses[*].state.waiting.reason}' \
-    2>/dev/null | grep -q CrashLoopBackOff
-}
-
 deploy_cluster() {
   log "applying KEDA (namespace keda, server-side apply)"
 
-  # the previous run left this in keda, where the extension-apiserver configmap
-  # reader grants nothing and the metrics apiserver crash-loops; the chart now
-  # renders it into kube-system
-  log "removing the stray RoleBinding keda/keda-operator-auth-reader (if any)"
-  stray_deleted=0
-  if [ -n "$("${KUBECTL[@]}" -n keda delete rolebinding keda-operator-auth-reader \
-      --ignore-not-found=true -o name 2>/dev/null || true)" ]; then
-    stray_deleted=1
-    log "the stray RoleBinding existed and was deleted"
-  fi
-
   kubectl kustomize --enable-helm "$SCRIPT_DIR/cluster/keda" |
-    "${KUBECTL[@]}" apply --server-side --force-conflicts -f -
-
-  # A metrics apiserver that crash-looped under the broken kustomization, or one
-  # that was running when we removed the stray RoleBinding, will not recover on
-  # its own. This must happen BEFORE the rollout waits: `rollout status` blocks
-  # until ROLLOUT_TIMEOUT on a crash-looping pod, so waiting first would never
-  # reach the restart.
-  if [ "$stray_deleted" = 1 ] || metrics_apiserver_crashlooping; then
-    log "restarting deployment/keda-operator-metrics-apiserver"
-    "${KUBECTL[@]}" -n keda rollout restart deployment/keda-operator-metrics-apiserver
-  fi
+    "${KUBECTL[@]}" apply --server-side -f -
 
   log "waiting for KEDA rollouts"
   for deployment in keda-operator keda-operator-metrics-apiserver keda-admission-webhooks; do

@@ -148,7 +148,7 @@ spec:
             - name: VIDEO_MIN_DURATION_SECONDS
               value: "15"
             - name: VIDEO_MAX_DURATION_SECONDS
-              value: "60"
+              value: "100"
             # ffprobe binary used to check uploaded videos (installed in the web image).
             - name: FFPROBE_BIN
               value: ffprobe

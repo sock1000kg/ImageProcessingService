@@ -147,8 +147,15 @@ export async function createDraftBatch(options: {
   }
 }
 
+/** Old name for createDraftBatch, kept so existing callers keep working. */
 export const createBatch = createDraftBatch;
 
+/**
+ * Adds one image to a draft batch: checks the file, stores it in the uploads bucket, then creates its PENDING job.
+ *
+ * Why the file is deleted on failure: the job row is the only thing pointing at the stored original, so if the row
+ * cannot be created (batch full, batch started meanwhile), the file would otherwise stay in storage with no owner.
+ */
 export async function addBatchFile(
   batchId: string,
   file: Express.Multer.File | undefined,
@@ -194,6 +201,12 @@ export async function addBatchFile(
   }
 }
 
+/**
+ * Creates the PENDING job for a file that is already in storage, used when a video's multipart upload completes.
+ *
+ * Why no upload here: the video's parts were already assembled into `inputKey` by the upload service, so this only
+ * records the job. A video always produces an MP4, whatever image format the batch asks for.
+ */
 export async function addBatchStoredObject(
   batchId: string,
   file: { originalFilename: string; inputKey: string; inputBytes: number; contentType: string },
@@ -268,6 +281,7 @@ export async function startBatch(batchId: string, userId: string): Promise<Batch
   return toBatchResponse(updatedBatch!, updatedJobs);
 }
 
+/** Returns one of the user's batches with its jobs, or null if it is missing, someone else's, or being deleted. */
 export async function getBatchById(id: string, userId: string): Promise<BatchResponseDTO | null> {
   const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) return null;
@@ -275,6 +289,7 @@ export async function getBatchById(id: string, userId: string): Promise<BatchRes
   return toBatchResponse(batch, jobs);
 }
 
+/** Renames one of the user's batches after validating the name; 404 if the batch is not theirs. */
 export async function renameBatch(id: string, rawName: string, userId: string): Promise<BatchResponseDTO> {
   const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) {
@@ -286,6 +301,7 @@ export async function renameBatch(id: string, rawName: string, userId: string): 
   return toBatchResponse(updated, jobs);
 }
 
+/** Builds the per-job redaction report for one of the user's batches, or null if it is not theirs. */
 export async function getBatchReportById(id: string, userId: string): Promise<ReportResponseDTO | null> {
   const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) return null;
@@ -293,6 +309,13 @@ export async function getBatchReportById(id: string, userId: string): Promise<Re
   return toReportResponse(batch, jobs);
 }
 
+/**
+ * Deletes one of the user's batches: marks it deleted (it disappears from the UI at once), then removes its files.
+ * Returns false if the batch is not theirs; 409 BATCH_ACTIVE while any job is queued or processing.
+ *
+ * Why mark first, purge after: the purge needs storage, which can fail. deleteRequestedAt makes the timer
+ * (purgeDueBatches) retry until the files and row are gone, so the request can return without waiting on it.
+ */
 export async function deleteBatchById(id: string, userId: string): Promise<boolean> {
   const batch = await getBatchOwnedByUser(id, userId);
   if (!batch) return false;
@@ -427,6 +450,11 @@ export async function rerunBatch(
   }
 }
 
+/**
+ * Lists the user's batches newest first, one page at a time, with job counts, status, size and a thumbnail.
+ *
+ * Why limit + 1: the repository fetches one extra row so we know whether another page exists without counting.
+ */
 export async function listBatches(
   userId: string,
   options: { limit: number; cursor?: string },

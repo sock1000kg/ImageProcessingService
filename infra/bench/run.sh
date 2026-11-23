@@ -3,7 +3,9 @@
 #
 # Usage:
 #   run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large|max] [--parallel P] [--preload]
-#          [--confidence X] [--save-detections] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
+#          [--detection-mode fast|max_privacy] [--whitelist-face FILE] [--whitelist-plates LIST]
+#          [--confidence X] [--imgsz N] [--model FILE] [--save-detections] [--machine NAME] [--api URL] [--out DIR]
+#          [--timeout SECONDS]
 #
 # Options:
 #   --workers N         Fixed replica mode (N: 1 to 6). Annotates ScaledObject,
@@ -36,7 +38,8 @@ BATCH_SIZE=20
 usage() {
   cat <<'EOF'
 Usage: run.sh [--workers N | --autoscale [--min M] [--max N]] [--dataset small|large|max] [--parallel P] [--preload]
-              [--confidence X] [--imgsz N] [--model PATH] [--save-detections] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
+              [--detection-mode fast|max_privacy] [--whitelist-face FILE] [--whitelist-plates LIST]
+              [--confidence X] [--imgsz N] [--model FILE] [--save-detections] [--machine NAME] [--api URL] [--out DIR] [--timeout SECONDS]
 
 Runs the baseline image pipeline benchmark (batches of 20 images: small = 100 images / 5 batches, large = 1000 images / 50 batches, max = 3726 images).
 
@@ -50,18 +53,27 @@ Options:
   --parallel P        Upload up to P batches at the same time (default: 1 = one after another).
   --preload           Fixed mode only: pause workers at 0, upload every batch so the jobs wait in the queue,
                       then release N workers. Measures how fast the workers drain a full queue.
+  --detection-mode M  The batch's detection mode, as a user picks it: fast (default) or max_privacy. The engine takes the
+                      model, input size and base thresholds from its MODE_FAST / MODE_MAX_PRIVACY setting, and the
+                      backend fills in that mode's thresholds.
+  --whitelist-face F  Attach the image F to every batch as a face whitelist reference (each detected face is then
+                      embedded and compared). Run folder gets "-wlface".
+  --whitelist-plates L  Comma-separated plates to keep (e.g. 30A12345,51F67890); each detected plate is then read by OCR.
+                      Run folder gets "-wlplate".
   --confidence X      Detection confidence threshold (0.0 to 1.0; sets faceConfidenceThreshold and plateConfidenceThreshold in batch config).
-  --imgsz N           YOLO input size (multiple of 32, e.g. 640, 960, 1280; default: leave deployment as-is = 1280).
-  --model FILE        A model in engine/models (e.g. yolo26n-1280-e20-crowd.pt), without rebuilding the engine. Laptop
-                      cluster only: local-cluster/up.sh mounts engine/models read-only over the workers' /app/models.
-                      Results go to a folder per model and meta.json records it. Default: the engine image's
-                      own model.
+  --imgsz N           Input size for the chosen detection mode (multiple of 32). Default: the mode's own size.
+  --model FILE        A model file in engine/models for the chosen detection mode (e.g. yolo26n-1280-e20-crowd.pt),
+                      without changing the deployment for good. Default: the mode's own model.
+                      --model / --imgsz set MODE_FAST (or MODE_MAX_PRIVACY) and YOLO_MODEL_NAME on image-worker for the
+                      run and restore them afterwards. The engine image already contains every file in engine/models;
+                      on the laptop cluster (local-cluster/up.sh) the local engine/models is mounted over it.
   --save-detections   Export bounding boxes and scores into detections.jsonl via PostgreSQL.
   --machine NAME      Machine/node name for results directory (default: worker pod node name).
   --api URL           Base URL of Web API (default: starts kubectl port-forward svc/web).
   --out DIR           Output directory for benchmark results
                       (default: infra/bench/results/<machine>-<set>/<model>/<imgsz>px/<UTC>-<mode>/;
-                      <model> = --model's file, else the deployment's YOLO_MODEL_NAME, else yolov8n-oiv7).
+                      <model> and <imgsz> = what the detection mode runs; every job's resultSummary.model is
+                      checked against them at the end).
   --timeout SECONDS   Maximum time to wait for jobs to complete (default: 1800, large dataset: 7200, max dataset: 27000).
   -h, --help          Show this help message and exit.
 EOF
@@ -84,11 +96,12 @@ PRELOAD=0
 CONFIDENCE=""
 SAVE_DETECTIONS=0
 IMGSZ=""
-PREV_YOLO_IMGSZ=""
-PATCHED_IMGSZ=0
 MODEL=""
-MODEL_IN_POD=""
-MODEL_TAG=""
+DETECTION_MODE="fast"
+WHITELIST_FACE=""
+WHITELIST_PLATES=""
+MODE_ENV=""
+PREV_MODE_VALUE=""
 PREV_YOLO_MODEL=""
 PATCHED_MODEL=0
 
@@ -196,6 +209,29 @@ while [ "$#" -gt 0 ]; do
       PRELOAD=1
       shift 1
       ;;
+    --detection-mode)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --detection-mode" >&2; exit 1; }
+      DETECTION_MODE="$2"
+      if [ "$DETECTION_MODE" != "fast" ] && [ "$DETECTION_MODE" != "max_privacy" ]; then
+        echo "ERROR: --detection-mode must be fast or max_privacy (got '$DETECTION_MODE')" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --whitelist-face)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --whitelist-face" >&2; exit 1; }
+      WHITELIST_FACE="$2"
+      if [ ! -f "$WHITELIST_FACE" ]; then
+        echo "ERROR: --whitelist-face $WHITELIST_FACE: no such file" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --whitelist-plates)
+      [ "$#" -ge 2 ] || { echo "ERROR: missing value for --whitelist-plates" >&2; exit 1; }
+      WHITELIST_PLATES="$2"
+      shift 2
+      ;;
     --confidence)
       [ "$#" -ge 2 ] || { echo "ERROR: missing value for --confidence" >&2; exit 1; }
       CONFIDENCE="$2"
@@ -261,11 +297,17 @@ fi
 TIMEOUT="${TIMEOUT:-1800}"
 NUM_BATCHES=$(((EXPECTED_IMAGES + BATCH_SIZE - 1) / BATCH_SIZE))
 
-if [ -n "$CONFIDENCE" ]; then
-  BATCH_CONFIG_JSON="{\"targets\":[\"face\",\"plate\"],\"style\":\"blur\",\"faceConfidenceThreshold\":$CONFIDENCE,\"plateConfidenceThreshold\":$CONFIDENCE}"
-else
-  BATCH_CONFIG_JSON="{\"targets\":[\"face\",\"plate\"],\"style\":\"blur\"}"
-fi
+# Without --confidence the backend fills in the detection mode's own thresholds, as for a user.
+BATCH_CONFIG_JSON="$(DETECTION_MODE="$DETECTION_MODE" CONFIDENCE="$CONFIDENCE" WHITELIST_PLATES="$WHITELIST_PLATES" python3 -c '
+import json, os
+cfg = {"targets": ["face", "plate"], "style": "blur", "detectionMode": os.environ["DETECTION_MODE"]}
+if os.environ["CONFIDENCE"]:
+    cfg["faceConfidenceThreshold"] = cfg["plateConfidenceThreshold"] = float(os.environ["CONFIDENCE"])
+plates = [p.strip() for p in os.environ["WHITELIST_PLATES"].split(",") if p.strip()]
+if plates:
+    cfg["whitelistPlates"] = plates
+print(json.dumps(cfg))
+')"
 
 if [ "$MODE" = "fixed" ] && { [ -n "$AUTOSCALE_MIN" ] || [ -n "$AUTOSCALE_MAX" ]; }; then
   echo "ERROR: --min and --max can only be used with --autoscale" >&2
@@ -334,23 +376,45 @@ if [ -z "$MACHINE" ]; then
   MACHINE="${detected_node:-home-server}"
 fi
 
-if [ -n "$IMGSZ" ]; then
-  EFFECTIVE_IMGSZ="$IMGSZ"
+# What the detection mode runs. Every job carries a mode (the backend always sends one), and the engine takes the
+# model, input size and base thresholds from MODE_FAST / MODE_MAX_PRIVACY ("<file>@<px>:face=..,plate=..").
+# YOLO_MODEL_NAME / YOLO_IMGSZ only apply to jobs without a mode, so they don't decide what a run measures.
+if [ "$DETECTION_MODE" = "max_privacy" ]; then
+  MODE_ENV="MODE_MAX_PRIVACY"
 else
-  EFFECTIVE_IMGSZ="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].env[?(@.name=="YOLO_IMGSZ")].value}' 2>/dev/null || true)"
-  EFFECTIVE_IMGSZ="${EFFECTIVE_IMGSZ:-1280}"
+  MODE_ENV="MODE_FAST"
 fi
+PREV_MODE_VALUE="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath="{.spec.template.spec.containers[?(@.name==\"image-worker\")].env[?(@.name==\"$MODE_ENV\")].value}" 2>/dev/null || true)"
+MODE_VALUE="$PREV_MODE_VALUE"
+if [ -z "$MODE_VALUE" ]; then
+  # not set on the deployment: the engine's default, read from engine/src/config.py
+  MODE_VALUE="$(MODE_ENV="$MODE_ENV" python3 -c '
+import os, re, sys
+src = open(sys.argv[1]).read()
+m = re.search(r"\"" + os.environ["MODE_ENV"] + r"\",\s*\"([^\"]+)\"", src)
+print(m.group(1) if m else "")
+' "$SCRIPT_DIR/../../engine/src/config.py")"
+fi
+if [[ ! "$MODE_VALUE" =~ ^([^@]+)@([0-9]+)(:.*)?$ ]]; then
+  echo "ERROR: cannot read the model and size of $MODE_ENV ('$MODE_VALUE')" >&2
+  exit 1
+fi
+MODE_MODEL="${BASH_REMATCH[1]}"
+MODE_IMGSZ="${BASH_REMATCH[2]}"
+MODE_THRESHOLDS="${BASH_REMATCH[3]}"
 
 if [ -n "$MODEL" ]; then
-  # same file on the laptop (engine/models/<file>) and in the worker (/app/models/<file>, hostPath mount)
+  # The engine image contains every file in engine/models (the laptop cluster mounts the local folder over it).
   MODELS_DIR="$(cd "$SCRIPT_DIR/../../engine/models" && pwd)"
   if [[ "$MODEL" == */* ]] || [ ! -f "$MODELS_DIR/$MODEL" ]; then
     echo "ERROR: --model $MODEL: no such file in $MODELS_DIR (give the file name; ls engine/models)" >&2
     exit 1
   fi
-  MODEL_IN_POD="/app/models/$MODEL"
-  MODEL_TAG="$(basename "$MODEL" .pt)"
 fi
+EFFECTIVE_MODEL="${MODEL:-$MODE_MODEL}"
+EFFECTIVE_IMGSZ="${IMGSZ:-$MODE_IMGSZ}"
+MODEL_TAG="$(basename "$EFFECTIVE_MODEL" .pt)"
+echo "Detection mode $DETECTION_MODE: $MODEL_TAG at ${EFFECTIVE_IMGSZ}px"
 SET_TAG="100"
 if [ "$DATASET" = "large" ]; then
   SET_TAG="1000"
@@ -359,18 +423,17 @@ elif [ "$DATASET" = "max" ]; then
 fi
 
 if [ -z "$OUT_DIR" ]; then
-  # model folder: --model's file, else what the deployment runs (YOLO_MODEL_NAME), else the engine's default model
-  MODEL_DIR="$MODEL_TAG"
-  if [ -z "$MODEL_DIR" ]; then
-    MODEL_DIR="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].env[?(@.name=="YOLO_MODEL_NAME")].value}' 2>/dev/null || true)"
-    MODEL_DIR="$(basename "${MODEL_DIR:-yolov8n-oiv7.pt}" .pt)"
-  fi
-  RUN_ROOT="$SCRIPT_DIR/results/${MACHINE}-${SET_TAG}/${MODEL_DIR}/${EFFECTIVE_IMGSZ}px"
+  RUN_ROOT="$SCRIPT_DIR/results/${MACHINE}-${SET_TAG}/${MODEL_TAG}/${EFFECTIVE_IMGSZ}px"
   if [ "$MODE" = "fixed" ]; then
     OUT_DIR="$RUN_ROOT/${TIMESTAMP_UTC}-fixed-${WORKERS}w"
   else
     OUT_DIR="$RUN_ROOT/${TIMESTAMP_UTC}-autoscale-${AUTOSCALE_MIN}-${AUTOSCALE_MAX}"
   fi
+  # what else sets the run apart: a preloaded queue, the max_privacy mode (thresholds), whitelists
+  [ "$PRELOAD" -eq 1 ] && OUT_DIR="$OUT_DIR-preload"
+  [ "$DETECTION_MODE" = "max_privacy" ] && OUT_DIR="$OUT_DIR-maxprivacy"
+  [ -n "$WHITELIST_FACE" ] && OUT_DIR="$OUT_DIR-wlface"
+  [ -n "$WHITELIST_PLATES" ] && OUT_DIR="$OUT_DIR-wlplate"
 fi
 
 mkdir -p "$OUT_DIR"
@@ -423,24 +486,21 @@ cleanup() {
     fi
   fi
 
-  # 3a. Restore or unset YOLO_MODEL_NAME on deployment/image-worker if patched
+  # 3a. Restore or unset the mode setting and YOLO_MODEL_NAME on deployment/image-worker if patched (--model / --imgsz)
   if [ "$PATCHED_MODEL" -eq 1 ]; then
+    if [ -n "$PREV_MODE_VALUE" ]; then
+      echo "Restoring deployment/image-worker $MODE_ENV to $PREV_MODE_VALUE..."
+      "${KUBECTL[@]}" set env deployment/image-worker "$MODE_ENV=$PREV_MODE_VALUE" 2>/dev/null || true
+    else
+      echo "Unsetting $MODE_ENV on deployment/image-worker..."
+      "${KUBECTL[@]}" set env deployment/image-worker "$MODE_ENV-" 2>/dev/null || true
+    fi
     if [ -n "$PREV_YOLO_MODEL" ]; then
       echo "Restoring deployment/image-worker YOLO_MODEL_NAME to $PREV_YOLO_MODEL..."
       "${KUBECTL[@]}" set env deployment/image-worker "YOLO_MODEL_NAME=$PREV_YOLO_MODEL" 2>/dev/null || true
     else
       echo "Unsetting YOLO_MODEL_NAME on deployment/image-worker..."
       "${KUBECTL[@]}" set env deployment/image-worker YOLO_MODEL_NAME- 2>/dev/null || true
-    fi
-  fi
-  # 3b. Restore or unset YOLO_IMGSZ on deployment/image-worker if patched
-  if [ "$PATCHED_IMGSZ" -eq 1 ]; then
-    if [ -n "$PREV_YOLO_IMGSZ" ]; then
-      echo "Restoring deployment/image-worker YOLO_IMGSZ to $PREV_YOLO_IMGSZ..."
-      "${KUBECTL[@]}" set env deployment/image-worker "YOLO_IMGSZ=$PREV_YOLO_IMGSZ" 2>/dev/null || true
-    else
-      echo "Unsetting YOLO_IMGSZ on deployment/image-worker..."
-      "${KUBECTL[@]}" set env deployment/image-worker YOLO_IMGSZ- 2>/dev/null || true
     fi
   fi
 
@@ -618,30 +678,22 @@ read_cpu_counters() {
 # -----------------------------------------------------------------------------
 START_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-if [ -n "$MODEL" ]; then
-  mounted="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.volumes[?(@.name=="models")].hostPath.path}' 2>/dev/null || true)"
-  if [ -z "$mounted" ]; then
-    echo "ERROR: --model needs engine/models mounted at /app/models in image-worker (laptop cluster: local-cluster/up.sh)." >&2
-    echo "       On the lab, the model has to be in the engine image instead." >&2
-    exit 1
-  fi
-  echo "Configuring YOLO_MODEL_NAME=$MODEL_IN_POD on deployment/image-worker..."
+if [ -n "$MODEL" ] || [ -n "$IMGSZ" ]; then
+  # The mode's setting decides what jobs run; YOLO_MODEL_NAME only makes a new worker preload the same model, so its
+  # first job doesn't swap models. Base thresholds stay as they were (jobs carry their own anyway).
+  new_mode_value="$EFFECTIVE_MODEL@$EFFECTIVE_IMGSZ$MODE_THRESHOLDS"
+  echo "Configuring $MODE_ENV=$new_mode_value and YOLO_MODEL_NAME=$EFFECTIVE_MODEL on deployment/image-worker..."
   PREV_YOLO_MODEL="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].env[?(@.name=="YOLO_MODEL_NAME")].value}' 2>/dev/null || true)"
   PATCHED_MODEL=1
-  "${KUBECTL[@]}" set env deployment/image-worker "YOLO_MODEL_NAME=$MODEL_IN_POD"
-fi
-
-if [ -n "$IMGSZ" ]; then
-  echo "Configuring YOLO_IMGSZ=$IMGSZ on deployment/image-worker..."
-  PREV_YOLO_IMGSZ="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.spec.template.spec.containers[?(@.name=="image-worker")].env[?(@.name=="YOLO_IMGSZ")].value}' 2>/dev/null || true)"
-  PATCHED_IMGSZ=1
-  "${KUBECTL[@]}" set env deployment/image-worker "YOLO_IMGSZ=$IMGSZ"
+  "${KUBECTL[@]}" set env deployment/image-worker "$MODE_ENV=$new_mode_value" "YOLO_MODEL_NAME=$EFFECTIVE_MODEL"
 fi
 
 create_batch() {
   local files=("$@")
   local draft_resp b_id
-  draft_resp="$(api_curl -fsS -X POST "$API_URL/api/batches" -F "config=$BATCH_CONFIG_JSON")" || {
+  local draft_form=(-F "config=$BATCH_CONFIG_JSON")
+  [ -n "$WHITELIST_FACE" ] && draft_form+=(-F "whitelist=@$WHITELIST_FACE")
+  draft_resp="$(api_curl -fsS -X POST "$API_URL/api/batches" "${draft_form[@]}")" || {
     echo "ERROR: Failed to create draft batch via $API_URL/api/batches" >&2
     exit 1
   }
@@ -660,52 +712,6 @@ create_batch() {
     exit 1
   }
   echo "$b_id"
-}
-
-verify_worker_imgsz() {
-  if [ -z "$IMGSZ" ] && [ -z "$MODEL" ]; then
-    return 0
-  fi
-  local wait_seconds="${1:-0}"
-  if [ "$wait_seconds" -gt 0 ]; then
-    echo "Waiting up to ${wait_seconds}s for image-worker pod to become Ready..."
-    local ready_seen=0 s
-    for ((s = 0; s < wait_seconds; s += 2)); do
-      local r_rep
-      r_rep="$("${KUBECTL[@]}" get deployment image-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
-      r_rep="${r_rep:-0}"
-      if [ "$r_rep" -ge 1 ]; then
-        ready_seen=1
-        break
-      fi
-      sleep 2
-    done
-    if [ "$ready_seen" -ne 1 ]; then
-      echo "ERROR: image-worker did not reach at least 1 ready replica within ${wait_seconds}s." >&2
-      exit 1
-    fi
-  fi
-  # The engine logs "input size <N>px" when it finishes loading YOLO, a few seconds after the pod is Ready, so keep looking for a while.
-  # It also logs the weights path it loaded; a missing file makes it fall back to the base model silently, so check that too.
-  echo "Verifying worker model / input size in image-worker logs (up to 120s)..."
-  local found_log=0 t logs
-  for ((t = 0; t < 120 && found_log == 0; t += 3)); do
-    for p in $("${KUBECTL[@]}" get pod -l app.kubernetes.io/name=image-worker -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-      logs="$("${KUBECTL[@]}" logs "$p" -c image-worker 2>/dev/null || true)"
-      if { [ -z "$IMGSZ" ] || grep -q "input size ${IMGSZ}px" <<< "$logs"; } &&
-        { [ -z "$MODEL" ] || grep -qF "from: $MODEL_IN_POD" <<< "$logs"; }; then
-        found_log=1
-        break
-      fi
-    done
-    [ "$found_log" -eq 1 ] || sleep 3
-  done
-  if [ "$found_log" -ne 1 ]; then
-    [ -n "$IMGSZ" ] && echo "ERROR: image-worker does not log 'input size ${IMGSZ}px' (engine image too old for YOLO_IMGSZ?)." >&2
-    [ -n "$MODEL" ] && echo "ERROR: image-worker did not load $MODEL_IN_POD (missing mount or file: it falls back to the base model)." >&2
-    exit 1
-  fi
-  echo "Verified image-worker ${IMGSZ:+input size ${IMGSZ}px }${MODEL:+model $MODEL }in logs."
 }
 
 if [ "$PRELOAD" -eq 1 ]; then
@@ -746,7 +752,6 @@ elif [ "$MODE" = "fixed" ]; then
     exit 1
   fi
   echo "Workers ready: exactly $WORKERS (0 terminating)."
-  verify_worker_imgsz
 
   # Warm-up batch: 2 * WORKERS images
   WARMUP_COUNT=$((2 * WORKERS))
@@ -817,9 +822,6 @@ else
     exit 1
   fi
   echo "Workers ready: exactly $AUTOSCALE_MIN (0 terminating)."
-  if [ "$AUTOSCALE_MIN" -gt 0 ]; then
-    verify_worker_imgsz
-  fi
 
   # If M > 0, send warm-up batch of 2xM (excluded), like fixed mode, so always-on workers are warm
   if [ "$AUTOSCALE_MIN" -gt 0 ]; then
@@ -980,13 +982,9 @@ if [ "$PRELOAD" -eq 1 ]; then
     exit 1
   fi
   echo "Workers ready: exactly $WORKERS (0 terminating)."
-  verify_worker_imgsz
   read_cpu_counters start
 fi
 
-if [ "$MODE" = "autoscale" ] && [ "$AUTOSCALE_MIN" -eq 0 ] && { [ -n "$IMGSZ" ] || [ -n "$MODEL" ]; }; then
-  verify_worker_imgsz 300
-fi
 
 # -----------------------------------------------------------------------------
 # 8. Wait for all benchmark jobs to become terminal
@@ -1102,12 +1100,27 @@ SQL_IDS="$(printf "'%s'," "${BENCH_BATCH_IDS[@]}" | sed 's/,$//')"
       replace(to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US'), ' ', 'T') || 'Z' AS updated_at,
       (result_summary->>'processingTimeMs')::int AS processing_time_ms,
       result_summary->>'imageSize' AS image_size,
-      original_filename
+      original_filename,
+      result_summary->>'model' AS model
     FROM jobs
     WHERE batch_id IN ($SQL_IDS)
     ORDER BY created_at ASC;
   \"
 " > "$OUT_DIR/jobs.csv"
+
+# Every job records what it ran as "<model>@<px>[<mode>:...]". Anything else means the run didn't measure what it says.
+EXPECTED_RUN="$MODEL_TAG@$EFFECTIVE_IMGSZ[$DETECTION_MODE:"
+wrong_runs="$(EXPECTED_RUN="$EXPECTED_RUN" python3 -c '
+import csv, os, sys
+rows = [r for r in csv.DictReader(open(sys.argv[1])) if r["status"] == "COMPLETED"]
+bad = sorted({r["model"] for r in rows if not (r["model"] or "").startswith(os.environ["EXPECTED_RUN"])})
+print(", ".join(bad))
+' "$OUT_DIR/jobs.csv")"
+if [ -n "$wrong_runs" ]; then
+  echo "ERROR: jobs ran $wrong_runs, expected $EXPECTED_RUN...]. Results in $OUT_DIR are not valid." >&2
+  exit 1
+fi
+echo "Verified: every job ran $EXPECTED_RUN...]."
 
 if [ "$SAVE_DETECTIONS" -eq 1 ]; then
   echo "Exporting detections to $OUT_DIR/detections.jsonl..."
@@ -1166,7 +1179,8 @@ CPU_LIMIT="$CPU_LIMIT" MEM_LIMIT="$MEM_LIMIT" NODE_NAME="$NODE_NAME" NODE_CPU_CO
 GPU="$GPU" IMAGES_TXT_HASH="$IMAGES_TXT_HASH" START_TIME="$START_TIME" END_TIME="$END_TIME" \
 DATASET="$DATASET" PARALLEL="$PARALLEL" PRELOAD="$PRELOAD" RELEASE_TIME="$RELEASE_TIME" \
 CONFIDENCE="$CONFIDENCE" SAVE_DETECTIONS="$SAVE_DETECTIONS" EFFECTIVE_IMGSZ="$EFFECTIVE_IMGSZ" \
-MODEL="$MODEL" OUT_DIR="$OUT_DIR" python3 - <<'EOF'
+MODEL="$EFFECTIVE_MODEL" DETECTION_MODE="$DETECTION_MODE" WHITELIST_FACE="$WHITELIST_FACE" \
+WHITELIST_PLATES="$WHITELIST_PLATES" OUT_DIR="$OUT_DIR" python3 - <<'EOF'
 import json
 import os
 
@@ -1204,8 +1218,11 @@ meta = {
     "confidence_threshold": confidence_threshold,
     "save_detections": save_det,
     "imgsz": num("EFFECTIVE_IMGSZ") or 1280,
-    # model file the workers ran (from engine/models); None = the engine image's own model
+    # model file the detection mode ran (checked against every job's resultSummary.model)
     "model": os.environ.get("MODEL") or None,
+    "detection_mode": os.environ["DETECTION_MODE"],
+    "whitelist_face": os.path.basename(os.environ["WHITELIST_FACE"]) or None,
+    "whitelist_plates": [p.strip() for p in os.environ["WHITELIST_PLATES"].split(",") if p.strip()] or None,
 }
 with open(os.path.join(os.environ["OUT_DIR"], "meta.json"), "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)

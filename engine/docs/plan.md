@@ -96,6 +96,9 @@ event đúng contract, registry processor theo pool và lazy-load YOLO. Model `y
   | `max_privacy` | `yolo26s-1280-e5-dashcam.pt` (trước 20/11: `yolo26s-1280-e5-plates-frozen-x3.pt`) | 0.06 | 0.05 |
 
   Ngưỡng theo class trong `processors/image_redact.py`: `model.predict(conf=` ngưỡng thấp nhất `)`, rồi lọc từng box theo ngưỡng của class đó (label đã có trong vòng lặp). Worker chỉ nạp model mà job cần, lúc dùng lần đầu, giữ một model và đổi khi job sau dùng chế độ khác (nạp lại ~1-2 s); giữ RAM luôn <= 1.5 GB. `resultSummary.model` ghi model và ngưỡng thật đã chạy. Image engine cần Ultralytics >= 8.4 (YOLO26).
+- [ ] **[Should]** **[Đổi contract]** **[Cần Web]** Event COMPLETED của video không được vượt giới hạn message của NATS. 20/11: `test1.mp4` (Max privacy, lab) xử lý xong và đã upload `result.mp4`, nhưng event COMPLETED (`resultSummary.tracks`, ~275 byte mỗi track) vượt `max_payload` mặc định 1 MB → `INTERNAL_WORKER_ERROR: nats: maximum payload exceeded`. Tạm thời Infra đã nâng `max_payload` lên 8 MB (`infra/app/nats/values.yaml`). Cần làm:
+  - Worker ghi `resultSummary` thành file JSON trên MinIO (cạnh `result.mp4`); event COMPLETED chỉ mang key của file đó. Backend đọc file khi nhận event. Sửa contract §3 B2.
+  - Lỗi publish "maximum payload exceeded" là lỗi vĩnh viễn: báo FAILED ngay, không NAK. Hiện worker coi là lỗi tạm thời, xử lý lại cả video 3 lần (~2 giờ mỗi lần) rồi mới FAILED.
 
 ---
 

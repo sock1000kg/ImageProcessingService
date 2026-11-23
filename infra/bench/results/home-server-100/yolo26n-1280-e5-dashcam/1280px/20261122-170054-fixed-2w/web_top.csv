@@ -1,0 +1,12 @@
+timestamp,pod,cpu,memory
+2026-11-22T17:01:42Z,web-5bbdf84b66-m9tzp,3m,72Mi
+2026-11-22T17:01:48Z,web-5bbdf84b66-m9tzp,3m,72Mi
+2026-11-22T17:01:55Z,web-5bbdf84b66-m9tzp,23m,72Mi
+2026-11-22T17:02:01Z,web-5bbdf84b66-m9tzp,23m,72Mi
+2026-11-22T17:02:07Z,web-5bbdf84b66-m9tzp,124m,73Mi
+2026-11-22T17:02:13Z,web-5bbdf84b66-m9tzp,124m,73Mi
+2026-11-22T17:02:20Z,web-5bbdf84b66-m9tzp,124m,73Mi
+2026-11-22T17:02:26Z,web-5bbdf84b66-m9tzp,132m,75Mi
+2026-11-22T17:02:32Z,web-5bbdf84b66-m9tzp,132m,75Mi
+2026-11-22T17:02:38Z,web-5bbdf84b66-m9tzp,80m,72Mi
+2026-11-22T17:02:44Z,web-5bbdf84b66-m9tzp,80m,72Mi

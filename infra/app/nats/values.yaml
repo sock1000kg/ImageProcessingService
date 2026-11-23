@@ -24,6 +24,8 @@ config:
     port: 8222
 
   merge:
+    # default 1MB: a video job's COMPLETED event (one summary entry per track) went over it on a long Max privacy run
+    max_payload: << 8MB >>
     # chart renders max_memory_store: 0 when memoryStore is disabled;
     # pin a small cap so a misconfigured stream cannot eat the RAM budget
     jetstream:
@@ -89,3 +91,14 @@ podTemplate:
     spec:
       nodeSelector:
         kubernetes.io/hostname: home-server
+      # The nats image has no USER, so without this the server runs as root. Pod level, so the config reloader
+      # (which signals nats-server through the shared PID namespace) runs as the same uid and can still signal it.
+      # fsGroup makes kubelet give the JetStream volume to group 1000 so a fresh PVC is writable.
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault

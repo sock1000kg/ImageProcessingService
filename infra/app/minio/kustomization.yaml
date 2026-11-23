@@ -19,8 +19,3 @@ generatorOptions:
 resources:
   - setup-job.yaml
   - route.yaml
-
-# chart 5.4.0 cannot render an init container; this patch gives the `export`
-# volume an owner (uid 1000) so the lab's ACL mask on local-path can't block it
-patches:
-  - path: patch-volume-permissions.yaml

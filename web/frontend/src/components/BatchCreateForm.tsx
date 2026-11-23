@@ -14,6 +14,7 @@ import { Banner } from "./ui/Banner";
 import {
   FileSelectionIssue,
   getFileIdentity,
+  getFilePath,
   getFolderName,
   validateMediaFiles,
   selectFolderFiles,
@@ -37,7 +38,7 @@ export interface BatchCreateFormProps {
     name?: string,
     faceListId?: string,
     faceListIds?: string[],
-  ) => Promise<{ batch: Batch; failed: File[]; limitReason?: string } | void>;
+  ) => Promise<{ batch: Batch; failed: File[]; limitReason?: string; reasons?: Map<File, string> } | void>;
   onStartWithoutFailed?: (batchId: string) => Promise<void>;
   rerunSource?: {
     batchId: string;
@@ -54,7 +55,7 @@ export interface BatchCreateFormProps {
     name?: string,
     faceListId?: string,
     faceListIds?: string[],
-  ) => Promise<{ batch: Batch; failed: File[]; limitReason?: string } | void>;
+  ) => Promise<{ batch: Batch; failed: File[]; limitReason?: string; reasons?: Map<File, string> } | void>;
 }
 
 /**
@@ -77,7 +78,9 @@ export function BatchCreateForm({
   const [batchName, setBatchName] = useState(rerunSource?.initialName ?? "");
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
   const [rejectedFiles, setRejectedFiles] = useState<FileSelectionIssue[]>([]);
-  const [folderName, setFolderName] = useState<string | null>(null);
+  // Why: the batch is named after a folder only while every selected file comes from it; loose files or a second
+  // folder make getFolderName() return null, so the name falls back to the default.
+  const folderName = getFolderName(files);
   const [folderSummary, setFolderSummary] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{
     done: number;
@@ -90,6 +93,15 @@ export function BatchCreateForm({
     totalOriginal: number;
     limitReason?: string;
   } | null>(null);
+
+  /** Shows each failed file's reason under it in the file list, as for files rejected on selection. */
+  const showFailureReasons = (reasons?: Map<File, string>) => {
+    if (!reasons || reasons.size === 0) return;
+    setFileErrors((current) => ({
+      ...current,
+      ...Object.fromEntries([...reasons].map(([file, reason]) => [getFileIdentity(file), reason])),
+    }));
+  };
   const [config, setConfig] = useState<FormConfig>(rerunSource?.initialConfig ?? DEFAULT_FORM_CONFIG);
 
   const handleProgress = (progress: UploadProgress) => {
@@ -142,31 +154,19 @@ export function BatchCreateForm({
     return Math.max(0, limits.batchMaxFiles - (rerunSource?.imageCount ?? 0) - selected);
   };
 
+  /** A folder adds its images to the selection, like single files do; whatever no longer fits the batch is listed. */
   const handleFolderFiles = (incoming: File[]) => {
     if (!incoming || incoming.length === 0) {
       return;
     }
 
-    if (files.length > 0) {
-      const confirmed =
-        typeof window !== "undefined" && typeof window.confirm === "function"
-          ? window.confirm(`Replace the ${files.length} selected images with the folder?`)
-          : true;
-      if (!confirmed) {
-        return;
-      }
-    }
-
     const result = selectFolderFiles(incoming);
 
-    const room = roomForFiles(0);
+    const room = roomForFiles(files.length);
     const kept = result.images.slice(0, room);
     const dropped = result.images.length - kept.length;
 
-    setFiles(kept);
-    setFolderName(result.folderName);
-    setFileErrors({});
-    setRejectedFiles([]);
+    setFiles((current) => [...current, ...kept]);
     setFolderSummary(
       formatFolderSummary(result) +
         (dropped > 0 ? `, ${dropped} not added (over the ${limits?.batchMaxFiles} file batch limit)` : ""),
@@ -177,7 +177,6 @@ export function BatchCreateForm({
     setFiles((current) => {
       const next = current.filter((_, item) => item !== index);
       if (next.length === 0) {
-        setFolderName(null);
         setFolderSummary(null);
         setFileErrors({});
         setRejectedFiles([]);
@@ -190,7 +189,6 @@ export function BatchCreateForm({
     setFiles([]);
     setFileErrors({});
     setRejectedFiles([]);
-    setFolderName(null);
     setFolderSummary(null);
   };
 
@@ -221,6 +219,7 @@ export function BatchCreateForm({
             totalOriginal: files.length,
             limitReason: result.limitReason,
           });
+          showFailureReasons(result.reasons);
         } else {
           setUploadProgress(null);
         }
@@ -236,9 +235,8 @@ export function BatchCreateForm({
     if (trimmed.length > 0) {
       nameToSend = trimmed;
     } else {
-      const topFolder = folderName ?? getFolderName(files);
-      if (topFolder) {
-        nameToSend = topFolder;
+      if (folderName) {
+        nameToSend = folderName;
       }
     }
     const result = await onSubmit(
@@ -258,6 +256,7 @@ export function BatchCreateForm({
         totalOriginal: files.length,
         limitReason: result.limitReason,
       });
+      showFailureReasons(result.reasons);
     } else {
       setUploadProgress(null);
     }
@@ -274,6 +273,7 @@ export function BatchCreateForm({
         totalOriginal: failedState.totalOriginal,
         limitReason: result.limitReason,
       });
+      showFailureReasons(result.reasons);
     } else {
       setFailedState(null);
       setUploadProgress(null);
@@ -384,36 +384,51 @@ export function BatchCreateForm({
                 <span>
                   {failedState.failedFiles.length} file{failedState.failedFiles.length === 1 ? "" : "s"} not added
                 </span>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={busy}
-                  onClick={() => void handleStartWithoutThem()}
-                >
-                  Start without them
-                </button>
+                <div className="upload-retry-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy}
+                    onClick={() => void handleStartWithoutThem()}
+                  >
+                    Start without them
+                  </button>
+                </div>
               </>
             ) : (
               <>
                 <span>
                   {failedState.failedFiles.length} of {failedState.totalOriginal} failed
                 </span>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={busy}
-                  onClick={() => void handleRetryFailed()}
-                >
-                  Retry failed
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={busy}
-                  onClick={() => void handleStartWithoutThem()}
-                >
-                  Start without them
-                </button>
+                <ul className="notice-list">
+                  {failedState.failedFiles.slice(0, 5).map((file, index) => (
+                    <li key={`${getFileIdentity(file)}-${index}`}>
+                      <code className="notice-code">{getFilePath(file)}</code>:{" "}
+                      {fileErrors[getFileIdentity(file)] ?? "upload failed"}
+                    </li>
+                  ))}
+                  {failedState.failedFiles.length > 5 && (
+                    <li className="notice-more">+{failedState.failedFiles.length - 5} more</li>
+                  )}
+                </ul>
+                <div className="upload-retry-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy}
+                    onClick={() => void handleRetryFailed()}
+                  >
+                    Retry failed
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy}
+                    onClick={() => void handleStartWithoutThem()}
+                  >
+                    Start without them
+                  </button>
+                </div>
               </>
             )}
           </div>

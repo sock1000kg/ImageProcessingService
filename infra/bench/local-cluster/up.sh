@@ -164,6 +164,11 @@ EOF
 
   echo "==> Running GPU smoke test (pod with nvidia runtime running nvidia-smi)..."
   "${KUBECTL_CMD[@]}" delete pod gpu-smoke-test --ignore-not-found=true >/dev/null 2>&1 || true
+  # On a fresh cluster the default service account appears a few seconds after the node is Ready; pods are refused until then.
+  for _ in $(seq 1 60); do
+    "${KUBECTL_CMD[@]}" -n default get serviceaccount default >/dev/null 2>&1 && break
+    sleep 2
+  done
 
   "${KUBECTL_CMD[@]}" apply -f - <<EOF
 apiVersion: v1
@@ -218,7 +223,7 @@ fi
 # -----------------------------------------------------------------------------
 echo "==> Deploying KEDA from $KEDA_DIR..."
 kubectl kustomize --enable-helm "$KEDA_DIR" | \
-  "${KUBECTL_CMD[@]}" apply --server-side --force-conflicts -f -
+  "${KUBECTL_CMD[@]}" apply --server-side -f -
 
 # The lab's KEDA values pin every KEDA pod to the lab node (home-server); unpin them here.
 for dep in keda-operator keda-operator-metrics-apiserver keda-admission-webhooks; do

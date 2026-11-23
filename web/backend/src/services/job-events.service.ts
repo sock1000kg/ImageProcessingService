@@ -48,6 +48,12 @@ export function sanitizeWhitelistReferenceErrorMessage(
   return message.replace(/uploads\/[^\s,':]+/g, replacement);
 }
 
+/**
+ * Applies one worker event (progress, COMPLETED or FAILED) to its job row. Events for unknown jobs are ignored.
+ *
+ * Why it may rewrite the error: a WHITELIST_REFERENCE_ERROR names the reference photo by its storage key, so the key
+ * is replaced with the name the user gave that face before the message is saved and shown.
+ */
 export async function applyJobEvent(event: ValidatedJobEvent): Promise<void> {
   const current = await getJob(event.jobId);
   if (!current) return;

@@ -17,6 +17,7 @@ from .base import (
     apply_redaction_style,
     describe_image_error,
     get_detection_mode_config,
+    resolve_model_path,
 )
 from .face_embedding import FaceEmbedder
 from .whitelist import WhitelistManager
@@ -78,21 +79,7 @@ class ImageRedactProcessor(BaseProcessor):
 
     def _resolve_model_path(self, model_name: str) -> str:
         """Find local path for given model weight filename."""
-        candidate_paths = [
-            os.path.join(settings.models_dir, model_name),
-            os.path.join("models", model_name),
-            os.path.join("engine", "models", model_name),
-            os.path.join("/app", "models", model_name),
-            model_name,
-            os.path.join("engine", "models", "yolo26n-1280-e5-dashcam.pt"),
-            os.path.join("models", "yolo26n-1280-e5-dashcam.pt"),
-            os.path.join("engine", "models", "yolov8n-oiv7.pt"),
-            os.path.join("models", "yolov8n-oiv7.pt"),
-        ]
-        for p in candidate_paths:
-            if os.path.exists(p):
-                return p
-        return model_name
+        return resolve_model_path(model_name)
 
     def _ensure_model(self, target_model_name: str) -> None:
         """Ensure the requested YOLO model is loaded in RAM, swapping if necessary.

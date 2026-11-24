@@ -12,8 +12,10 @@ Verifies:
 import os
 import sys
 import json
+import time
 import asyncio
 import tempfile
+import nats.errors
 import numpy as np
 import cv2
 
@@ -26,6 +28,7 @@ if sys.platform == "win32":
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import src.main as worker_main
 from src.main import EngineWorker
 from src.processors import get_processor_registry
 
@@ -403,9 +406,6 @@ def test_worker_image_render_invalid_box_emits_failure():
 
 def test_worker_deadline_reports_job_timeout():
     """A job past JOB_DEADLINE_SECONDS fails once with JOB_TIMEOUT and is ACKed (not redelivered), then the worker exits."""
-    import time
-    import src.main as worker_main
-
     class SlowProcessor:
         def process(self, input_bytes, params, output_key, storage, on_progress):
             time.sleep(0.5)
@@ -450,6 +450,108 @@ def test_worker_deadline_reports_job_timeout():
     print("  -> PASS: JOB_TIMEOUT emitted once and ACKed.")
 
 
+def _video_worker(processor):
+    """A video worker with mock storage and messaging, and the message of one video job."""
+    worker = EngineWorker(pool_type="video")
+    worker.storage = MockStorageClient()
+    worker.messaging = MockMessagingClient()
+    worker.processors = {"video-redact": processor}
+    worker.storage.buckets["uploads"]["in.mp4"] = b"DUMMY"
+    return worker, MockNatsMessage({
+        "jobId": "job-vid",
+        "batchId": "batch-v",
+        "type": "video-redact",
+        "input": {"bucket": "uploads", "key": "in.mp4"},
+        "output": {"bucket": "results", "key": "out.mp4"},
+        "params": {},
+    })
+
+
+class _SleepProcessor:
+    def __init__(self, seconds):
+        self.seconds = seconds
+
+    def process(self, input_bytes, params, output_key, storage, on_progress):
+        time.sleep(self.seconds)
+        return b"out", {}, "video/mp4"
+
+
+def test_worker_result_summary_over_max_payload_fails_once():
+    """A result summary over the NATS max_payload fails the job once; it must not be processed again."""
+    worker, msg = _video_worker(_SleepProcessor(0))
+
+    async def too_large(*args, **kwargs):
+        raise nats.errors.MaxPayloadError
+
+    worker.messaging.emit_completion_event = too_large
+    asyncio.run(worker.handle_job(msg))
+
+    failed = [e for e in worker.messaging.events if e["status"] == "FAILED"]
+    assert len(failed) == 1 and "too large" in failed[0]["error"]["message"], worker.messaging.events
+    assert msg.acked is True and msg.naked is False
+
+
+def _run_until_stopped(worker, msg, stop_after):
+    """Run the worker loop with one queued message and send it SIGTERM (worker.stop) while the job runs."""
+    queue = [msg]
+
+    class Sub:
+        async def fetch(self, batch, timeout):
+            if queue:
+                return [queue.pop()]
+            await asyncio.sleep(0.01)
+            raise asyncio.TimeoutError
+
+    class Js:
+        async def pull_subscribe_bind(self, **kwargs):
+            return Sub()
+
+    async def nothing():
+        pass
+
+    worker.messaging.js = Js()
+    worker.messaging.connect = nothing
+    worker.messaging.close = nothing
+    exits = []
+    real_exit, worker_main.os._exit = worker_main.os._exit, exits.append
+
+    async def main():
+        asyncio.get_running_loop().call_later(stop_after, worker.stop)
+        started = time.monotonic()
+        await worker.run()
+        return time.monotonic() - started
+
+    try:
+        return asyncio.run(main()), exits
+    finally:
+        worker_main.os._exit = real_exit
+
+
+def test_worker_shutdown_lets_a_short_job_finish():
+    """SIGTERM during a job that ends within the wait: the job completes and is ACKed."""
+    worker, msg = _video_worker(_SleepProcessor(0.6))
+    _, exits = _run_until_stopped(worker, msg, stop_after=0.1)
+
+    assert msg.acked is True and msg.naked is False
+    assert [e for e in worker.messaging.events if e["status"] == "COMPLETED"]
+    assert exits == [], "no forced exit when the job finished"
+
+
+def test_worker_shutdown_gives_a_long_job_back():
+    """SIGTERM during a job that outlasts the wait: NAKed (another worker gets it at once), not ACKed, process exits."""
+    worker, msg = _video_worker(_SleepProcessor(3))
+    real_wait, worker_main.SHUTDOWN_JOB_WAIT_SECONDS = worker_main.SHUTDOWN_JOB_WAIT_SECONDS, 0.3
+    try:
+        elapsed, exits = _run_until_stopped(worker, msg, stop_after=0.1)
+    finally:
+        worker_main.SHUTDOWN_JOB_WAIT_SECONDS = real_wait
+
+    assert msg.naked is True and msg.acked is False
+    assert not [e for e in worker.messaging.events if e["status"] in ("COMPLETED", "FAILED")], worker.messaging.events
+    assert exits == [0], "the processing thread cannot be stopped, so the process must exit"
+    assert 0.3 <= elapsed, "the job gets its waiting time first"
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY KIỂM THỬ TÍCH HỢP WORKER E2E (GIAI ĐOẠN 6)")
@@ -462,6 +564,9 @@ if __name__ == "__main__":
     test_worker_image_render_success()
     test_worker_image_render_invalid_box_emits_failure()
     test_worker_deadline_reports_job_timeout()
+    test_worker_result_summary_over_max_payload_fails_once()
+    test_worker_shutdown_lets_a_short_job_finish()
+    test_worker_shutdown_gives_a_long_job_back()
     print("==================================================")
-    print("✅ TOÀN BỘ 8/8 TEST CASES WORKER E2E PASS 100%!")
+    print("✅ TOÀN BỘ 11/11 TEST CASES WORKER E2E PASS 100%!")
     print("==================================================")

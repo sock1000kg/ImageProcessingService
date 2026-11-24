@@ -59,7 +59,7 @@ class Settings(BaseModel):
     job_deadline_seconds: int = int(
         os.getenv(
             "JOB_DEADLINE_SECONDS",
-            "3600" if "video" in os.getenv("NATS_CONSUMER_NAME", "image-workers").lower() else "300",
+            "10800" if "video" in os.getenv("NATS_CONSUMER_NAME", "image-workers").lower() else "300",
         )
     )
 

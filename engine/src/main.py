@@ -19,6 +19,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("worker")
 
+# How long a running job may continue after SIGTERM. Must stay below the pod's terminationGracePeriodSeconds (60 s).
+SHUTDOWN_JOB_WAIT_SECONDS = 45
+# Limit for flushing the NATS connection when the worker gives its job back, so both fit in the grace period.
+SHUTDOWN_CLOSE_SECONDS = 10
+
 
 class EngineWorker:
     def __init__(self, pool_type: str = None):
@@ -38,11 +43,10 @@ class EngineWorker:
         self.processors = get_processor_registry(pool_type=pool_type)
         self.running = True
         self.is_processing = False
-        self.current_msg = None
+        self._stop_event = asyncio.Event()
 
     async def handle_job(self, msg):
         """Process a single job message received from NATS JetStream."""
-        self.current_msg = msg
         job_id = "unknown"
         batch_id = None
         num_delivered = getattr(getattr(msg, "metadata", None), "num_delivered", 1)
@@ -231,9 +235,23 @@ class EngineWorker:
                 return
 
             # 7. Emit COMPLETED event
-            await self.messaging.emit_completion_event(
-                job_id, out_bucket, out_key, result_summary, batch_id=batch_id
-            )
+            try:
+                await self.messaging.emit_completion_event(
+                    job_id, out_bucket, out_key, result_summary, batch_id=batch_id
+                )
+            except nats.errors.MaxPayloadError:
+                # The summary is as large on the next attempt, so fail once instead of processing the job again.
+                size = len(json.dumps(result_summary).encode())
+                logger.error(f"Result summary of job {job_id} is {size} bytes, over the NATS max_payload")
+                await self.messaging.emit_failure_event(
+                    job_id,
+                    "INTERNAL_WORKER_ERROR",
+                    f"Result summary is too large to send ({size} bytes)",
+                    stage="UPLOADING_OUTPUT",
+                    batch_id=batch_id,
+                )
+                await msg.ack()
+                return
 
             # 8. ACK to JetStream only after everything is successful!
             await msg.ack()
@@ -248,7 +266,35 @@ class EngineWorker:
                 await hb_task
             except asyncio.CancelledError:
                 pass
-            self.current_msg = None
+
+    async def _run_job(self, msg) -> bool:
+        """Run one job; False when a shutdown gave it back to the queue before it finished.
+
+        The job runs as its own task, so SIGTERM is noticed while it runs. It then has SHUTDOWN_JOB_WAIT_SECONDS to
+        finish; after that its message is NAKed, so another worker gets it at once instead of after ack_wait.
+        """
+        self.is_processing = True
+        job = asyncio.create_task(self.handle_job(msg))
+        stopping = asyncio.create_task(self._stop_event.wait())
+        try:
+            await asyncio.wait({job, stopping}, return_when=asyncio.FIRST_COMPLETED)
+            if not job.done():
+                logger.info(f"Graceful shutdown: waiting up to {SHUTDOWN_JOB_WAIT_SECONDS}s for the in-flight job...")
+                await asyncio.wait({job}, timeout=SHUTDOWN_JOB_WAIT_SECONDS)
+            if job.done():
+                await job  # surfaces an error of handle_job itself
+                return True
+            logger.warning("Grace period ending with active job in-flight. NAKing message per contract §4...")
+            job.cancel()  # also stops the heartbeat, which would otherwise keep claiming the message
+            await asyncio.gather(job, return_exceptions=True)
+            try:
+                await msg.nak()
+            except Exception as nak_err:
+                logger.warning(f"Failed to NAK in-flight message on shutdown: {nak_err}")
+            return False
+        finally:
+            stopping.cancel()
+            self.is_processing = False
 
     async def run(self):
         """Start worker loop and consume jobs."""
@@ -273,15 +319,12 @@ class EngineWorker:
             )
             raise
 
+        job_finished = True
         while self.running:
             try:
                 msgs = await sub.fetch(batch=1, timeout=1.0)
                 for msg in msgs:
-                    self.is_processing = True
-                    try:
-                        await self.handle_job(msg)
-                    finally:
-                        self.is_processing = False
+                    job_finished = await self._run_job(msg)
             except (nats.errors.TimeoutError, TimeoutError, asyncio.TimeoutError):
                 continue
             except Exception as e:
@@ -289,26 +332,21 @@ class EngineWorker:
                     logger.error(f"Error fetching messages: {e}")
                     await asyncio.sleep(1)
 
-        # Graceful shutdown: wait up to 45s for in-flight job to finish before exiting
-        shutdown_start = time.monotonic()
-        while self.is_processing and (time.monotonic() - shutdown_start < 45):
-            logger.info("Graceful shutdown: waiting for in-flight job to finish...")
-            await asyncio.sleep(0.5)
-
-        # If job is still processing when grace period is expiring, NAK so another worker picks it up
-        if self.is_processing and self.current_msg is not None:
-            logger.warning("Grace period ending with active job in-flight. NAKing message per contract §4...")
-            try:
-                await self.current_msg.nak()
-            except Exception as nak_err:
-                logger.warning(f"Failed to NAK in-flight message on shutdown: {nak_err}")
-
         logger.info("Worker loop stopped. Draining connections...")
-        await self.messaging.close()
+        if job_finished:
+            await self.messaging.close()
+            return
+        try:
+            await asyncio.wait_for(self.messaging.close(), timeout=SHUTDOWN_CLOSE_SECONDS)
+        except Exception as close_err:
+            logger.warning(f"Could not drain the NATS connection on shutdown: {close_err}")
+        # The processing thread of the job given back cannot be stopped, and would keep the process alive.
+        os._exit(0)
 
     def stop(self):
         logger.info("Termination signal (SIGTERM/SIGINT) received. Finishing active job and shutting down...")
         self.running = False
+        self._stop_event.set()
 
 
 def main():

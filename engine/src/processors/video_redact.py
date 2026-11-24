@@ -35,6 +35,7 @@ from .base import (
     BaseProcessor,
     get_detection_mode_config,
     parse_confidence_thresholds,
+    resolve_model_path,
     DEFAULT_FACE_SIMILARITY,
     DEFAULT_REVIEW_THRESHOLD,
     DEFAULT_REDACTION_STRENGTHS,
@@ -757,22 +758,8 @@ class VideoRedactProcessor(BaseProcessor):
 
     @staticmethod
     def _resolve_model_path(model_name: str) -> str:
-        """Local path of a model weight file; same lookup order as the image processor (including its fallbacks)."""
-        candidate_paths = [
-            os.path.join(settings.models_dir, model_name),
-            os.path.join("models", model_name),
-            os.path.join("engine", "models", model_name),
-            os.path.join("/app", "models", model_name),
-            model_name,
-            "engine/models/yolo26n-1280-e5-dashcam.pt",
-            "models/yolo26n-1280-e5-dashcam.pt",
-            "engine/models/yolov8n-oiv7.pt",
-            "models/yolov8n-oiv7.pt",
-        ]
-        for p in candidate_paths:
-            if os.path.exists(p):
-                return p
-        return model_name
+        """Local path of a model weight file; same lookup as the image processor."""
+        return resolve_model_path(model_name)
 
     def _use_model(self, target_path: str) -> None:
         """Make ``target_path`` the model the next job runs, dropping the loaded one if it differs.
@@ -1288,8 +1275,7 @@ class VideoRedactProcessor(BaseProcessor):
                         verbose=False,
                     )
                     if not results or len(results) == 0 or results[0] is None:
-                        frame_idx += 1
-                        continue
+                        raise RuntimeError("the detector returned no result")
                     boxes = self._tracked_and_untracked(tracker, results[0].boxes.cpu().numpy(), frame)
                     if boxes:
                         for xyxy, box_id, conf, cls_id in boxes:
@@ -1367,7 +1353,8 @@ class VideoRedactProcessor(BaseProcessor):
                                 sharpness=sharpness,
                             )
                 except Exception as track_err:
-                    logger.warning(f"Error tracking frame {frame_idx}: {track_err}", exc_info=True)
+                    # Fail the job: a frame without detections would be rendered unredacted in a COMPLETED video.
+                    raise RuntimeError(f"Detection failed on frame {frame_idx}: {track_err}") from track_err
 
                 frame_idx += 1
                 throttler.update_range(

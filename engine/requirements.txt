@@ -3,7 +3,8 @@ nats-py>=2.8.0
 minio>=7.2.0
 
 # AI & Media Processing
-ultralytics>=8.3.0
+# YOLO26 needs Ultralytics 8.4
+ultralytics>=8.4.0
 lapx>=0.5.5
 onnxruntime>=1.18.0
 rapidocr-onnxruntime>=1.3.8

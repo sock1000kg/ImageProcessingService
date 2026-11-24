@@ -1,4 +1,5 @@
 """Abstract Base Processor Interface."""
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Tuple, Dict, Any, Optional, Callable
@@ -106,6 +107,27 @@ def get_detection_mode_config(mode: Optional[str] = "fast") -> DetectionModeConf
         raw_cfg = settings.mode_fast
         default_model = "yolo26n-1280-e5-dashcam.pt"
         return parse_mode_config("fast", raw_cfg, default_model=default_model)
+
+
+def resolve_model_path(model_name: str) -> str:
+    """Local path of a YOLO weight file; FileNotFoundError when it is not there.
+
+    Why no fallback to another model: a job that asked for Maximum privacy would silently run on the Fast model, with
+    the other model's thresholds, and still end as COMPLETED.
+    """
+    from ..config import settings
+
+    candidate_paths = [
+        os.path.join(settings.models_dir, model_name),
+        os.path.join("models", model_name),
+        os.path.join("engine", "models", model_name),
+        os.path.join("/app", "models", model_name),
+        model_name,
+    ]
+    for p in candidate_paths:
+        if os.path.isfile(p):
+            return p
+    raise FileNotFoundError(f"Model weights '{model_name}' not found (MODELS_DIR={settings.models_dir})")
 
 
 def parse_confidence_thresholds(

@@ -1,6 +1,9 @@
 """Unit tests for Detection Mode Configuration and Parsers (Task B / Step 3)."""
 import os
+import subprocess
 import sys
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -9,7 +12,10 @@ from src.processors.base import (
     parse_mode_config,
     get_detection_mode_config,
     parse_confidence_thresholds,
+    resolve_model_path,
 )
+from src.processors.image_redact import ImageRedactProcessor
+from src.processors.video_redact import VideoRedactProcessor
 from src.config import settings
 
 
@@ -124,3 +130,25 @@ def test_settings_mode_env_variables_present():
     assert hasattr(settings, "mode_max_privacy")
     assert "yolo26n" in settings.mode_fast
     assert "yolo26s" in settings.mode_max_privacy
+
+
+def test_missing_weights_raise_instead_of_another_model():
+    """A weight file that is not there must fail: running another model would break the mode the user picked."""
+    assert resolve_model_path("yolo26s-1280-e5-dashcam.pt").endswith("yolo26s-1280-e5-dashcam.pt")
+    with pytest.raises(FileNotFoundError, match="no-such-model.pt"):
+        resolve_model_path("no-such-model.pt")
+    with pytest.raises(FileNotFoundError):
+        ImageRedactProcessor._resolve_model_path(None, "no-such-model.pt")
+    with pytest.raises(FileNotFoundError):
+        VideoRedactProcessor._resolve_model_path("no-such-model.pt")
+
+
+def test_video_job_deadline_default_matches_contract():
+    """Contract §4: 300 s for images, 10800 s for video, also for a worker set up by env only (docker compose)."""
+    code = "from src.config import settings; print(settings.job_deadline_seconds)"
+    for consumer, expected in (("video-workers", "10800"), ("image-workers", "300")):
+        env = {**os.environ, "NATS_CONSUMER_NAME": consumer}
+        env.pop("JOB_DEADLINE_SECONDS", None)
+        out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True,
+                             cwd=os.path.join(os.path.dirname(__file__), ".."))
+        assert out.stdout.strip() == expected

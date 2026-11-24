@@ -991,6 +991,51 @@ def test_low_score_box_tracking_recovery():
         processor._model = orig_model
 
 
+def test_detection_error_on_one_frame_fails_the_job():
+    """A frame the detector could not process must fail the job, not be rendered without redaction."""
+    processor = VideoRedactProcessor()
+
+    class BrokenModel:
+        names = {0: "face", 1: "plate"}
+
+        def __init__(self, error):
+            self.error = error
+
+        def predict(self, *args, **kwargs):
+            if self.error:
+                raise RuntimeError("out of memory")
+            return []
+
+    class OneFrameCap:
+        def __init__(self):
+            self.frames = [np.zeros((48, 64, 3), dtype=np.uint8)]
+
+        def isOpened(self): return True
+        def read(self): return (True, self.frames.pop()) if self.frames else (False, None)
+        def release(self): pass
+
+    orig_cap = cv2.VideoCapture
+    try:
+        cv2.VideoCapture = lambda *args, **kwargs: OneFrameCap()
+        for error in (True, False):
+            processor._model = BrokenModel(error)
+            try:
+                processor._track_pass(
+                    input_video_path="dummy.mp4",
+                    metadata=VideoMetadata(width=64, height=48, fps=25.0, duration_ms=40, frames=1, has_audio=False),
+                    targets_set={"face"},
+                    thresholds={"face": 0.17, "plate": 0.11},
+                    review_threshold=0.35,
+                    throttler=ProgressThrottler(callback=None),
+                )
+                assert False, "the job must fail"
+            except RuntimeError as e:
+                assert "frame 0" in str(e), str(e)
+    finally:
+        cv2.VideoCapture = orig_cap
+        processor._model = None
+
+
 def test_hold_frames_scaling():
     """Verify hold_frames_for_fps scaling per video frame rate."""
     print("Test 20: Kiểm tra hàm tính frame hold theo FPS (hold_frames_for_fps)...")
@@ -1183,7 +1228,8 @@ if __name__ == "__main__":
     test_low_score_box_tracking_recovery()
     test_hold_frames_scaling()
     test_track_manager_apply_holds()
+    test_detection_error_on_one_frame_fails_the_job()
     test_detection_mode_selects_model_and_thresholds()
     print("==================================================")
-    print("✅ TOÀN BỘ 25/25 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
+    print("✅ TOÀN BỘ 26/26 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
     print("==================================================")

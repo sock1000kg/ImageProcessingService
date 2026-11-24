@@ -1,0 +1,46 @@
+\subsection{Engine worker}
+
+Thiết kế của Engine đã trình bày ở mục 3.8. Phần này chỉ nói về những chỗ phải làm khác đi khi cài đặt, vì sao phải đổi và kết quả sau khi đổi. Số liệu chi tiết nằm ở Chương 4.
+
+{\bangfont
+\begin{longtable}{|L{4.3cm}|L{4.9cm}|L{5.8cm}|}
+\hline
+\dongdau \textbf{Vấn đề gặp phải} & \textbf{Cách giải quyết} & \textbf{Kết quả} \\ \hline
+\endhead
+Mô hình có sẵn bỏ sót nhiều mặt và biển & Thay YOLOv8n bằng YOLO26 tinh chỉnh, chia hai chế độ & Mặt đạt tiêu chí che từ 44,9\% lên 76,7\% (Fast) và 79,5\% (Max privacy) \\ \hline
+Bộ lọc theo vị trí bỏ qua mặt người thật & Gỡ bộ lọc & Mặt bỏ sót trên ba clip điện thoại từ 1,9--5,0\% còn 0--0,4\% (đo chung với dòng dưới) \\ \hline
+Phát hiện chưa được ByteTrack xác nhận bị mất & Tách YOLO và ByteTrack thành hai bước & Biển bỏ sót trên clip dashcam 1 từ 22,8\% còn 10,6\% (đo chung với dòng trên) \\ \hline
+OCR đọc biển lúc còn nhỏ, mờ & Đọc các vùng cắt rộng nhất của quỹ đạo & Hai cấu hình bị ảnh hưởng giữ đúng biển chủ xe từ 34--38\% lên 82--84\% \\ \hline
+Một mã quỹ đạo chuyển sang vật khác & Tách quỹ đạo khi mất dấu quá 167 ms & Mỗi đoạn được xét miễn che riêng \\ \hline
+Pod phụ thuộc mạng, có thể chạy nhầm mô hình & Đóng gói trọng số vào ảnh container, báo lỗi khi thiếu & Worker không phải tải mô hình khi khởi động \\ \hline
+Job treo hoặc quá dài bị chạy lại nhiều lần & Đặt hạn thời gian cho từng loại job & Job quá hạn dừng một lần với lỗi rõ ràng \\ \hline
+\end{longtable}\addtocounter{table}{-1}}
+
+\textbf{Thay mô hình phát hiện.} Bản đầu tiên dùng YOLOv8n huấn luyện sẵn trên Open Images, vì mô hình này đã có sẵn lớp mặt người và biển số. Cách làm này giúp nhóm dựng được toàn bộ luồng xử lý sớm, nhưng chất lượng chưa đủ: trên tập đánh giá chỉ 44,9\% số mặt đạt tiêu chí che. Nhóm chuyển sang YOLO26 tinh chỉnh với hai nhãn mặt và biển. Tên lớp của mô hình được ánh xạ về hai nhãn chung nên khi đổi mô hình, phần còn lại không phải sửa. Mỗi chế độ có một chuỗi cấu hình riêng gồm trọng số, kích thước đầu vào và ngưỡng từng lớp. Do RAM của pod có hạn, worker chỉ giữ một mô hình YOLO và đổi khi job sau dùng chế độ khác.
+
+Mô hình mới cũng có điểm trừ. Sau khi học thêm từ khung dashcam, nó nhận nhầm logo trắng trên đồng hồ xe là biển số. Nhóm chấp nhận vì lỗi này chỉ che thừa, không làm lộ thông tin.
+
+\textbf{Bỏ bộ lọc theo vị trí.} Trong video quay từ xe máy, đèn trợ sáng hay bị nhận nhầm là khuôn mặt. Nhóm từng thêm một bộ lọc bỏ các hộp mặt gần vuông ở vùng bên phải phía dưới khung hình. Bộ lọc chạy đúng với video hành trình nhưng lại áp dụng cho mọi video. Với clip quay bằng điện thoại, người thật có thể đứng đúng chỗ đó, và có 83 khung mặt người lạ không được che. Nhóm gỡ hẳn bộ lọc: thà che nhầm một chiếc đèn còn hơn để lộ một khuôn mặt.
+
+\textbf{Giữ lại phát hiện chưa có mã.} Lúc đầu nhóm dùng chức năng theo dõi tích hợp sẵn của Ultralytics. Khi so với cách chạy YOLO trên từng khung, nhóm thấy điều lạ: trên cùng một clip, mô hình tìm được 93,0\% số mặt nhưng sau khi qua Engine chỉ còn 77,2\%. Nguyên nhân là ByteTrack chỉ trả về quỹ đạo đã được xác nhận, nên khung đầu tiên của một vật mới và các hộp không ghép được đều bị bỏ trước khi đến bước che.
+
+Cách sửa là chạy YOLO và ByteTrack riêng. Hộp nào ByteTrack không trả về vẫn được giữ nếu đạt ngưỡng của lớp, được ghép với hộp ở một hoặc hai khung trước khi IoU trên 0,40, nếu không thì cấp mã mới. Cùng với việc gỡ bộ lọc, thay đổi này giảm số mặt bỏ sót trên các clip điện thoại còn 0--0,4\% và giảm hơn một nửa số biển bỏ sót trên clip dashcam 1. Hai thay đổi được đo cùng lúc nên chưa tách được đóng góp của từng phần. Đổi lại, video có thêm nhiều quỹ đạo rất ngắn. Các đoạn này khó khớp danh sách miễn che nên bị che, khiến tỷ lệ giữ đúng biển chủ xe trên clip dashcam 1 giảm từ 86,0\% xuống 69,5\%.
+
+\textbf{Chọn vùng cắt cho OCR.} Trước đây, mỗi quỹ đạo biển số giữ chủ yếu các vùng cắt ở những khung đầu, đúng lúc biển vừa vào hình nên còn nhỏ hoặc bị khuất. Trên clip dashcam 2, một quỹ đạo dài 755 khung của chính chủ xe bị coi là xe lạ vì lý do này. Engine được sửa để giữ năm vùng cắt rộng nhất của cả quỹ đạo. Hai cấu hình bị ảnh hưởng tăng tỷ lệ giữ đúng từ 34\% lên 82\% và từ 38\% lên 84\%, các cấu hình khác gần như không đổi. Nhóm cũng thử đặt chiều rộng tối thiểu 40 px nhưng bỏ, vì chế độ Fast mất 17 điểm phần trăm trong khi OCR vẫn đọc khớp được biển rộng 37 px.
+
+\textbf{Tách quỹ đạo khi mất dấu.} ByteTrack giữ mã của vật bị mất dấu khoảng hai giây và có thể gán lại cho vật khác. Trong một clip, mã của xe lạ chuyển sang xe chủ sau 1,2 giây. Vì quyết định miễn che áp dụng cho cả quỹ đạo, biển xe lạ đã không được che đủ trong khoảng 0,15 giây. Engine hiện mở quỹ đạo mới khi mất dấu quá 167 ms, tức 5 khung ở 30 fps. Mỗi đoạn được xét riêng và khoảng mất dấu được báo cho người dùng. Cách này chưa loại hết rủi ro: một đoạn biển không đọc được chữ vẫn có thể kế thừa quyết định của đoạn nằm cạnh. Trên năm clip, còn 15 khung (Max privacy) và 11 khung (Fast) người lạ bị giữ như chủ thể trong 6.031 khung.
+
+\textbf{Đóng gói trọng số.} Pod có thể được KEDA tạo và thu hồi nhiều lần, hệ thống tệp của container lại ở chế độ chỉ đọc, nên worker không nên tải mô hình lúc khởi động. Toàn bộ trọng số YOLO, ArcFace và YuNet được đưa vào ảnh container. Nhóm cũng tắt tính năng tự cài gói của Ultralytics. Trước đó, khi một video bị gửi nhầm vào hàng đợi ảnh, thư viện này cố cài thêm một gói giải mã HEIC và người dùng nhận được thông báo lỗi chẳng liên quan. Một lỗi khác là khi thiếu tệp trọng số, Engine tự chuyển sang mô hình khác, nên job Max privacy có thể chạy bằng mô hình của Fast mà không ai biết. Engine hiện báo lỗi thay vì tự đổi mô hình.
+
+\textbf{Hạn thời gian cho job.} Worker báo định kỳ cho JetStream rằng job còn đang chạy. Nếu bước suy luận bị treo, tín hiệu này sẽ giữ job ở trạng thái đang xử lý mãi mãi. Lúc đầu nhóm đặt hạn một giờ cho video, quá hạn thì worker thoát và job được giao lại tối đa ba lần. Cách này không hợp với video dài, vì lần sau cũng chậm như lần trước và người dùng chỉ thấy lỗi worker bị sập. Trên máy lab, một clip 33 giây ở 1440p với Max privacy cần khoảng 2--2,5 giờ. Hiện tại hạn là 5 phút với ảnh và 3 giờ với video. Job quá hạn được báo lỗi \code{JOB\_TIMEOUT} đúng một lần.
+
+\textbf{Một số sự cố khác.} Khi chạy thử trên cụm và rà soát lại, nhóm sửa thêm ba trường hợp:
+\begin{itemize}
+  \item \textit{Kết quả quá lớn.} Một job video dài xử lý xong nhưng sự kiện hoàn tất vượt giới hạn 1 MB của NATS. Worker coi đó là lỗi tạm thời và xử lý lại cả video. Nay worker báo lỗi ngay lần đầu và giới hạn được nâng lên 8 MB. Về lâu dài, phần kết quả chi tiết nên được lưu trên MinIO.
+  \item \textit{Lỗi ở một khung.} Trước đây, lỗi phát hiện ở một khung chỉ được ghi log và video vẫn hoàn tất, nghĩa là khung đó có thể không được che. Nay job sẽ báo lỗi, đúng với nguyên tắc ưu tiên riêng tư.
+  \item \textit{Tắt worker giữa chừng.} Worker chờ job tối đa 45 giây, nếu chưa xong thì trả job về hàng đợi rồi thoát. Khi thử với NATS thật, worker khác nhận được job ngay, còn bản cũ phải chờ hết thời gian xác nhận là 5 phút.
+\end{itemize}
+
+Sau các thay đổi, bộ kiểm thử của Engine gồm 100 ca và đều đạt. Nhóm cũng chạy lại ba đoạn video ngắn trước và sau khi sửa phần xử lý sự cố: kết quả giống hệt nhau, nên số liệu ở Chương 4 không bị ảnh hưởng.
+
+Bài học rút ra là lỗi không chỉ nằm ở mô hình. Bốn vấn đề của luồng video đều nằm ở bước theo dõi hoặc bước xét miễn che, và nhóm chỉ thấy được khi chấm điểm cả Engine trên video có nhãn, thay vì chỉ chấm mô hình trên ảnh.

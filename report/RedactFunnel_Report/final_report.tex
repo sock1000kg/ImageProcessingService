@@ -1,0 +1,1408 @@
+% !TeX program = xelatex
+\documentclass[a4paper,12pt]{article}
+
+% ===== 1. KHỔ GIẤY, LỀ TRANG, FONT =====
+\usepackage[left=3cm,right=2cm,top=2cm,bottom=2cm,footskip=1cm]{geometry}
+\usepackage{fontspec}
+
+\IfFontExistsTF{Times New Roman}{
+  \setmainfont{Times New Roman}
+}{
+  \IfFileExists{fonts/times.ttf}{
+    \setmainfont{times.ttf}[
+      Path=fonts/,
+      BoldFont=timesbd.ttf,
+      ItalicFont=timesi.ttf,
+      BoldItalicFont=timesbi.ttf]
+  }{
+    \IfFontExistsTF{TeX Gyre Termes}{
+      \setmainfont{TeX Gyre Termes}
+      \PackageWarningNoLine{MauBaoCao}{Times New Roman unavailable; using TeX Gyre Termes}
+    }{
+      \setmainfont{DejaVu Serif}
+      \PackageWarningNoLine{MauBaoCao}{Times New Roman unavailable; using DejaVu Serif}
+    }
+  }
+}
+\usepackage{indentfirst}
+\usepackage{microtype}
+\usepackage{colortbl}
+\usepackage{needspace}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{tikz}
+\usepackage{amsmath,amssymb}
+\usepackage{array,tabularx,booktabs,longtable}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{tocloft}
+\usepackage{caption}
+\usepackage{xurl}
+\usepackage[unicode,hidelinks]{hyperref}
+\urlstyle{same}
+
+\renewcommand{\normalsize}{\fontsize{13}{19.5}\selectfont}
+\AtBeginDocument{\normalsize}
+\setlength{\parindent}{0.5cm}
+\setlength{\parskip}{4pt}
+\setlength{\emergencystretch}{3em}
+\hyphenpenalty=10000
+\exhyphenpenalty=10000
+\raggedbottom
+\setlist{topsep=4pt,itemsep=2pt,parsep=0pt,leftmargin=*}
+
+% ===== 2. BA CẤP TIÊU ĐỀ: 1 / 1.1 / 1.1.1 =====
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+\renewcommand{\thesection}{\arabic{section}}
+\renewcommand{\thesubsection}{\thesection.\arabic{subsection}}
+\renewcommand{\thesubsubsection}{\thesubsection.\arabic{subsubsection}}
+\titleformat{\section}[hang]
+  {\normalfont\fontsize{16}{20}\selectfont\bfseries}
+  {\thesection.}{0.6em}{}
+\titleformat{\subsection}[hang]
+  {\normalfont\fontsize{14}{18}\selectfont\bfseries}
+  {\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}[hang]
+  {\normalfont\fontsize{13}{17}\selectfont\bfseries}
+  {\thesubsubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{16pt}{8pt}
+\titlespacing*{\subsection}{0pt}{12pt}{6pt}
+\titlespacing*{\subsubsection}{0pt}{8pt}{4pt}
+
+% ===== 3. MỤC LỤC VÀ SỐ TRANG =====
+\renewcommand{\contentsname}{MỤC LỤC}
+\renewcommand{\listfigurename}{Danh sách hình vẽ}
+\renewcommand{\listtablename}{Danh sách bảng}
+\renewcommand{\cftloftitlefont}{\fontsize{16}{20}\selectfont\bfseries}
+\renewcommand{\cftlottitlefont}{\fontsize{16}{20}\selectfont\bfseries}
+\setlength{\cftbeforeloftitleskip}{0pt}\setlength{\cftafterloftitleskip}{14pt}
+\setlength{\cftbeforelottitleskip}{0pt}\setlength{\cftafterlottitleskip}{14pt}
+\renewcommand{\cftfigpresnum}{Hình }\renewcommand{\cfttabpresnum}{Bảng }
+\renewcommand{\cftfigaftersnum}{.}\renewcommand{\cfttabaftersnum}{.}
+\cftsetindents{figure}{0em}{5em}\cftsetindents{table}{0em}{5.2em}
+\setlength{\cftbeforefigskip}{0pt}\setlength{\cftbeforetabskip}{0pt}
+\renewcommand{\refname}{Tài liệu tham khảo}
+\renewcommand{\cfttoctitlefont}{\fontsize{16}{20}\selectfont\bfseries}
+\setlength{\cftbeforetoctitleskip}{0pt}
+\setlength{\cftaftertoctitleskip}{18pt}
+\renewcommand{\cftsecfont}{\normalfont\bfseries}
+\renewcommand{\cftsecpagefont}{\normalfont\bfseries}
+\renewcommand{\cftsubsecfont}{\normalfont}
+\renewcommand{\cftsubsubsecfont}{\normalfont}
+\renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
+\cftsetindents{section}{0em}{2em}
+\cftsetindents{subsection}{2em}{3em}
+\cftsetindents{subsubsection}{5em}{4em}
+\setlength{\cftbeforesecskip}{6pt}
+\makeatletter
+\def\ps@plain{%
+  \let\@oddhead\@empty\let\@evenhead\@empty
+  \def\@oddfoot{\hfil{\normalfont\fontsize{11}{13}\selectfont\thepage}\hfil}%
+  \let\@evenfoot\@oddfoot}
+\makeatother
+\pagestyle{plain}
+
+% ===== 4. BẢNG, HÌNH, CHÚ THÍCH =====
+\counterwithin{figure}{section}
+\counterwithin{table}{section}
+\renewcommand{\topfraction}{0.9}\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.08}\renewcommand{\floatpagefraction}{0.75}
+\setcounter{topnumber}{3}\setcounter{totalnumber}{4}
+\renewcommand{\tablename}{Bảng}
+\renewcommand{\figurename}{Hình}
+\DeclareCaptionFont{reportcaption}{\fontsize{12}{15}\selectfont}
+\captionsetup{font=reportcaption,labelfont=bf,labelsep=period,
+  justification=centering,skip=6pt}
+\newcommand{\bangfont}{\fontsize{11}{14}\selectfont\setlength{\tabcolsep}{4.2pt}\renewcommand{\arraystretch}{1.2}}
+\newcommand{\bangnho}{\fontsize{10}{12.5}\selectfont\setlength{\tabcolsep}{4.2pt}\renewcommand{\arraystretch}{1.2}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}m{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}m{#1}}
+\newcommand{\dongdau}{\rowcolor[gray]{0.92}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+% ===== 5. THÔNG TIN TRANG BÌA =====
+\newcommand{\DonViChuQuan}{ĐẠI HỌC QUỐC GIA HÀ NỘI}
+\newcommand{\TenTruong}{TRƯỜNG ĐẠI HỌC CÔNG NGHỆ}
+\newcommand{\LoaiBaoCao}{BÁO CÁO DỰ ÁN}
+\newcommand{\TenMonHoc}{VẤN ĐỀ HIỆN ĐẠI TRONG CÔNG NGHỆ THÔNG TIN}
+\newcommand{\TenDeTai}{NỀN TẢNG ẨN DANH HOÁ ẢNH VÀ VIDEO\\REDACTFUNNEL}
+\newcommand{\GiangVien}{[Họ tên giảng viên]}
+\newcommand{\DiaDiemThoiGian}{Hà Nội, tháng 11 năm 2026}
+\hypersetup{pdftitle={BÁO CÁO DỰ ÁN - REDACTFUNNEL},pdfauthor={Nhóm sinh viên VNU-UET}}
+
+\begin{document}
+
+% ===== 6. TRANG BÌA CHUẨN UET =====
+\begin{titlepage}
+\thispagestyle{empty}
+\begin{tikzpicture}[remember picture,overlay]
+  \draw[line width=2pt]
+    ([xshift=3cm,yshift=-2cm]current page.north west)
+    rectangle ([xshift=-2cm,yshift=2cm]current page.south east);
+  \draw[line width=0.5pt]
+    ([xshift=3.12cm,yshift=-2.12cm]current page.north west)
+    rectangle ([xshift=-2.12cm,yshift=2.12cm]current page.south east);
+\end{tikzpicture}\par
+\centering
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\vspace*{0.8cm}
+{\fontsize{14}{18}\selectfont\bfseries\DonViChuQuan\par}
+\vspace{0.15cm}
+{\fontsize{15}{20}\selectfont\bfseries\TenTruong\par}
+\vspace{0.25cm}
+\rule{5cm}{0.4pt}\par
+\vspace{0.5cm}
+
+\IfFileExists{logo.png}{
+  \includegraphics[width=3.8cm,height=3.8cm,keepaspectratio]{logo.png}
+}{
+  \IfFileExists{figures/logo.png}{
+    \includegraphics[width=3.8cm,height=3.8cm,keepaspectratio]{figures/logo.png}
+  }{
+    \fbox{\parbox[c][3.4cm][c]{3.4cm}{\centering
+      \fontsize{11}{14}\selectfont LOGO TRƯỜNG}}
+  }
+}\par
+\vspace{0.7cm}
+{\fontsize{22}{27}\selectfont\bfseries\LoaiBaoCao\par}
+\vspace{0.35cm}
+\begin{minipage}{0.9\textwidth}\centering
+  {\fontsize{15}{20}\selectfont\bfseries MÔN HỌC: \TenMonHoc\par}
+\end{minipage}\par
+\vspace{0.6cm}
+{\fontsize{13}{17}\selectfont\bfseries ĐỀ TÀI\par}
+\vspace{0.12cm}
+\begin{minipage}{0.9\textwidth}\centering
+  {\fontsize{16}{21}\selectfont\bfseries\TenDeTai\par}
+\end{minipage}\par
+\vspace{0.65cm}
+{\fontsize{13}{19.5}\selectfont
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}>{\raggedright\arraybackslash\bfseries}p{5.2cm}>{\raggedright\arraybackslash}p{8cm}@{}}
+  Giảng viên hướng dẫn: & \GiangVien\\
+  Sinh viên thực hiện:  & Phạm Tất Đạt -- 24020063 \textbf{(Trưởng nhóm)}\\
+                        & Nguyễn Đức Huy -- 24020162\\
+                        & Nguyễn Đức Huy -- 22021186
+\end{tabular}\par}
+\vfill
+{\fontsize{13}{17}\selectfont\bfseries\DiaDiemThoiGian\par}
+\vspace*{0.5cm}
+\end{titlepage}
+
+% ===== 7. LỜI CAM ĐOAN & TÓM TẮT & PHÂN CÔNG (ROMAN NUMBERING) =====
+\pagenumbering{roman}
+\section*{Lời cam đoan}
+\addcontentsline{toc}{section}{Lời cam đoan}
+Chúng em xin cam đoan đề tài ``RedactFunnel: Nền tảng ẩn danh hoá ảnh và video'' là sản phẩm do nhóm tự thực hiện trong quá trình học tập và làm dự án. Mã nguồn, cấu hình triển khai và các mô hình được huấn luyện trình bày trong báo cáo đều do nhóm xây dựng. Số liệu thực nghiệm được đo trên hạ tầng của nhóm; file kết quả và script để chạy lại được lưu trong kho mã nguồn của dự án.
+
+Đề tài có sử dụng thư viện và mô hình của bên thứ ba như Ultralytics YOLO, ArcFace, YuNet, RapidOCR và ByteTrack. Ảnh dùng để huấn luyện và đánh giá lấy từ các bộ dữ liệu công khai (WIDER FACE, LFW và một số bộ dữ liệu biển số xe Việt Nam); video dùng để đánh giá là một số video được đăng công khai trên mạng xã hội. Các nguồn này được ghi rõ trong báo cáo và ở phần Tài liệu tham khảo. Nhóm chỉ dùng chúng cho mục đích học tập và nghiên cứu, không đăng tải lại hay phân phối lại ảnh, video gốc. Các khung hình trích từ những video này trong báo cáo đều đã được che khuôn mặt và biển số.
+
+Chúng em xin chịu trách nhiệm về tính trung thực của nội dung báo cáo này.
+
+\clearpage
+\section*{Tóm tắt}
+\addcontentsline{toc}{section}{Tóm tắt}
+Ảnh và video đăng lên mạng xã hội, ảnh chụp sự kiện hay video từ camera hành trình thường có khuôn mặt người qua đường và biển số xe của những người không liên quan. Từ ngày 01/01/2026, Luật Bảo vệ dữ liệu cá nhân số 91/2025/QH15 có hiệu lực, nên việc công khai các thông tin này cần được cân nhắc kỹ hơn. Che thủ công bằng phần mềm chỉnh sửa thì tốn nhiều thời gian. Các dịch vụ AI trên cloud đòi hỏi trả phí, niềm tin vào dịch vụ hoặc yêu cầu tự chuẩn bị pipeline xử lý.
+
+Đề tài xây dựng RedactFunnel, một nền tảng web mã nguồn mở có thể tự triển khai, dùng để tự động phát hiện và che khuôn mặt, biển số xe trong ảnh và video ngắn. Người dùng tải lên một bộ ảnh hoặc video, chọn đối tượng cần che và kiểu che, có thể thêm ảnh chân dung hay biển số cần giữ nguyên. Sau khi xử lý, người dùng xem kết quả trước và sau khi che, sửa thủ công vùng che nếu cần, rồi tải kết quả về cùng một báo cáo liệt kê những chỗ nên kiểm tra lại.
+
+Hệ thống được thiết kế theo kiến trúc hướng sự kiện. Phần web chỉ nhận file, lưu lên MinIO và đưa job vào hàng đợi NATS JetStream. Worker AI viết bằng Python chạy tách riêng thành hai nhóm cho ảnh và cho video; KEDA tăng giảm số worker theo số job đang chờ và đưa về 0 khi không có việc. Toàn bộ hệ thống chạy trên một cụm Kubernetes và được thử nghiệm trên hai mãy chủ: một máy chủ CPU 4 luồng, 12 GB RAM, không có GPU; và một máy chủ CPU 16 luồng, 16GB RAM, có GPU.
+
+Về mô hình, nhóm fine-tune YOLO26 trên WIDER FACE và dữ liệu biển số Việt Nam với ảnh đầu vào 1280 px, sau đó huấn luyện thêm trên 468 khung hình camera hành trình, giúp số biển số đọc được bị bỏ sót trên video giảm từ 2 đến 4 lần. Trên bộ kiểm thử 3.726 ảnh không dùng khi huấn luyện, ở cùng độ chính xác (precision) với công cụ mã nguồn mở deface, mô hình nhỏ YOLO26n che được 80,3\% số khuôn mặt và mô hình lớn YOLO26s che được 82,8\%, còn deface che được 72,3\% và không phát hiện biển số. Whitelist khuôn mặt dùng ArcFace kết hợp căn chỉnh bằng YuNet: trên bộ LFW, hệ thống giữ đúng chủ thể trong khoảng 84\% trường hợp khi có một ảnh mẫu và 96\% khi có ba ảnh mẫu, còn người lạ chỉ bị giữ nhầm khoảng 3 lần trên 1 triệu lần so sánh. Phần đọc biển số dùng RapidOCR, đọc riêng từng nửa với biển hai dòng, đạt 88,6\% trên 536 biển xe máy và ô tô. Video được xử lý bằng ByteTrack và FFmpeg, giữ nguyên âm thanh gốc.
+
+Với mô hình YOLO26n ở 1280 px và số worker tự co giãn từ 0 lên 3, hệ thống xử lý khoảng 1.470 ảnh mỗi phút trên máy có GPU và khoảng 84 ảnh mỗi phút trên máy chỉ có CPU. Trong các lần đo không có job nào bị mất. Những mục tiêu chưa đạt, gồm độ chính xác với khuôn mặt rất nhỏ và biển số bị che một phần trong video, được phân tích ở Chương 5.
+
+\clearpage
+\section*{Phân chia công việc và mức độ đóng góp}
+\renewcommand{\thetable}{P.\arabic{table}}
+\addcontentsline{toc}{section}{Phân chia công việc và mức độ đóng góp}
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Nêu rõ phần việc và mức đóng góp của từng thành viên. Mỗi người phụ trách trọn một trong ba khối web/, engine/, infra/ (docs/phân-công-và-guideline.md), các phần chéo ghi rõ người làm. Gợi ý lấy từ chủ sở hữu từng mục trong web/docs/plan.md, engine/docs/plan.md, docs/milestones.md và lịch sử git; nhóm thống nhất lại tỉ lệ \% trước khi nộp.  Nguồn: docs/phân-công-và-guideline.md, docs/milestones.md, web/docs/plan.md\par\vspace{8pt}}
+
+\needspace{9\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}p{3.17cm}|>{\raggedright\arraybackslash}p{3.47cm}|>{\raggedright\arraybackslash}p{8.42cm}|}
+\caption{Phân chia công việc và mức độ đóng góp của các thành viên}\label{tab:p1}\\
+\hline
+\dongdau \textbf{Thành viên} & \textbf{Vai trò} & \textbf{Công việc cụ thể đã thực hiện} \\
+\hline
+\endfirsthead
+\multicolumn{3}{c}{\textbf{Bảng P.1.} Phân chia công việc và mức độ đóng góp (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Thành viên} & \textbf{Vai trò} & \textbf{Công việc cụ thể đã thực hiện} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Phạm Tất Đạt & Trưởng nhóm, vận hành hạ tầng, benchmark, hỗ trợ Web và Engine & 
+\begin{itemize}[leftmargin=*,nosep]
+  \item Thiết kế kiến trúc, lựa chọn công nghệ cho hệ thống
+  \item Tạo Kubernetes manifest và script triển khai hạ tầng trên môi trường lab, truy cập qua Cloudflare Tunnel
+  \item Tạo file docker-compose phục vụ cho quá trình phát triển và việc vận hành không cần đến cụm Kubernetes
+  \item Thiết kế và xây dựng luồng upload, truy cập ảnh đối với MinIO cùng các cấu hình về thời gian lưu trữ, độ lớn file, rate limit
+  \item Đánh nhãn, thu thập dữ liệu, huấn luyện AI model, chạy benchmark và tổng hợp kết quả. Hỗ trợ tối ưu luồng xử lý OCR biển số, xử lý nhận diện trên video.
+  \item Kiểm thử chức năng, giao diện hệ thống
+\end{itemize} \\ \hline
+Nguyễn Đức Huy\newline(22021186) & Web (backend API, schema, frontend) & 
+\begin{itemize}[leftmargin=*,nosep]
+  \item Thiết kế và xây dựng REST API, schema PostgreSQL, xử lý schema validation và xác thực người dùng
+  \item Xử lý logic nghiệp vụ quản lý batch, chạy batch, quản lý whitelist, tạo và cập nhật trạng thái job, tạo báo cáo
+  \item Thiết kế và xây dựng giao diện quản lý thư viện, trình chiếu kết quả, kết nối giao diện với backend API
+\end{itemize} \\ \hline
+Nguyễn Đức Huy\newline(24020162) & Engine (OCR, detection) & 
+\begin{itemize}[leftmargin=*,nosep]
+  \item Thiết kế các job event trong NATS Jetstream, xây dựng luồng xử lý job, progress và lưu trữ kết quả cho AI worker
+  \item Xây dựng và tối ưu luồng nhận diện và làm mờ trên ảnh và video, xử lý đọc OCR cho biển số
+  \item Đánh nhãn, thu thập dữ liệu, huấn luyện AI model và benchmark
+  \item Kiểm thử chức năng, giao diện hệ thống
+\end{itemize} \\ \hline
+\end{longtable}
+}
+\needspace{9\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{5.25cm}|>{\raggedright\arraybackslash}m{10.10cm}|}
+\caption{Chia việc làm báo cáo}\label{tab:p2}\\
+\hline
+\dongdau \textbf{Thành viên} & \textbf{Công việc phụ trách} \\
+\hline
+\endfirsthead
+\multicolumn{2}{c}{\textbf{Bảng P.2.} Chia việc làm báo cáo (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Thành viên} & \textbf{Công việc phụ trách} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Phạm Tất Đạt & 1, 2.2, 2.3.1, 3.1-3.3, 3.9, 5.4-5.7, 5.9, Kết luận \\ \hline
+Nguyễn Đức Huy\newline(22021186) & 2.3.2, 3.4-3.7, 5.1, 5.2, 5.8 \\ \hline
+Nguyễn Đức Huy\newline(24020162) & 2.1, 3.8, chương 4, 5.3 \\ \hline
+\end{longtable}
+}
+\clearpage
+{\setlength{\parskip}{0pt}\setlength{\cftbeforesecskip}{4pt}\fontsize{12.5}{17}\selectfont\tableofcontents}
+
+\clearpage
+\phantomsection
+\addcontentsline{toc}{section}{\listfigurename}
+{\setlength{\parskip}{0pt}\fontsize{12.5}{17.5}\selectfont\listoffigures}
+
+\clearpage
+\phantomsection
+\addcontentsline{toc}{section}{\listtablename}
+{\setlength{\parskip}{0pt}\fontsize{12.5}{17.5}\selectfont\listoftables}
+
+\clearpage
+\section*{Danh mục các từ viết tắt}
+\addcontentsline{toc}{section}{Danh mục các từ viết tắt}
+
+{\bangfont
+\begin{longtable}{|>{\centering\arraybackslash}m{1.18cm}|>{\raggedright\arraybackslash\bfseries}m{2.46cm}|>{\raggedright\arraybackslash}m{5.41cm}|>{\raggedright\arraybackslash}m{5.70cm}|}
+\hline
+\dongdau \textbf{STT} & \textbf{Từ viết tắt} & \textbf{Tiếng Anh đầy đủ} & \textbf{Nghĩa tiếng Việt} \\
+\hline
+\endfirsthead
+\multicolumn{4}{c}{{\bfseries Danh mục các từ viết tắt (tiếp theo)}}\\
+\hline
+\dongdau \textbf{STT} & \textbf{Từ viết tắt} & \textbf{Tiếng Anh đầy đủ} & \textbf{Nghĩa tiếng Việt} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+1 & AP & Average Precision & Độ chính xác trung bình \\ \hline
+2 & mAP@50 & mean Average Precision at IoU 0.5 & AP trung bình các lớp tại ngưỡng IoU 0,5 \\ \hline
+3 & IoU & Intersection over Union & Tỉ lệ giao trên hợp giữa hai hộp giới hạn \\ \hline
+4 & YOLO & You Only Look Once & Họ mô hình phát hiện đối tượng một giai đoạn \\ \hline
+5 & OCR & Optical Character Recognition & Nhận dạng ký tự quang học \\ \hline
+6 & TAR & True Accept Rate & Tỉ lệ giữ đúng chủ thể trong whitelist \\ \hline
+7 & FAR & False Accept Rate & Tỉ lệ giữ nhầm người lạ \\ \hline
+8 & ONNX & Open Neural Network Exchange & Định dạng trao đổi mô hình học sâu \\ \hline
+9 & CPU / GPU & Central / Graphics Processing Unit & Bộ xử lý trung tâm / bộ xử lý đồ hoạ \\ \hline
+10 & API & Application Programming Interface & Giao diện lập trình ứng dụng \\ \hline
+11 & REST & Representational State Transfer & Kiểu kiến trúc API dựa trên HTTP \\ \hline
+12 & JWT & JSON Web Token & Chuỗi token xác thực có chữ ký \\ \hline
+13 & ORM & Object Relational Mapping & Ánh xạ đối tượng sang cơ sở dữ liệu quan hệ \\ \hline
+14 & S3 & Simple Storage Service & Chuẩn API lưu trữ đối tượng do Amazon đặt ra \\ \hline
+15 & KEDA & Kubernetes Event-driven Autoscaling & Bộ co giãn Kubernetes theo sự kiện \\ \hline
+16 & HPA & Horizontal Pod Autoscaler & Bộ co giãn số pod theo CPU/RAM của Kubernetes \\ \hline
+17 & K8s & Kubernetes & Hệ thống điều phối container \\ \hline
+18 & PVC & PersistentVolumeClaim & Yêu cầu cấp vùng lưu trữ bền vững trong Kubernetes \\ \hline
+19 & CI/CD & Continuous Integration / Continuous Deployment & Tích hợp liên tục / triển khai liên tục \\ \hline
+20 & UI & User Interface & Giao diện người dùng \\ \hline
+21 & UC & Use Case & Ca sử dụng \\ \hline
+22 & FPS & Frames Per Second & Số khung hình mỗi giây \\ \hline
+23 & EXIF & Exchangeable Image File Format & Siêu dữ liệu đi kèm ảnh (máy chụp, vị trí GPS\dots{}) \\ \hline
+24 & ROI & Region of Interest & Vùng ảnh cần xử lý \\ \hline
+25 & GDPR & General Data Protection Regulation & Quy định chung về bảo vệ dữ liệu của Liên minh châu Âu \\ \hline
+26 & BVDLCN &  & Bảo vệ dữ liệu cá nhân \\ \hline
+\end{longtable}
+}
+\clearpage
+\pagenumbering{arabic}
+\renewcommand{\thetable}{\thesection.\arabic{table}}
+\setcounter{page}{1}
+
+\clearpage
+\section{Đặt vấn đề}
+\label{sec:ch1}
+
+
+\subsection{Bối cảnh}
+
+Việc quay phim, chụp ảnh và chia sẻ video ngắn trên TikTok, YouTube Shorts hay Facebook Reels giờ diễn ra hằng ngày. Camera hành trình trên ô tô, xe máy và camera giám sát ở khu dân cư, cửa hàng cũng ngày càng phổ biến. Kéo theo đó, khuôn mặt của người đi đường, người tham dự sự kiện và biển số của các phương tiện xung quanh bị ghi lại rồi lan truyền công khai, trong khi phần lớn những người này không liên quan đến nội dung và không biết mình đang bị quay.
+
+Khuôn mặt và biển số xe có thể trở thành dữ liệu cá nhân khi chúng giúp xác định một người cụ thể. Ở Việt Nam, Luật Bảo vệ dữ liệu cá nhân số 91/2025/QH15 và Nghị định 356/2025/NĐ-CP có hiệu lực từ ngày 01/01/2026 đặt ra khung pháp lý cho việc thu thập, sử dụng và công khai loại dữ liệu này. Không phải mọi video quay ở nơi công cộng đều bị cấm, nhưng người đăng tải và tổ chức xử lý dữ liệu vẫn phải cân nhắc mục đích và căn cứ xử lý. Ở châu Âu, GDPR yêu cầu tối thiểu hoá dữ liệu, tức chỉ giữ lại những dữ liệu cá nhân thật sự cần cho mục đích xử lý; vi phạm có thể bị phạt tới 20 triệu euro hoặc 4\% doanh thu toàn cầu.
+
+Vì vậy, nhu cầu che khuôn mặt và biển số trước khi công khai hay chuyển giao ảnh, video đã trở thành một bước xử lý bình thường với nhà báo, người làm nội dung, đơn vị vận hành camera và các nhóm phát triển AI cần dữ liệu hình ảnh.
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.88\textwidth]{figures/image3.jpeg}
+\vspace{4pt}
+{\small\itshape [HÌNH 1.1]Ảnh đường phố Việt Nam (người đi bộ, xe máy biển hai dòng), đặt cạnh bản đã che bằng RedactFunnel.Nguồn: infra/demo/sample.png hoặc khung hình (đã che) từ video đánh giá\par}
+\caption{Ví dụ ảnh đường phố có khuôn mặt và biển số cần ẩn danh}
+\label{fig:1-1}
+\end{figure}
+
+
+\subsection{Bài toán thực tế và nhu cầu người dùng}
+
+Qua tìm hiểu, nhóm chia nhu cầu che thông tin nhận dạng thành bốn trường hợp chính:
+
+\begin{itemize}[leftmargin=*,itemsep=2pt,parsep=0pt]
+  \item Nhà sáng tạo nội dung, nhiếp ảnh gia và đội truyền thông phải xử lý nhiều ảnh, video trước khi xuất bản. Phát hiện và che tự động giúp giảm thời gian chỉnh sửa thủ công.
+  \item Phóng sự, ảnh sự kiện và video từ camera hành trình cần một bản sao đã che để đăng công khai, trong khi bản gốc vẫn được giữ lại.
+  \item Đơn vị vận hành camera, doanh nghiệp và nhóm phát triển AI cần chia sẻ dữ liệu hình ảnh cho bên thứ ba mà vẫn giảm lượng dữ liệu cá nhân bị chuyển giao.
+  \item Người đăng video phản ánh giao thông hay sự cố ở nơi công cộng muốn giữ trọng tâm vào sự việc, không muốn làm lộ danh tính của những người khác trong khung hình.
+\end{itemize}
+
+Bài toán có một số đặc điểm khiến các công cụ chung chưa đáp ứng tốt. Thứ nhất, người dùng thường muốn giữ nguyên một số người hoặc phương tiện, chẳng hạn chính mình, người được phỏng vấn hay xe của mình, và chỉ che những người còn lại. Thứ hai, biển số xe máy Việt Nam có dạng vuông hai dòng, khác với biển một dòng mà đa số mô hình nước ngoài được huấn luyện. Thứ ba, ảnh đám đông và video camera hành trình có nhiều khuôn mặt, biển số rất nhỏ, dễ bị bỏ sót. Cuối cùng, với video, vùng che phải bám theo đối tượng qua các khung hình, không được nhấp nháy hay để lộ mặt trong vài khung khi mô hình phát hiện sót.
+
+Trong bài toán này, bỏ sót một khuôn mặt hay biển số đồng nghĩa với việc lộ dữ liệu cá nhân, còn che nhầm một vùng không cần che chỉ làm ảnh xấu đi. Do đó nhóm ưu tiên độ phủ (recall) hơn độ chính xác (precision), và mọi trường hợp không chắc chắn đều được xử lý theo hướng che.
+
+
+\subsection{Các phương pháp hiện có và hạn chế}
+
+
+\subsubsection{Che thủ công bằng phần mềm chỉnh sửa}
+
+Cách phổ biến nhất hiện nay là dùng Photoshop, Premiere, CapCut hoặc các ứng dụng chỉnh sửa trên điện thoại để vẽ vùng mờ lên từng ảnh, hoặc gắn hiệu ứng theo dõi chuyển động cho từng đối tượng trong video. Cách này cho kết quả đúng ý người làm, nhưng thời gian tăng theo số ảnh và số người xuất hiện. Với một thư mục vài trăm ảnh hay một video đông người, che thủ công gần như không khả thi, và người làm vẫn dễ bỏ sót những khuôn mặt, biển số nhỏ ở hậu cảnh.
+
+
+\subsubsection{Dịch vụ AI thương mại trên cloud}
+
+Các nền tảng như Amazon Rekognition hay Google Cloud Vision cung cấp API phát hiện khuôn mặt, chữ và đối tượng. Hạn chế là ảnh, video phải được gửi lên máy chủ của nhà cung cấp, thường đặt ở nước ngoài; chi phí tính theo số ảnh hoặc số phút video; phần lớn các API chỉ trả về toạ độ phát hiện đối tượng, việc che, quản lý danh sách người cần giữ nguyên và kiểm tra lại kết quả vẫn phải tự xây dựng. Ưu điểm của nhóm giải pháp này là độ chính xác tốt và không phải tự vận hành hạ tầng.
+
+Một số dịch vụ chuyên về che dữ liệu trong video cũng đã có trên thị trường như SightHound Redactor. Ngoài việc cung cấp API trả phí, các dịch vụ này còn cung cấp khả năng tự vận hành server và tải ứng dụng desktop trên hạ tầng của người dùng, tuy nhiên chúng có các hạn chế: là một mô hình hộp đen để phục vụ cho kinh doanh theo subscription (2,500\$/năm - 3,500\$/năm), người dùng bị giới hạn số lượng tài khoản, không tuỳ chỉnh được về AI model, nhu cầu sử dụng, cách lưu trữ cũng như không thể kiểm tra mã nguồn. Ưu điểm của nhóm giải pháp này là một dịch vụ chuyên dùng để che có quy mô phát triển lớn, đáp ứng cả nhu cầu tự vận hành lẫn sử dụng API có sẵn
+
+
+\subsubsection{Công cụ mã nguồn mở chạy cục bộ}
+
+Một số công cụ mã nguồn mở đã giải quyết phần phát hiện và che. deface dùng mô hình CenterFace để làm mờ khuôn mặt trong ảnh và video, nhưng không xử lý biển số. EgoBlur của Meta có mô hình cho cả khuôn mặt và biển số, được huấn luyện cho dữ liệu camera đeo người. YuNet trong OpenCV là bộ phát hiện khuôn mặt rất nhẹ. Ngoài ra có nhiều dự án dùng YOLO và OCR cho biển số Việt Nam, chủ yếu phục vụ bài toán nhận dạng biển số ở bãi xe hoặc trạm thu phí.
+
+Các công cụ này chạy được trên máy cá nhân và không phải gửi dữ liệu ra ngoài, nhưng chúng là công cụ dòng lệnh xử lý từng file trên một máy. Không công cụ nào có hàng đợi, giao diện xem lại kết quả, whitelist hay báo cáo những chỗ cần kiểm tra. Khi nhóm đo trên cùng bộ dữ liệu (Chương 4), deface che được 72,3\% số khuôn mặt và YuNet che được 73,7\% ở cùng độ chính xác với deface; EgoBlur chỉ che được 57,2\% dù đã hạ ngưỡng xuống mức thấp nhất. Với các dự án biển số Việt Nam, độ ổn định trên video thực tế, nơi biển nhỏ, nghiêng, rung hoặc bị che khuất, vẫn cần được kiểm thử thêm.
+
+\needspace{13\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{3.21cm}|}
+\caption{So sánh các phương pháp ẩn danh hoá hiện có}\label{tab:1-1}\\
+\hline
+\dongdau \textbf{Tiêu chí} & \textbf{Che thủ công} & \textbf{Dịch vụ AI thương mại} & \textbf{Công cụ mã nguồn mở} & \textbf{RedactFunnel} \\
+\hline
+\endfirsthead
+\multicolumn{5}{c}{\textbf{Bảng 1.1.} So sánh các phương pháp ẩn danh hoá hiện có (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Tiêu chí} & \textbf{Che thủ công} & \textbf{Dịch vụ AI thương mại} & \textbf{Công cụ mã nguồn mở} & \textbf{RedactFunnel} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Tự động phát hiện & Không & Có, phần che phải tự làm & Có & Có \\ \hline
+Xử lý hàng loạt, video & Làm từng ảnh, từng đoạn & Có API ảnh và video, có xử lý theo lô nhưng không tiết lộ cách triển khai & Chạy tuần tự trên một máy & Hàng đợi, worker tự co giãn \\ \hline
+Biển số Việt Nam, hai dòng & Người làm tự chọn & Không tối ưu riêng & deface không có; EgoBlur yếu với biển nhỏ & Fine-tune trên dữ liệu Việt Nam, logic xử lý OCR \\ \hline
+Giữ nguyên người, xe chỉ định & Người làm tự chọn & Phải tự tích hợp & Không có & Whitelist khuôn mặt và biển số \\ \hline
+Dữ liệu ở lại hạ tầng riêng & Có & Tuỳ dịch vụ & Có & Có, tự triển khai \\ \hline
+Chi phí & Công sức người làm & Theo lượt ảnh, phút video, subscription, API, máy chủ & Miễn phí & Miễn phí, cần máy chủ \\ \hline
+Báo cáo, kiểm tra lại & Không & Tuỳ dịch vụ & Không & Báo cáo cần xem lại, sửa tay \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nguồn: Tổng hợp của nhóm\par\vspace{6pt}}
+
+
+\subsection{Mục tiêu và mức độ giải quyết của nhóm}
+
+Nhóm không đặt mục tiêu phát minh thuật toán phát hiện mới. Các mô hình phát hiện, nhận diện khuôn mặt và OCR đều đã có; điều còn thiếu là một hệ thống ghép chúng lại thành quy trình dùng được hằng ngày, chạy trên hạ tầng riêng và có độ chính xác đủ cao. Vì vậy nhóm tập trung vào ba việc:
+
+\begin{itemize}[leftmargin=*,itemsep=2pt,parsep=0pt]
+  \item Tinh chỉnh và đánh giá mô hình cho khuôn mặt trong đám đông và biển số Việt Nam, so sánh có số liệu với các công cụ mã nguồn mở.
+  \item Xây dựng nền tảng web cho toàn bộ luồng sử dụng: tải lên, cấu hình, xử lý, xem lại, sửa tay và tải kết quả, có tài khoản và thư viện media.
+  \item Triển khai hệ thống theo kiến trúc cloud-native trên một máy chủ có GPU, một máy chủ chỉ có CPU: worker co giãn theo hàng đợi, không mất job khi worker lỗi, và đo được thông lượng thực tế.
+\end{itemize}
+
+Luồng sử dụng của người dùng gồm bốn bước. Người dùng tải một bộ ảnh hoặc video lên thư viện. Tiếp theo, người dùng chọn đối tượng cần che, kiểu che, độ mạnh và danh sách người, biển số cần giữ nguyên. Hệ thống đưa từng ảnh, từng video vào hàng đợi để worker xử lý. Cuối cùng người dùng nhận bản đã che, xem trạng thái từng job và báo cáo các phát hiện cần kiểm tra lại.
+
+\needspace{11\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{3.96cm}|>{\raggedright\arraybackslash}m{5.45cm}|>{\raggedright\arraybackslash}m{5.64cm}|}
+\caption{Mục tiêu ban đầu và cách đo}\label{tab:1-2}\\
+\hline
+\dongdau \textbf{Nhóm mục tiêu} & \textbf{Mục tiêu ban đầu} & \textbf{Cách đo} \\
+\hline
+\endfirsthead
+\multicolumn{3}{c}{\textbf{Bảng 1.2.} Mục tiêu ban đầu và cách đo (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Nhóm mục tiêu} & \textbf{Mục tiêu ban đầu} & \textbf{Cách đo} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Phát hiện khuôn mặt và biển số & mAP@50 từ 85\% trở lên, ưu tiên recall & AP tại IoU 0,5 và tỉ lệ đối tượng được che trên bộ 3.726 ảnh ngoài bộ huấn luyện \\ \hline
+Whitelist khuôn mặt & Giữ đúng người quen từ 85\%, không giữ nhầm người lạ & Bộ dữ liệu LFW, 600 chủ thể, ngưỡng cosine 0,45 \\ \hline
+Whitelist biển số & Đọc đúng biển một dòng và hai dòng & 80 biển trong tập dữu liệu UET, 536 biển trong tập trungdinh, 616 biển cho bộ so khớp \\ \hline
+Hệ thống & Worker co giãn từ 0 theo hàng đợi, không mất job & Benchmark 3 chế độ: cố định, 0 lên 3, 1 lên 3 worker \\ \hline
+Chức năng & Ảnh, video, 3 kiểu che, whitelist, báo cáo, tài khoản, thư viện media & Kiểm thử chức năng trên môi trường triển khai \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+Về mức độ giải quyết, kết quả của nhóm là một nền tảng chạy tự động, mã nguồn mở và tự triển khai được, đang hoạt động tại imgproc.sock1000kg.io.vn. Nhóm cung cấp sẵn manifest Kubernetes và script triển khai; với môi trường không dùng Kubernetes, hệ thống chạy được bằng Docker Compose nhưng không còn khả năng tự co giãn của KEDA. Nền tảng không thay thế hoàn toàn việc kiểm tra của con người: những phát hiện có điểm tin cậy thấp, khuôn mặt sát ngưỡng whitelist và các khoảng video có thể chưa được che đều được đưa vào báo cáo để người dùng xem lại và sửa tay.
+
+
+\subsection{Phạm vi và giới hạn}
+
+Để phù hợp với thời gian thực hiện và hạ tầng thực nghiệm, đề tài giới hạn trong phạm vi sau:
+
+\begin{itemize}[leftmargin=*,itemsep=2pt,parsep=0pt]
+  \item Đối tượng che gồm hai lớp: khuôn mặt người và biển số xe. Hệ thống không nhận diện danh tính người lạ, chỉ so khớp với danh sách người cần giữ nguyên do người dùng cung cấp.
+  \item Whitelist chỉ có chế độ giữ nguyên (allow list). Chế độ ngược lại, chỉ che những người trong danh sách, đã bị loại vì rủi ro lớn của việc mặc định không che.
+  \item Định dạng đầu vào gồm ảnh JPG, PNG, WEBP và video MP4 mã hoá H.264 dài từ 15 đến 60 giây; mỗi file tối đa 50 MB.
+  \item Chức năng sửa kết quả (bật, tắt hoặc vẽ thêm vùng che rồi render lại) hiện chỉ có cho ảnh, chưa có cho video.
+  \item Hệ thống được triển khai và benchmark trên hai môi trường: một máy có GPU RTX 3050 (CPU 16 luồng, 16 GB RAM) và một máy chủ chỉ có CPU (2 nhân 4 luồng, 12 GB RAM, ổ HDD) dùng chung với các ứng dụng khác.
+  \item Dữ liệu biển số dùng để huấn luyện ban đầu và bộ kiểm thử ảnh chủ yếu là ảnh chụp cận cảnh. Để mô hình nhận ra biển số trong video, nhóm bổ sung 468 khung hình camera hành trình tự gán nhãn, lấy từ bộ dữ liệu BDD100K và hai video giao thông Việt Nam công khai. Kết quả trên video được đánh giá riêng trên các video camera hành trình và điện thoại khác, cũng được đăng công khai trên mạng xã hội.
+\end{itemize}
+
+
+\subsection{Cấu trúc báo cáo}
+
+Ngoài chương này, báo cáo gồm bốn chương và phần kết luận.
+
+Chương 2: Kiến thức nền tảng trình bày các kiến thức và công nghệ được dùng trong dự án, gồm mô hình phát hiện đối tượng YOLO, nhận diện khuôn mặt bằng vector đặc trưng, OCR biển số, theo dõi đối tượng trong video, kiến trúc hướng sự kiện với NATS JetStream, Kubernetes, KEDA và các công nghệ web.
+
+Chương 3: Phân tích và thiết kế hệ thống trình bày kiến trúc tổng thể, yêu cầu chức năng và phi chức năng, các ca sử dụng chính, thiết kế cơ sở dữ liệu, hợp đồng tích hợp giữa web, engine và hạ tầng, cùng thiết kế pipeline xử lý ảnh, video.
+
+Chương 4: Giải pháp AI trình bày dữ liệu, quá trình huấn luyện mô hình phát hiện, whitelist khuôn mặt, OCR biển số, kết quả đánh giá trên ảnh và video, và so sánh với các công cụ mã nguồn mở.
+
+Chương 5: Xây dựng, triển khai và đánh giá trình bày phần cài đặt backend, frontend, engine worker, chính sách lưu trữ dữ liệu, cách triển khai trên cụm Kubernetes, kết quả kiểm thử, benchmark thông lượng và khả năng co giãn, giao diện hệ thống và bảng đánh giá mức độ đạt các mục tiêu.
+
+Phần Kết luận tổng hợp kết quả đạt được, nêu các hạn chế còn tồn tại và hướng phát triển tiếp theo.
+
+
+\clearpage
+\section{Kiến thức nền tảng}
+\label{sec:ch2}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Chỉ trình bày kiến thức thực sự dùng trong dự án, ở mức đủ để hiểu vì sao RedactFunnel dùng công nghệ đó; không viết thành tài liệu hướng dẫn công nghệ. Mỗi mục kết thúc bằng ``Ứng dụng trong dự án''.\par\vspace{6pt}}
+
+
+\input{noi_dung/muc_2_1}
+
+
+\subsection{Backend và xử lý phân tán}
+
+
+\subsubsection{Kiến trúc hướng sự kiện và NATS JetStream}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Message broker, at-least-once delivery, ack / ack\_wait / max\_deliver, retention workqueue; so sánh với Redis Streams, RabbitMQ, Kafka.\par\vspace{6pt}}
+
+
+\subsubsection{Lưu trữ dữ liệu: PostgreSQL và MinIO}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: PostgreSQL làm nguồn sự thật cho batch/job; MinIO (object storage tương thích S3), multipart upload, presigned URL.\par\vspace{6pt}}
+
+
+\subsection{Hạ tầng và Web}
+
+
+\subsubsection{Kubernetes và KEDA}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Chỉ ở mức đủ để hiểu vì sao RedactFunnel dùng: Deployment, PVC, KEDA ScaledObject co giãn theo số job chờ trên NATS (khác HPA co giãn theo CPU/RAM) và scale-to-zero. Không giải thích toàn bộ cách Kubernetes hoạt động.\par\vspace{6pt}}
+
+
+\subsubsection{Công nghệ phát triển Web}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Frontend: React, Vite, TypeScript, React Router. Backend: Node.js, Express, Prisma ORM, Zod, JWT + refresh token, express-rate-limit, multer, archiver; kiểm thử bằng Vitest.\par\vspace{6pt}}
+
+
+\clearpage
+\section{Phân tích và thiết kế hệ thống}
+\label{sec:ch3}
+
+
+\subsection{Tổng quan hệ thống và các tác nhân}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Tác nhân: Người dùng (đã đăng ký bằng REGISTER\_KEY), Quản trị viên (cấu hình qua biến môi trường: RETENTION\_DAYS, giới hạn batch), Engine worker (tác nhân hệ thống). Ba khối: Web (frontend + backend), Engine, Infra.\par\vspace{6pt}}
+
+
+\subsection{Kiến trúc tổng thể}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Web không bao giờ chạy model; ghi file lên MinIO, tạo job trong PostgreSQL, publish lệnh lên NATS; worker xử lý và báo sự kiện về jobs.events; KEDA co giãn hai pool ảnh/video độc lập.  Nguồn: docs/architecture.md, Arch.png / Arch.excalidraw, docs/report-material/decisions.md (A)\par\vspace{6pt}}
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.88\textwidth]{figures/Arch.png}
+\vspace{4pt}
+{\small\itshape [HÌNH 3.1]Trình duyệt $\rightarrow$ Gateway/Tunnel $\rightarrow$ Web (React + Express) $\rightarrow$ PostgreSQL, MinIO, NATS (IMAGE\_JOBS, VIDEO\_JOBS, JOB\_EVENTS) $\rightarrow$ image-worker / video-worker (KEDA).Nguồn: Arch.png\par}
+\caption{Sơ đồ kiến trúc tổng thể hệ thống RedactFunnel}
+\label{fig:3-1}
+\end{figure}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 3.2]Upload $\rightarrow$ tạo job $\rightarrow$ publish jobs.image / jobs.video $\rightarrow$ worker $\rightarrow$ MinIO results $\rightarrow$ jobs.events $\rightarrow$ cập nhật PostgreSQL $\rightarrow$ UI.}}
+\caption{Luồng dữ liệu end-to-end của một batch}
+\label{fig:3-2}
+\end{figure}
+
+
+\subsection{Đặc tả yêu cầu}
+
+
+\subsubsection{Yêu cầu chức năng}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{3.01cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{3.01cm}|}
+\caption{Danh sách yêu cầu chức năng}\label{tab:3-1}\\
+\hline
+\dongdau \textbf{Mã} & \textbf{Nhóm chức năng} & \textbf{Mô tả} & \textbf{Mức ưu tiên} & \textbf{Trạng thái} \\
+\hline
+\endfirsthead
+\multicolumn{5}{c}{\textbf{Bảng 3.1.} Danh sách yêu cầu chức năng (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mã} & \textbf{Nhóm chức năng} & \textbf{Mô tả} & \textbf{Mức ưu tiên} & \textbf{Trạng thái} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+ &  &  &  & \\ \hline
+ &  &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nhóm: tài khoản; tạo batch ảnh/video; cấu hình che (đối tượng, kiểu blur/pixelate/blackout, độ mạnh, định dạng/chất lượng xuất, ngưỡng); whitelist khuôn mặt và biển số; theo dõi và thử lại; xem kết quả + báo cáo; sửa ảnh; thư viện media; tải zip; xoá dữ liệu. Trạng thái lấy từ plan.md (Must/Should/Could, [x]).  Nguồn: web/docs/plan.md, engine/docs/plan.md\par\vspace{6pt}}
+
+
+\subsubsection{Yêu cầu phi chức năng}
+
+\needspace{12\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{3.47cm}|>{\raggedright\arraybackslash}m{5.45cm}|>{\raggedright\arraybackslash}m{6.14cm}|}
+\caption{Danh sách yêu cầu phi chức năng}\label{tab:3-2}\\
+\hline
+\dongdau \textbf{Thuộc tính} & \textbf{Yêu cầu} & \textbf{Cách đáp ứng} \\
+\hline
+\endfirsthead
+\multicolumn{3}{c}{\textbf{Bảng 3.2.} Danh sách yêu cầu phi chức năng (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Thuộc tính} & \textbf{Yêu cầu} & \textbf{Cách đáp ứng} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Quyền riêng tư &  & \\ \hline
+Độ tin cậy &  & \\ \hline
+Khả năng mở rộng &  & \\ \hline
+Hiệu năng &  & \\ \hline
+Tài nguyên &  & \\ \hline
+Bảo trì / triển khai &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Bảo mật \& quyền riêng tư (presigned URL, không public ảnh mẫu, xoá EXIF), tin cậy (không mất job), khả năng mở rộng (scale 0$\rightarrow$N), hiệu năng, ngân sách tài nguyên $\le$ 2,5 GiB RAM nền, khả năng bảo trì.\par\vspace{6pt}}
+
+
+\subsection{Biểu đồ ca sử dụng}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 3.3]Use case diagram: Người dùng, Quản trị viên, Engine worker và các nhóm ca sử dụng chính.}}
+\caption{Biểu đồ ca sử dụng tổng quát}
+\label{fig:3-3}
+\end{figure}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{2.43cm}|>{\raggedright\arraybackslash}m{4.08cm}|>{\raggedright\arraybackslash}m{4.37cm}|>{\raggedright\arraybackslash}m{3.88cm}|}
+\caption{Danh sách các ca sử dụng}\label{tab:3-3}\\
+\hline
+\dongdau \textbf{Mã} & \textbf{Tên ca sử dụng} & \textbf{Tác nhân} & \textbf{Mô tả ngắn} \\
+\hline
+\endfirsthead
+\multicolumn{4}{c}{\textbf{Bảng 3.3.} Danh sách các ca sử dụng (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mã} & \textbf{Tên ca sử dụng} & \textbf{Tác nhân} & \textbf{Mô tả ngắn} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+ &  &  & \\ \hline
+ &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Liệt kê toàn bộ ca sử dụng, kể cả đăng ký, đăng nhập và thư viện media; chỉ các ca thể hiện thiết kế đặc thù (mục 3.5) được đặc tả chi tiết.\par\vspace{6pt}}
+
+
+\subsection{Đặc tả các ca sử dụng chính}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Mỗi ca sử dụng có bảng đặc tả. Biểu đồ hoạt động và biểu đồ tuần tự chỉ vẽ cho những ca có luồng đặc thù: UC01 có cả hai, UC02 có biểu đồ tuần tự (pipeline video khác ảnh), UC04 có biểu đồ hoạt động.\par\vspace{6pt}}
+
+
+\subsubsection{UC01. Tạo batch ảnh và tải lên browser}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Batch nháp $\rightarrow$ tải từng file một (2 luồng song song, xử lý 429 Retry-After, BATCH\_FULL) $\rightarrow$ start; chọn cả thư mục; cấu hình che có ảnh xem trước.  Nguồn: docs/report-material/decisions.md (F.1)\par\vspace{6pt}}
+
+\needspace{12\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{4.04cm}|>{\raggedright\arraybackslash}m{11.31cm}|}
+\caption{Đặc tả ca sử dụng Tạo batch ảnh và tải lên}\label{tab:3-4}\\
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endfirsthead
+\multicolumn{2}{c}{\textbf{Bảng 3.4.} Đặc tả ca sử dụng Tạo batch ảnh và tải lên (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Mã & UC01 \\ \hline
+Tác nhân & \\ \hline
+Tiền điều kiện & \\ \hline
+Luồng sự kiện chính & \\ \hline
+Luồng thay thế / ngoại lệ & \\ \hline
+Hậu điều kiện & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Điền theo mẫu đặc tả: tác nhân, tiền điều kiện, luồng chính, luồng thay thế/ngoại lệ, hậu điều kiện.\par\vspace{6pt}}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 3.4]Activity diagram (swimlane: Người dùng / Frontend / Backend / NATS / Worker).}}
+\caption{Biểu đồ hoạt động ca sử dụng Tạo batch ảnh và tải lên}
+\label{fig:3-4}
+\end{figure}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 3.5]Sequence diagram giữa các thành phần tham gia (trình duyệt, Express API, PostgreSQL, MinIO, NATS, Engine worker).}}
+\caption{Biểu đồ tuần tự ca sử dụng Tạo batch ảnh và tải lên}
+\label{fig:3-5}
+\end{figure}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Ghi chú khi vẽ: Mỗi mũi tên ghi tên hàm thật trong code kèm schema hoặc kiểu dữ liệu của tham số, dạng hàm(schema). Ví dụ luồng này: createDraftBatch(whitelist: File[], config), backend kiểm tra config bằng batchConfigSchema $\rightarrow$ createBatchHandler $\rightarrow$ createDraftBatch(...) lưu Batch; uploadFileToBatch(batchId, File) $\rightarrow$ addBatchFileHandler $\rightarrow$ addBatchFile(...) tạo Job; startBatch(batchId) $\rightarrow$ startBatchHandler $\rightarrow$ startBatch(batchId, userId) $\rightarrow$ publishJob("jobs.image", ImageRedactCommand); Engine: EngineWorker.handle\_job(msg) $\rightarrow$ ImageRedactProcessor.process(input\_bytes, params) $\rightarrow$ StorageClient.upload\_file(...) $\rightarrow$ MessagingClient.emit\_completion\_event(job\_id, output\_bucket, output\_key, result\_summary); Backend: applyJobEvent(ValidatedJobEvent).  Nguồn: web/frontend/src/api.ts, web/backend/src/services/batch.service.ts, web/backend/src/messaging.ts, web/backend/src/domain/command.ts, engine/src/main.py, engine/src/processors/image\_redact.py\par\vspace{6pt}}
+
+
+\subsubsection{UC02. Tải lên và bắt đầu batch xử lý video}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Upload multipart 8 MB/phần, kiểm tra kích thước + ffprobe (H.264, 15-60 s) trước khi tạo job video-redact, theo dõi tiến độ theo khung hình.  Nguồn: decisions.md (F.1), engine/src/processors/video\_redact.py\par\vspace{6pt}}
+
+\needspace{12\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{4.04cm}|>{\raggedright\arraybackslash}m{11.31cm}|}
+\caption{Đặc tả ca sử dụng Tải lên và bắt đầu batch xử lý video}\label{tab:3-5}\\
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endfirsthead
+\multicolumn{2}{c}{\textbf{Bảng 3.5.} Đặc tả ca sử dụng Tải lên và bắt đầu batch xử lý video (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Mã & UC02 \\ \hline
+Tác nhân & \\ \hline
+Tiền điều kiện & \\ \hline
+Luồng sự kiện chính & \\ \hline
+Luồng thay thế / ngoại lệ & \\ \hline
+Hậu điều kiện & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Điền theo mẫu đặc tả: tác nhân, tiền điều kiện, luồng chính, luồng thay thế/ngoại lệ, hậu điều kiện.\par\vspace{6pt}}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 3.6]Sequence diagram giữa các thành phần tham gia (trình duyệt, Express API, PostgreSQL, MinIO, NATS, Engine worker).}}
+\caption{Biểu đồ tuần tự ca sử dụng Tải lên và xử lý video}
+\label{fig:3-6}
+\end{figure}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Ghi chú khi vẽ: Mỗi mũi tên ghi tên hàm thật trong code kèm schema hoặc kiểu dữ liệu của tham số, dạng hàm(schema). Ví dụ luồng này: uploadVideoToBatch(batchId, File) $\rightarrow$ startUploadHandler $\rightarrow$ beginMultipartUpload(...) tạo UploadSession; mỗi phần 8 MB: uploadPartHandler $\rightarrow$ writeMultipartPart(...); completeUploadHandler $\rightarrow$ finishMultipartUpload(...) $\rightarrow$ validateUploadedVideo(objectKey); startBatch(batchId, userId) $\rightarrow$ publishJob("jobs.video", VideoRedactCommand); Engine: EngineWorker.handle\_job(msg) $\rightarrow$ VideoRedactProcessor.process(input\_bytes, params, progress\_callback) $\rightarrow$ MessagingClient.emit\_progress\_event(job\_id, progress) $\rightarrow$ emit\_completion\_event(...); Backend: applyJobEvent(ValidatedJobEvent).  Nguồn: web/frontend/src/api.ts, web/backend/src/services/upload.service.ts, web/backend/src/services/video-validation.service.ts, web/backend/src/domain/command.ts, engine/src/main.py, engine/src/processors/video\_redact.py\par\vspace{6pt}}
+
+
+\subsubsection{UC03. Theo dõi batch và thử lại ảnh lỗi}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Đồng bộ trạng thái từ jobs.events (idempotent), tiến độ tổng, thử lại ảnh FAILED, xử lý 409 WHITELIST\_FACES\_MISSING.  Nguồn: docs/integration-contracts.md §8\par\vspace{6pt}}
+
+\needspace{12\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{4.04cm}|>{\raggedright\arraybackslash}m{11.31cm}|}
+\caption{Đặc tả ca sử dụng Theo dõi batch và thử lại ảnh lỗi}\label{tab:3-6}\\
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endfirsthead
+\multicolumn{2}{c}{\textbf{Bảng 3.6.} Đặc tả ca sử dụng Theo dõi batch và thử lại ảnh lỗi (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Mã & UC03 \\ \hline
+Tác nhân & \\ \hline
+Tiền điều kiện & \\ \hline
+Luồng sự kiện chính & \\ \hline
+Luồng thay thế / ngoại lệ & \\ \hline
+Hậu điều kiện & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Điền theo mẫu đặc tả: tác nhân, tiền điều kiện, luồng chính, luồng thay thế/ngoại lệ, hậu điều kiện.\par\vspace{6pt}}
+
+
+\subsubsection{UC04. Xem kết quả và báo cáo cần xem lại}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Thanh trượt before/after, danh sách phát hiện, báo cáo needsReview (confidence thấp, sát ngưỡng whitelist, khoảng mất theo dõi của video), xuất JSON.  Nguồn: decisions.md (D)\par\vspace{6pt}}
+
+\needspace{12\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{4.04cm}|>{\raggedright\arraybackslash}m{11.31cm}|}
+\caption{Đặc tả ca sử dụng Xem kết quả và báo cáo cần xem lại}\label{tab:3-7}\\
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endfirsthead
+\multicolumn{2}{c}{\textbf{Bảng 3.7.} Đặc tả ca sử dụng Xem kết quả và báo cáo cần xem lại (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Mã & UC04 \\ \hline
+Tác nhân & \\ \hline
+Tiền điều kiện & \\ \hline
+Luồng sự kiện chính & \\ \hline
+Luồng thay thế / ngoại lệ & \\ \hline
+Hậu điều kiện & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Điền theo mẫu đặc tả: tác nhân, tiền điều kiện, luồng chính, luồng thay thế/ngoại lệ, hậu điều kiện.\par\vspace{6pt}}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 3.7]Activity diagram (swimlane: Người dùng / Frontend / Backend).}}
+\caption{Biểu đồ hoạt động ca sử dụng Xem kết quả và báo cáo cần xem lại}
+\label{fig:3-7}
+\end{figure}
+
+
+\subsubsection{UC05. Sửa ảnh và render lại}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Bật/tắt box, vẽ thêm box, đổi kiểu che; tạo job image-render từ ảnh gốc, không chạy lại AI.  Nguồn: engine/src/processors/image\_render.py\par\vspace{6pt}}
+
+\needspace{12\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{4.04cm}|>{\raggedright\arraybackslash}m{11.31cm}|}
+\caption{Đặc tả ca sử dụng Sửa ảnh và render lại}\label{tab:3-8}\\
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endfirsthead
+\multicolumn{2}{c}{\textbf{Bảng 3.8.} Đặc tả ca sử dụng Sửa ảnh và render lại (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Mã & UC05 \\ \hline
+Tác nhân & \\ \hline
+Tiền điều kiện & \\ \hline
+Luồng sự kiện chính & \\ \hline
+Luồng thay thế / ngoại lệ & \\ \hline
+Hậu điều kiện & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Điền theo mẫu đặc tả: tác nhân, tiền điều kiện, luồng chính, luồng thay thế/ngoại lệ, hậu điều kiện.\par\vspace{6pt}}
+
+
+\subsubsection{UC06. Quản lý danh sách khuôn mặt và whitelist biển số}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Lưu danh sách khuôn mặt opt-in theo tài khoản (allowList), dùng lại khi tạo/chạy lại batch; nhập danh sách biển số được giữ nguyên.  Nguồn: decisions.md (E), web/docs/plan.md\par\vspace{6pt}}
+
+\needspace{12\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{4.04cm}|>{\raggedright\arraybackslash}m{11.31cm}|}
+\caption{Đặc tả ca sử dụng Quản lý danh sách khuôn mặt và whitelist biển số}\label{tab:3-9}\\
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endfirsthead
+\multicolumn{2}{c}{\textbf{Bảng 3.9.} Đặc tả ca sử dụng Quản lý danh sách khuôn mặt và whitelist biển số (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mục} & \textbf{Nội dung} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Mã & UC06 \\ \hline
+Tác nhân & \\ \hline
+Tiền điều kiện & \\ \hline
+Luồng sự kiện chính & \\ \hline
+Luồng thay thế / ngoại lệ & \\ \hline
+Hậu điều kiện & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Điền theo mẫu đặc tả: tác nhân, tiền điều kiện, luồng chính, luồng thay thế/ngoại lệ, hậu điều kiện.\par\vspace{6pt}}
+
+
+\subsection{Thiết kế cơ sở dữ liệu}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Sáu bảng của Prisma schema: User, Batch, Job, FaceList, RefreshToken, UploadSession và enum JobStatus. Giải thích quan hệ (User 1-n Batch, Batch 1-n Job, User 1-n FaceList\dots{}), các cột JSON (config, resultSummary) và chỉ mục.  Nguồn: web/backend/prisma/schema.prisma\par\vspace{6pt}}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 3.8]ERD sinh từ schema.prisma (có thể dùng prisma-erd-generator hoặc dbdiagram.io).}}
+\caption{Biểu đồ thực thể liên kết (ERD) của cơ sở dữ liệu}
+\label{fig:3-8}
+\end{figure}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 3.9]State machine từ PENDING/QUEUED $\rightarrow$ PROCESSING $\rightarrow$ COMPLETED / FAILED, kèm sự kiện gây chuyển trạng thái và thử lại.Nguồn: enum JobStatus trong schema.prisma, docs/integration-contracts.md}}
+\caption{Biểu đồ trạng thái của Job (JobStatus)}
+\label{fig:3-9}
+\end{figure}
+
+
+\subsection{Thiết kế hợp đồng tích hợp giữa các thành phần}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Chỉ nêu các quyết định quan trọng của hợp đồng chung giữa ba nhóm: mỗi ảnh hoặc video là một job riêng; ba stream tách theo loại job để KEDA co giãn hai pool độc lập; ack\_wait và max\_deliver đặt theo thời gian xử lý thật của từng loại job; sự kiện trạng thái được xử lý idempotent; file lưu theo batchId và không bao giờ public. Định dạng chi tiết của từng thông điệp không đưa vào báo cáo.  Nguồn: docs/integration-contracts.md, decisions.md (G.3, G.4)\par\vspace{6pt}}
+
+\needspace{9\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{2.55cm}|>{\raggedright\arraybackslash}m{2.15cm}|>{\raggedright\arraybackslash}m{3.45cm}|>{\raggedright\arraybackslash}m{1.95cm}|>{\raggedright\arraybackslash}m{2.35cm}|>{\raggedright\arraybackslash}m{1.65cm}|}
+\caption{Các stream, subject và consumer trên NATS JetStream}\label{tab:3-10}\\
+\hline
+\dongdau \textbf{Stream} & \textbf{Subject} & \textbf{Consumer} & \textbf{Retention} & \textbf{ack\_wait / max\_deliver} & \textbf{Bên đọc} \\
+\hline
+\endfirsthead
+\multicolumn{6}{c}{\textbf{Bảng 3.10.} Các stream, subject và consumer trên NATS JetStream (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Stream} & \textbf{Subject} & \textbf{Consumer} & \textbf{Retention} & \textbf{ack\_wait / max\_deliver} & \textbf{Bên đọc} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+IMAGE\_JOBS & jobs.image & image-workers &  &  & \\ \hline
+VIDEO\_JOBS & jobs.video & video-workers &  &  & \\ \hline
+JOB\_EVENTS & jobs.events & backend-job-events &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Ba stream IMAGE\_JOBS, VIDEO\_JOBS, JOB\_EVENTS.  Nguồn: docs/integration-contracts.md §4, decisions.md (G.3, G.4)\par\vspace{6pt}}
+
+
+\input{noi_dung/muc_3_8}
+
+
+\subsection{Thiết kế hạ tầng triển khai}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Namespace imgproc trên cụm Lab-sock (k3s), hai pool worker, ScaledObject KEDA, Gateway API cho imgproc.sock1000kg.io.vn và blob-imgproc.sock1000kg.io.vn.  Nguồn: infra/AGENTS.md, infra/app/, infra/cluster/keda, decisions.md (G)\par\vspace{6pt}}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 3.12]Deployment diagram: namespace imgproc (web, image-worker, video-worker, NATS, PostgreSQL, MinIO, Job setup), namespace keda, Gateway Traefik, cloudflared.}}
+\caption{Sơ đồ triển khai trên Kubernetes}
+\label{fig:3-12}
+\end{figure}
+
+
+\clearpage
+\section{Giải pháp AI: dữ liệu, huấn luyện và đánh giá}
+\label{sec:ch4}
+
+\input{noi_dung/chuong_4}
+
+
+\clearpage
+\section{Xây dựng, triển khai và đánh giá}
+\label{sec:ch5}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Không mô tả lại thiết kế ở Chương 3. Chương này chỉ tập trung vào: những gì thực sự được cài đặt; các vấn đề gặp phải khi triển khai và cách xử lý; những quyết định khác với thiết kế ban đầu; các điểm đáng chú ý trong code.  Nguồn: docs/report-material/decisions.md\par\vspace{6pt}}
+
+
+\subsection{Backend Web}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Những gì đã cài đặt (Express, Prisma, Zod; JWT và refresh token; rate-limit; presigned URL; zip dạng luồng) và các vấn đề gặp phải khi triển khai: tải cả batch trong một multipart bị giới hạn RAM nên đổi sang tải từng file; lifecycle 24 giờ của MinIO xoá file khi dòng DB còn nên chuyển việc xoá về web; xử lý 429 và Retry-After khi tải lên. Điểm đáng chú ý: đồng bộ sự kiện idempotent từ jobs.events.  Nguồn: web/backend/src/, web/README.md\par\vspace{6pt}}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\centering\arraybackslash\bfseries}m{2.13cm}|>{\raggedright\arraybackslash}m{4.37cm}|>{\raggedright\arraybackslash}m{5.82cm}|>{\centering\arraybackslash}m{2.43cm}|}
+\caption{Danh sách API chính}\label{tab:5-1}\\
+\hline
+\dongdau \textbf{Phương thức} & \textbf{Đường dẫn} & \textbf{Chức năng} & \textbf{Xác thực} \\
+\hline
+\endfirsthead
+\multicolumn{4}{c}{\textbf{Bảng 5.1.} Danh sách API chính (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Phương thức} & \textbf{Đường dẫn} & \textbf{Chức năng} & \textbf{Xác thực} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+ &  &  & \\ \hline
+ &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nhóm theo auth, batches, files/upload, jobs, face-lists, download.  Nguồn: web/backend/src/routes/\par\vspace{6pt}}
+
+
+\subsection{Frontend Web}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Cách triển khai: React, Vite, TypeScript; bản build tĩnh được Express phục vụ trong cùng một image web. Điểm đáng chú ý: xem trước vùng che bằng canvas dùng đúng công thức độ mạnh của Engine.  Nguồn: web/frontend/, web/Dockerfile\par\vspace{6pt}}
+
+
+\input{noi_dung/muc_5_3}
+
+
+\subsection{Chính sách lưu trữ, xoá dữ liệu và truyền file}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Giữ tới khi người dùng xoá + RETENTION\_DAYS, batch nháp dọn sau 24 giờ, ảnh mẫu whitelist xoá khi batch kết thúc; vì sao bỏ lifecycle 24 giờ của MinIO; presigned URL (1 giờ / 5 phút), token zip 60 giây, tách kết nối nội bộ và công khai. Thư viện media: xoá ảnh hoặc batch là xoá cả object trên MinIO và dòng PostgreSQL. Liên hệ yêu cầu tối thiểu hoá dữ liệu của Luật BVDLCN và GDPR (mục 1.1): ảnh mẫu whitelist là dữ liệu sinh trắc nên được xoá sớm nhất, không bao giờ public.  Nguồn: decisions.md (E, F)\par\vspace{6pt}}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{2.43cm}|>{\raggedright\arraybackslash}m{4.08cm}|>{\raggedright\arraybackslash}m{4.37cm}|>{\raggedright\arraybackslash}m{3.88cm}|}
+\caption{Chính sách lưu giữ theo loại dữ liệu}\label{tab:5-2}\\
+\hline
+\dongdau \textbf{Loại dữ liệu} & \textbf{Nơi lưu} & \textbf{Thời gian giữ} & \textbf{Cách truy cập} \\
+\hline
+\endfirsthead
+\multicolumn{4}{c}{\textbf{Bảng 5.2.} Chính sách lưu giữ theo loại dữ liệu (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Loại dữ liệu} & \textbf{Nơi lưu} & \textbf{Thời gian giữ} & \textbf{Cách truy cập} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+ &  &  & \\ \hline
+ &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nguồn: decisions.md (E)\par\vspace{6pt}}
+
+
+\subsection{Hạ tầng và triển khai}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Tenant trên cụm Lab-sock (k3s, node home-server); Kustomize + Helm; NATS, PostgreSQL (Bitnami, pin digest), MinIO tự build; Job setup stream/bucket; SealedSecrets; init container chown; một môi trường imgproc; ghim image engine theo SHA; docker-compose cho dev local; cách cài đặt: chạy toàn bộ hệ thống bằng Docker Compose (profile app) hoặc triển khai lên cụm bằng infra/deploy.sh, kèm các biến môi trường chính.  Nguồn: infra/, decisions.md (G.1-G.13)\par\vspace{6pt}}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{2.43cm}|>{\raggedright\arraybackslash}m{4.08cm}|>{\raggedright\arraybackslash}m{4.37cm}|>{\raggedright\arraybackslash}m{3.88cm}|}
+\caption{Ngân sách tài nguyên các thành phần trên node 2C/4T/12 GB}\label{tab:5-3}\\
+\hline
+\dongdau \textbf{Thành phần} & \textbf{CPU request/limit} & \textbf{RAM request/limit} & \textbf{Ghi chú} \\
+\hline
+\endfirsthead
+\multicolumn{4}{c}{\textbf{Bảng 5.3.} Ngân sách tài nguyên các thành phần trên node 2C/4T/12 GB (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Thành phần} & \textbf{CPU request/limit} & \textbf{RAM request/limit} & \textbf{Ghi chú} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+ &  &  & \\ \hline
+ &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Tổng nền $\le$ 2.560 Mi, worker báo cáo riêng.  Nguồn: infra/app/*, decisions.md (G.6)\par\vspace{6pt}}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{3.01cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{3.01cm}|}
+\caption{Cấu hình KEDA cho các pool worker}\label{tab:5-4}\\
+\hline
+\dongdau \textbf{Pool} & \textbf{Trigger} & \textbf{lagThreshold} & \textbf{min/max replica} & \textbf{cooldown} \\
+\hline
+\endfirsthead
+\multicolumn{5}{c}{\textbf{Bảng 5.4.} Cấu hình KEDA cho các pool worker (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Pool} & \textbf{Trigger} & \textbf{lagThreshold} & \textbf{min/max replica} & \textbf{cooldown} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+image-worker & nats-jetstream &  &  & \\ \hline
+video-worker & nats-jetstream &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nguồn: infra/app/engine-workers/\par\vspace{6pt}}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 5.1]Ảnh chụp kubectl get pods -n imgproc khi đang xử lý (worker đã scale).}}
+\caption{Danh sách pod trong namespace imgproc}
+\label{fig:5-1}
+\end{figure}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 5.2]Commit lên main $\rightarrow$ ci.yml (lint/test) $\rightarrow$ images.yml (build và push imgproc-web, imgproc-engine theo SHA) $\rightarrow$ cập nhật kustomization $\rightarrow$ deploy.sh.Nguồn: .github/workflows/ci.yml, images.yml}}
+\caption{Quy trình CI/CD với GitHub Actions}
+\label{fig:5-2}
+\end{figure}
+
+
+\subsection{Kiểm thử}
+
+
+\subsubsection{Kiểm thử tự động}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Backend và frontend dùng Vitest (frontend kiểm thử theo hành vi), Engine dùng pytest; CI chạy trên mỗi commit; script verify-render và smoke test của hạ tầng.  Nguồn: web/backend/tests, web/frontend/tests, engine/tests, .github/workflows/ci.yml\par\vspace{6pt}}
+
+\needspace{10\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{3.01cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{3.01cm}|}
+\caption{Tổng hợp kiểm thử tự động}\label{tab:5-5}\\
+\hline
+\dongdau \textbf{Khối} & \textbf{Công cụ} & \textbf{Số test} & \textbf{Phạm vi} & \textbf{Kết quả} \\
+\hline
+\endfirsthead
+\multicolumn{5}{c}{\textbf{Bảng 5.5.} Tổng hợp kiểm thử tự động (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Khối} & \textbf{Công cụ} & \textbf{Số test} & \textbf{Phạm vi} & \textbf{Kết quả} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+Web backend & Vitest &  &  & \\ \hline
+Web frontend & Vitest + Testing Library &  &  & \\ \hline
+Engine & pytest &  &  & \\ \hline
+Infra & verify-render / smoke test &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+
+\subsubsection{Kiểm thử chức năng}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Kịch bản kiểm thử thủ công trên môi trường imgproc cho từng nhóm chức năng.\par\vspace{6pt}}
+
+\needspace{13\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\centering\arraybackslash}m{0.96cm}|>{\raggedright\arraybackslash\bfseries}m{3.37cm}|>{\raggedright\arraybackslash}m{3.37cm}|>{\raggedright\arraybackslash}m{3.37cm}|>{\raggedright\arraybackslash}m{3.37cm}|}
+\caption{Kiểm thử chức năng end-to-end}\label{tab:5-6}\\
+\hline
+\dongdau \textbf{STT} & \textbf{Kịch bản} & \textbf{Dữ liệu vào} & \textbf{Kết quả mong đợi} & \textbf{Kết quả thực tế} \\
+\hline
+\endfirsthead
+\multicolumn{5}{c}{\textbf{Bảng 5.6.} Kiểm thử chức năng end-to-end (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{STT} & \textbf{Kịch bản} & \textbf{Dữ liệu vào} & \textbf{Kết quả mong đợi} & \textbf{Kết quả thực tế} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+1 & Tài khoản: đăng ký bằng mã, đăng nhập, đổi mật khẩu &  &  & \\ \hline
+2 & Tải lên: ảnh, thư mục, video &  &  & \\ \hline
+3 & Xử lý: theo dõi tiến độ, thử lại ảnh lỗi &  &  & \\ \hline
+4 & Whitelist khuôn mặt và biển số &  &  & \\ \hline
+5 & Sửa ảnh và render lại &  &  & \\ \hline
+6 & Tải file: từng ảnh, video, zip cả batch &  &  & \\ \hline
+7 & Xoá dữ liệu: ảnh, batch, danh sách khuôn mặt &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+
+\subsection{Hiệu năng}
+
+
+\subsubsection{Thông lượng và khả năng co giãn}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Ba chế độ: cố định N worker, autoscale 0$\rightarrow$3, autoscale 1$\rightarrow$3; trên máy có GPU (3.726 ảnh) và máy chỉ có CPU (100 ảnh); thời gian khởi động nguội; web là nút thắt khi giới hạn CPU thấp; 0 job lỗi.  Nguồn: infra/bench/README.md, infra/bench/results/comparison.md\par\vspace{6pt}}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{2.09cm}|>{\raggedright\arraybackslash}m{1.71cm}|>{\raggedright\arraybackslash}m{2.09cm}|>{\raggedright\arraybackslash}m{2.09cm}|>{\raggedright\arraybackslash}m{2.09cm}|>{\raggedright\arraybackslash}m{2.09cm}|>{\raggedright\arraybackslash}m{1.71cm}|}
+\caption{Thông lượng trên máy có GPU (3.726 ảnh)}\label{tab:5-7}\\
+\hline
+\dongdau \textbf{Mô hình} & \textbf{Đầu vào} & \textbf{Drain, 3 worker} & \textbf{End-to-end, 3 worker} & \textbf{Autoscale 0$\rightarrow$3} & \textbf{Autoscale 1$\rightarrow$3} & \textbf{p50 / ảnh} \\
+\hline
+\endfirsthead
+\multicolumn{7}{c}{\textbf{Bảng 5.7.} Thông lượng trên máy có GPU (3.726 ảnh) (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mô hình} & \textbf{Đầu vào} & \textbf{Drain, 3 worker} & \textbf{End-to-end, 3 worker} & \textbf{Autoscale 0$\rightarrow$3} & \textbf{Autoscale 1$\rightarrow$3} & \textbf{p50 / ảnh} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+ &  &  &  &  &  & \\ \hline
+ &  &  &  &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nguồn: infra/bench/results/comparison.md (Final comparison)\par\vspace{6pt}}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{2.46cm}|>{\raggedright\arraybackslash}m{2.26cm}|>{\raggedright\arraybackslash}m{2.26cm}|>{\raggedright\arraybackslash}m{2.26cm}|>{\raggedright\arraybackslash}m{2.26cm}|>{\raggedright\arraybackslash}m{2.65cm}|}
+\caption{Thông lượng trên máy chỉ có CPU (100 ảnh)}\label{tab:5-8}\\
+\hline
+\dongdau \textbf{Mô hình} & \textbf{Đầu vào} & \textbf{Drain, 2 worker} & \textbf{End-to-end, 2 worker} & \textbf{Autoscale 0$\rightarrow$3} & \textbf{p50 / ảnh} \\
+\hline
+\endfirsthead
+\multicolumn{6}{c}{\textbf{Bảng 5.8.} Thông lượng trên máy chỉ có CPU (100 ảnh) (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mô hình} & \textbf{Đầu vào} & \textbf{Drain, 2 worker} & \textbf{End-to-end, 2 worker} & \textbf{Autoscale 0$\rightarrow$3} & \textbf{p50 / ảnh} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+ &  &  &  &  & \\ \hline
+ &  &  &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nguồn: infra/bench/results/comparison.md\par\vspace{6pt}}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 5.3]Biểu đồ đường từ replicas.csv: số pod và số job chờ theo thời gian (0$\rightarrow$3$\rightarrow$0).Nguồn: infra/bench/results/<máy>/<model>/<size>/<run>/replicas.csv}}
+\caption{Số replica worker theo thời gian khi KEDA co giãn}
+\label{fig:5-3}
+\end{figure}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 5.4]Biểu đồ cột img/phút cho cố định / 0$\rightarrow$3 / 1$\rightarrow$3.Nguồn: infra/bench/results/comparison.md}}
+\caption{So sánh thông lượng giữa các chế độ triển khai}
+\label{fig:5-4}
+\end{figure}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 5.5]Biểu đồ mục ``How web is a bottleneck''.Nguồn: infra/bench/results/comparison.md}}
+\caption{Ảnh hưởng của giới hạn CPU của web lên thông lượng}
+\label{fig:5-5}
+\end{figure}
+
+
+\subsubsection{Hiệu năng xử lý video trên CPU}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Thời gian từng công đoạn (decode, detect, track, embed/OCR, redact, encode), hiệu quả whitelist theo track (giảm 99,94\% lượt gọi model), thời gian toàn trình theo độ phân giải, RAM so với giới hạn pod.  Nguồn: engine/docs/benchmark\_cpu\_results.md\par\vspace{6pt}}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{2.43cm}|>{\raggedright\arraybackslash}m{4.08cm}|>{\raggedright\arraybackslash}m{4.37cm}|>{\raggedright\arraybackslash}m{3.88cm}|}
+\caption{Thời gian từng công đoạn xử lý video}\label{tab:5-9}\\
+\hline
+\dongdau \textbf{Công đoạn} & \textbf{Thời gian} & \textbf{Tỉ lệ} & \textbf{Ghi chú} \\
+\hline
+\endfirsthead
+\multicolumn{4}{c}{\textbf{Bảng 5.9.} Thời gian từng công đoạn xử lý video (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Công đoạn} & \textbf{Thời gian} & \textbf{Tỉ lệ} & \textbf{Ghi chú} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+ &  &  & \\ \hline
+ &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nguồn: engine/docs/benchmark\_cpu\_results.md §2\par\vspace{6pt}}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{2.43cm}|>{\raggedright\arraybackslash}m{4.08cm}|>{\raggedright\arraybackslash}m{4.37cm}|>{\raggedright\arraybackslash}m{3.88cm}|}
+\caption{Hiệu năng toàn trình theo độ phân giải video}\label{tab:5-10}\\
+\hline
+\dongdau \textbf{Độ phân giải} & \textbf{Thời lượng clip} & \textbf{Thời gian xử lý} & \textbf{RAM đỉnh} \\
+\hline
+\endfirsthead
+\multicolumn{4}{c}{\textbf{Bảng 5.10.} Hiệu năng toàn trình theo độ phân giải video (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Độ phân giải} & \textbf{Thời lượng clip} & \textbf{Thời gian xử lý} & \textbf{RAM đỉnh} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+ &  &  & \\ \hline
+ &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nguồn: engine/docs/benchmark\_cpu\_results.md §4\par\vspace{6pt}}
+
+
+\subsection{Giao diện hệ thống}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Ảnh chụp màn hình các trang chính, chú thích ngắn chức năng.\par\vspace{6pt}}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 5.6]Ảnh chụp màn hình tại https://imgproc.sock1000kg.io.vn.}}
+\caption{Giao diện trang tạo batch: tải lên, cấu hình che, whitelist và ảnh xem trước}
+\label{fig:5-6}
+\end{figure}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 5.7]Ảnh chụp màn hình tại https://imgproc.sock1000kg.io.vn.}}
+\caption{Giao diện xem kết quả ảnh: thanh trượt before/after và báo cáo cần xem lại}
+\label{fig:5-7}
+\end{figure}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 5.8]Ảnh chụp màn hình tại https://imgproc.sock1000kg.io.vn.}}
+\caption{Giao diện trình xem video kết quả và danh sách cần xem lại}
+\label{fig:5-8}
+\end{figure}
+
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\small\itshape [HÌNH 5.9]Ảnh chụp màn hình tại https://imgproc.sock1000kg.io.vn.}}
+\caption{Giao diện công cụ Sửa ảnh}
+\label{fig:5-9}
+\end{figure}
+
+
+\subsection{Đánh giá mức độ giải quyết}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Bảng tổng hợp đối chiếu từng mục tiêu ở Chương 1 với kết quả thực tế; nêu rõ phần đã triển khai, phần đạt một phần, phần chưa làm (kèm lý do).\par\vspace{6pt}}
+
+\needspace{8\baselineskip}
+{\bangfont
+\begin{longtable}{|>{\raggedright\arraybackslash\bfseries}m{3.01cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{2.81cm}|>{\raggedright\arraybackslash}m{3.01cm}|}
+\caption{Tổng hợp mức độ giải quyết so với mục tiêu}\label{tab:5-11}\\
+\hline
+\dongdau \textbf{Mục tiêu} & \textbf{Đã triển khai} & \textbf{Kết quả đo được} & \textbf{Mức độ (Đạt / Một phần / Chưa)} & \textbf{Nhận xét} \\
+\hline
+\endfirsthead
+\multicolumn{5}{c}{\textbf{Bảng 5.11.} Tổng hợp mức độ giải quyết so với mục tiêu (tiếp theo)}\\[2pt]
+\hline
+\dongdau \textbf{Mục tiêu} & \textbf{Đã triển khai} & \textbf{Kết quả đo được} & \textbf{Mức độ (Đạt / Một phần / Chưa)} & \textbf{Nhận xét} \\
+\hline
+\endhead
+\endfoot
+\endlastfoot
+ &  &  &  & \\ \hline
+ &  &  &  & \\ \hline
+\end{longtable}
+}
+\vspace{6pt}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Gồm cả mục tiêu chức năng (ảnh, video, whitelist, tài khoản\dots{}) và mục tiêu định lượng (AI, hệ thống).  Nguồn: docs/milestones.md, web/docs/plan.md, engine/docs/plan.md\par\vspace{6pt}}
+
+
+\clearpage
+\section*{Kết luận}
+\addcontentsline{toc}{section}{Kết luận}
+
+
+\subsection*{Kết quả đạt được}
+\addcontentsline{toc}{subsection}{Kết quả đạt được}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Tóm tắt những gì đã xây dựng ở ba khối Web, Engine/AI, Infra và các con số chính.\par\vspace{6pt}}
+
+
+\subsection*{Hạn chế}
+\addcontentsline{toc}{subsection}{Hạn chế}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Ví dụ: chưa có benchmark video có nhãn đầy đủ; dữ liệu biển số cận cảnh khác dashcam; RETENTION\_DAYS toàn hệ thống; chạy trên một node; sửa kết quả mới có cho ảnh, chưa có cho video.\par\vspace{6pt}}
+
+
+\subsection*{Hướng phát triển}
+\addcontentsline{toc}{subsection}{Hướng phát triển}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Ví dụ: dữ liệu biển số dashcam và mặt rất nhỏ, thời hạn lưu theo người dùng, mở rộng nhiều node / GPU, thêm lớp đối tượng (màn hình, giấy tờ), tích hợp API cho bên thứ ba.\par\vspace{6pt}}
+
+
+\subsection*{Kiến thức và kỹ năng đạt được}
+\addcontentsline{toc}{subsection}{Kiến thức và kỹ năng đạt được}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Bài học về làm việc nhóm qua hợp đồng tích hợp chung, huấn luyện và đánh giá mô hình có phương pháp, vận hành Kubernetes trên tài nguyên hạn chế.\par\vspace{6pt}}
+
+
+\clearpage
+\section*{Tài liệu tham khảo}
+\addcontentsline{toc}{section}{Tài liệu tham khảo}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Nội dung: Trích dẫn theo một chuẩn thống nhất (IEEE hoặc APA). Dự kiến gồm:\par\vspace{6pt}}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Văn bản pháp lý: Luật BVDLCN 91/2025/QH15; Nghị định 356/2025/NĐ-CP; GDPR (EU 2016/679).\par\vspace{6pt}}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Bài báo / mô hình: YOLO (Ultralytics YOLOv8, YOLO11, YOLO26), WIDER FACE, ArcFace, YuNet, ByteTrack, PP-OCR, CenterFace/deface, EgoBlur, LFW.\par\vspace{6pt}}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Tài liệu công nghệ: NATS JetStream, KEDA, Kubernetes, MinIO, PostgreSQL, Prisma, React, Express, FFmpeg, ONNX Runtime.\par\vspace{6pt}}
+
+{\small\itshape\noindent\textbf{Ghi chú biên soạn:} Bộ dữ liệu biển số Việt Nam đã dùng (ghi rõ nguồn và giấy phép).\par\vspace{6pt}}
+
+\end{document}

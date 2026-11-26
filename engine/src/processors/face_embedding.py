@@ -136,7 +136,7 @@ class FaceEmbedder:
         """Align a face crop to ARCFACE_INPUT_SIZE x ARCFACE_INPUT_SIZE using YuNet landmarks.
 
         Returns None when the detector is unavailable, finds no face, or cannot estimate a transform,
-        allowing callers to prefer alignable crops or fall back to resize_crop.
+        so extract_embedding can fall back to resize_crop.
         """
         try:
             detector = self._get_detector()

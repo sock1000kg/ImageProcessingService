@@ -6,9 +6,9 @@ Complies strictly with Contract §2B, §3 B2, and §4:
   * Pass 1: Detection & Object Tracking (YOLOv8 + ByteTrack) across all frames.
   * Linear Bounding Box Interpolation (bridges dropouts <= 167 ms to eliminate flicker).
   * Records lowConfidenceRanges and gapRanges per Contract §3 B2.
-  * Best Face Frame Selection: scores crops by confidence, area, and Laplacian sharpness, then prefers YuNet-alignable crops from the pool.
+  * Best Face Frame Selection: scores crops by confidence, area, and Laplacian sharpness.
   * Milestone 2 (Phase 2): Track-Level Face Whitelisting (ArcFace 512-d).
-    - Runs YuNet alignment across the track's candidate pool and compares up to 3 chosen crops with ArcFace.
+    - Compares up to 3 candidate pool crops with ArcFace.
     - Matches cosine similarity with params.whitelist.faces.
     - Propagates whitelist status across broken track pieces (spatial-temporal inheritance).
     - Synchronous global redacted/whitelisted flag across all frames of the track.
@@ -120,26 +120,29 @@ def hold_frames_for_fps(fps: float) -> int:
     return max(1, round(fps * TRACK_HOLD_MS / 1000))
 
 
-# Plate crops read by OCR for the allow list: the widest few of the whole track.
+# Plate crops read by OCR: the first 5 of the track's candidate pool (widest per time window, then the widest
+# overall).
 # Why: the first frames of a track are usually the plate coming into view, small or half hidden; read alone they gave
 # garbage that made a long track on the owner's plate count as a stranger. No minimum width: OCR still matches 37 px
 # plates, and the widest crops already skip small ones when the track has larger (video bench, 2026-11-20).
 PLATE_OCR_CANDIDATES = 5
 
-# Face crops compared by ArcFace for the whitelist: up to 3 crops chosen from the track's candidate pool.
-# Why: running YuNet alignment on every crop in the pool first lets alignable frontal views take priority over
-# higher-scored profile or occluded crops, falling back to resized top-quality crops when fewer than 3 align.
+# Face crops compared by ArcFace for the whitelist: the first 3 of the track's candidate pool (best quality per
+# time window, then best overall). Each crop is aligned with YuNet when possible, else resized
+# (FaceEmbedder.extract_embedding).
+# Why: a single crop missed owners caught at a bad angle in that one frame. Preferring crops YuNet can align
+# changed no result on the video bench (2026-11-25), so the pool order alone decides.
 FACE_ARCFACE_CANDIDATES = 3
 
-# Window size in milliseconds for grouping candidate face crops across time.
-# Why: at most one crop is kept per 1-second window, so candidates tend to come from different moments instead of
-# nearly identical neighbouring frames.
-FACE_CANDIDATE_WINDOW_MS = 1000
+# Pool size as a multiple of the crops compared per track (top_n).
+# Why: the time-window part then holds exactly the crops compared, so a long track compares crops from different
+# 500 ms windows, and the top part holds as many again to top up short tracks. Crops past that were never read
+# (video bench, 2026-11-25).
+CANDIDATE_POOL_FACTOR = 2
 
-# Maximum number of 1-second time windows retained in memory per track during Pass 1.
-# Why: bounds RAM on long video tracks (dropping lowest quality window when full) while guaranteeing the best frame
-# is preserved.
-FACE_CANDIDATE_POOL = 8
+# Time window for the pool: at most one crop per 500 ms window is kept in its time part.
+# Why: the crops compared tend to come from different moments instead of neighbouring, near-identical frames.
+CANDIDATE_WINDOW_MS = 500
 
 # Maximum temporal gap in milliseconds to bridge between track pieces during whitelist inheritance.
 # Why: replaces the old 15-45 frame clamp (which shrank the gap to 0.9 s at 50 fps and stretched it past 1.5 s
@@ -212,6 +215,114 @@ class TrackDetection:
     is_interpolated: bool = False
 
 
+@dataclass
+class CropCandidate:
+    """A crop kept for whitelist matching, with the frame it came from.
+
+    score: ranking value inside a CandidatePool (width for plates, quality score for faces).
+    """
+    frame_idx: int
+    frame_ms: int
+    crop: np.ndarray
+    score: float = 0.0
+
+
+class CandidatePool:
+    """Keeps candidate crops for whitelist matching across time windows and top overall scores.
+
+    The pool maintains two parts:
+    1. Time windows: the best crop per window_ms, holding up to capacity - top_n windows (by default
+       as many as are compared), spreading candidates across the track duration.
+    2. Top crops: the best top_n crops of the whole track regardless of time (top_n crops).
+    Why: bounds RAM on long tracks while guaranteeing short tracks are topped up to the comparison budget,
+    and the best crop overall is never dropped.
+    """
+
+    def __init__(
+        self,
+        top_n: int,
+        capacity: Optional[int] = None,
+        window_ms: int = CANDIDATE_WINDOW_MS,
+    ) -> None:
+        """Initialize CandidatePool with top_n, capacity, and window_ms constraints."""
+        if capacity is None:
+            capacity = CANDIDATE_POOL_FACTOR * top_n
+        if not (0 < top_n < capacity):
+            raise ValueError(f"top_n must satisfy 0 < top_n < capacity (got top_n={top_n}, capacity={capacity})")
+        self._top_n: int = top_n
+        self._window_capacity: int = capacity - top_n
+        self._window_ms: int = window_ms
+        self._by_window: Dict[int, CropCandidate] = {}
+        self._top: List[CropCandidate] = []
+
+    def add(self, frame_idx: int, frame_ms: int, crop: Optional[np.ndarray], score: float) -> None:
+        """Keep the crop if it is the best of its time window or among the track's top_n; ignore None/empty crops.
+
+        Ties keep the earlier crop. When a part is full, its lowest-score crop makes room.
+        """
+        if crop is None or crop.size == 0:
+            return
+
+        window = frame_ms // self._window_ms
+
+        if window in self._by_window:
+            keep_window = score > self._by_window[window].score
+        else:
+            if len(self._by_window) < self._window_capacity:
+                keep_window = True
+            else:
+                lowest_win_key = min(self._by_window.keys(), key=lambda w: self._by_window[w].score)
+                keep_window = score > self._by_window[lowest_win_key].score
+
+        if len(self._top) < self._top_n:
+            keep_top = True
+        else:
+            lowest_top_idx = min(range(len(self._top)), key=lambda i: self._top[i].score)
+            keep_top = score > self._top[lowest_top_idx].score
+
+        if not keep_window and not keep_top:
+            return
+
+        # One object shared by both parts, copied only when kept, so a rejected crop costs no memory.
+        candidate = CropCandidate(frame_idx=frame_idx, frame_ms=frame_ms, crop=crop.copy(), score=score)
+
+        if keep_window:
+            if window not in self._by_window and len(self._by_window) >= self._window_capacity:
+                lowest_win_key = min(self._by_window.keys(), key=lambda w: self._by_window[w].score)
+                del self._by_window[lowest_win_key]
+            self._by_window[window] = candidate
+
+        if keep_top:
+            if len(self._top) >= self._top_n:
+                lowest_top_idx = min(range(len(self._top)), key=lambda i: self._top[i].score)
+                del self._top[lowest_top_idx]
+            self._top.append(candidate)
+
+    def ordered(self) -> List[CropCandidate]:
+        """Return window crops (best first), then the remaining top crops (best first).
+
+        Why window crops come first: callers take the first few, which should come from different moments. The top
+        crops only top up short tracks that have fewer windows than the caller needs.
+        """
+        window_crops = sorted(self._by_window.values(), key=lambda c: c.score, reverse=True)
+        seen_frame_indices = {c.frame_idx for c in window_crops}
+        result = list(window_crops)
+        for c in sorted(self._top, key=lambda c: c.score, reverse=True):
+            if c.frame_idx not in seen_frame_indices:
+                result.append(c)
+                seen_frame_indices.add(c.frame_idx)
+        return result
+
+    def __len__(self) -> int:
+        """Return the number of unique candidate crops in the pool."""
+        return len(self.ordered())
+
+    def clear(self) -> None:
+        """Empty both window and top containers to release crop memory."""
+        self._by_window.clear()
+        self._top.clear()
+
+
 class Track:
     """Represents a continuous trajectory of a tracked face or license plate."""
 
@@ -226,10 +337,9 @@ class Track:
         self.best_box: List[int] = [0, 0, 0, 0]
         self.best_confidence: float = -1.0
         self.best_quality_score: float = -1.0
-        self.face_candidates: Dict[int, Tuple[float, np.ndarray]] = {}
+        self.face_pool = CandidatePool(top_n=FACE_ARCFACE_CANDIDATES)
         self.has_embedding: bool = False
-        self.best_plate_roi: Optional[np.ndarray] = None
-        self.plate_candidates: List[np.ndarray] = []
+        self.plate_pool = CandidatePool(top_n=PLATE_OCR_CANDIDATES)
         self.plate_text: Optional[str] = None
 
         # Whitelist status per Contract §3 B2
@@ -280,38 +390,10 @@ class Track:
             self.best_frame_idx = frame_idx
             self.best_frame_ms = frame_ms
             self.best_box = box
-            if plate_roi is not None and plate_roi.size > 0:
-                self.best_plate_roi = plate_roi.copy()
         if face_roi is not None and face_roi.size > 0:
-            self._keep_face_candidate(frame_ms, quality_score, face_roi)
+            self.face_pool.add(frame_idx, frame_ms, face_roi, quality_score)
         if plate_roi is not None and plate_roi.size > 0:
-            self._keep_plate_candidate(plate_roi)
-
-    def _keep_face_candidate(self, frame_ms: int, quality_score: float, face_roi: np.ndarray) -> None:
-        """Keep the highest-quality face crop per time window, capped at FACE_CANDIDATE_POOL windows."""
-        window_idx = frame_ms // FACE_CANDIDATE_WINDOW_MS
-        if window_idx in self.face_candidates:
-            if quality_score > self.face_candidates[window_idx][0]:
-                self.face_candidates[window_idx] = (quality_score, face_roi.copy())
-            return
-
-        if len(self.face_candidates) < FACE_CANDIDATE_POOL:
-            self.face_candidates[window_idx] = (quality_score, face_roi.copy())
-            return
-
-        lowest_win = min(self.face_candidates.keys(), key=lambda w: self.face_candidates[w][0])
-        if quality_score > self.face_candidates[lowest_win][0]:
-            del self.face_candidates[lowest_win]
-            self.face_candidates[window_idx] = (quality_score, face_roi.copy())
-
-    def _keep_plate_candidate(self, plate_roi: np.ndarray):
-        """Keep the PLATE_OCR_CANDIDATES widest crops of the track (a wider crop replaces the narrowest)."""
-        if len(self.plate_candidates) < PLATE_OCR_CANDIDATES:
-            self.plate_candidates.append(plate_roi.copy())
-            return
-        narrowest = min(range(len(self.plate_candidates)), key=lambda i: self.plate_candidates[i].shape[1])
-        if plate_roi.shape[1] > self.plate_candidates[narrowest].shape[1]:
-            self.plate_candidates[narrowest] = plate_roi.copy()
+            self.plate_pool.add(frame_idx, frame_ms, plate_roi, float(plate_roi.shape[1]))
 
 
 class TrackManager:
@@ -889,40 +971,6 @@ class VideoRedactProcessor(BaseProcessor):
         """Apply blur, pixelate, or blackout to a single region of interest."""
         return apply_redaction_style(roi, style, strength)
 
-    def _choose_face_crops(
-        self,
-        track: Track,
-        embedder: FaceEmbedder,
-    ) -> List[np.ndarray]:
-        """Select up to FACE_ARCFACE_CANDIDATES crops for ArcFace, preferring YuNet-aligned ones.
-
-        Runs align_crop on every valid crop in track.face_candidates (highest quality first) so alignable
-        crops are not displaced by higher-scored unalignable ones; remaining slots fall back to resize_crop
-        on the highest-quality unaligned crops.
-        """
-        sorted_candidates = sorted(
-            track.face_candidates.values(),
-            key=lambda item: item[0],
-            reverse=True,
-        )
-        aligned_crops: List[np.ndarray] = []
-        unaligned_crops: List[np.ndarray] = []
-
-        for _, crop in sorted_candidates:
-            if crop is None or crop.size == 0:
-                continue
-            aligned = embedder.align_crop(crop)
-            if aligned is not None:
-                aligned_crops.append(aligned)
-            else:
-                unaligned_crops.append(crop)
-
-        chosen = aligned_crops[:FACE_ARCFACE_CANDIDATES]
-        if len(chosen) < FACE_ARCFACE_CANDIDATES:
-            remaining = FACE_ARCFACE_CANDIDATES - len(chosen)
-            chosen.extend(embedder.resize_crop(crop) for crop in unaligned_crops[:remaining])
-        return chosen
-
     def _match_face_directly(
         self,
         track: Track,
@@ -930,17 +978,16 @@ class VideoRedactProcessor(BaseProcessor):
         similarity_threshold: float,
         whitelist_mgr: WhitelistManager,
     ) -> None:
-        """Choose up to FACE_ARCFACE_CANDIDATES crops (preferring aligned ones), embed with ArcFace, and set track status."""
+        """Embed the first FACE_ARCFACE_CANDIDATES crops of the track's pool and whitelist the track if any is similar enough to a reference."""
         embedder = whitelist_mgr.embedder
-        crops_to_eval = self._choose_face_crops(track, embedder)
 
         best_sim: Optional[float] = None
         best_ref: Optional[int] = None
         has_embedding = False
 
-        for crop in crops_to_eval:
+        for candidate in track.face_pool.ordered()[:FACE_ARCFACE_CANDIDATES]:
             try:
-                det_emb = embedder.embed_aligned(crop)
+                det_emb = embedder.extract_embedding(candidate.crop)
                 has_embedding = True
                 for ref_idx, ref_emb in enumerate(ref_embeddings):
                     sim = float(embedder.compute_similarity(det_emb, ref_emb))
@@ -975,7 +1022,7 @@ class VideoRedactProcessor(BaseProcessor):
             track.whitelist_ref = None
 
         # Free face candidate memory immediately
-        track.face_candidates.clear()
+        track.face_pool.clear()
 
     def _evaluate_face_whitelist(
         self,
@@ -1012,12 +1059,12 @@ class VideoRedactProcessor(BaseProcessor):
         plate_mgr: PlateWhitelistManager,
         whitelist_plates: List[str],
     ) -> None:
-        """Evaluate OCR candidate crops of a plate track against the whitelist and set status."""
-        crops_to_eval = []
-        if track.best_plate_roi is not None and track.best_plate_roi.size > 0:
-            crops_to_eval.append(track.best_plate_roi)
-        if hasattr(track, "plate_candidates"):
-            crops_to_eval.extend([c for c in track.plate_candidates if c is not None and c.size > 0])
+        """OCR the first PLATE_OCR_CANDIDATES crops of the track's pool (widest per time window, then widest overall) and whitelist the track if any reads as a whitelisted plate."""
+        crops_to_eval = [
+            c.crop
+            for c in track.plate_pool.ordered()[:PLATE_OCR_CANDIDATES]
+            if c is not None and c.crop is not None and c.crop.size > 0
+        ]
 
         matched = bool(track.whitelisted)
         best_text = track.plate_text
@@ -1051,9 +1098,7 @@ class VideoRedactProcessor(BaseProcessor):
             )
 
         # Free plate crop memory
-        track.best_plate_roi = None
-        if hasattr(track, "plate_candidates"):
-            track.plate_candidates.clear()
+        track.plate_pool.clear()
 
     def _evaluate_plate_whitelist(
         self,

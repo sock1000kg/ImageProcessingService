@@ -32,6 +32,8 @@ from src.processors.video_redact import (
     Track,
     TrackManager,
     InvalidInputFileError,
+    CandidatePool,
+    CANDIDATE_POOL_FACTOR,
 )
 from src.processors.face_embedding import FaceEmbedder
 from src.processors.whitelist import WhitelistReferenceError
@@ -330,8 +332,57 @@ def test_plate_ocr_reads_widest_crops():
         roi = np.full((20, w, 3), i, dtype=np.uint8)
         track.add_detection(frame_idx=i, frame_ms=i * 40, box=[0, 0, w, 20], confidence=0.6, orig_w=640, orig_h=480,
                             plate_roi=roi)
-    widths = sorted(c.shape[1] for c in track.plate_candidates)
+    widths = sorted(c.crop.shape[1] for c in track.plate_pool.ordered())
     assert widths == [60, 70, 90, 100, 120], widths  # the 5 widest of the whole track
+
+
+class CountingPlateManager:
+    """Stub plate whitelist manager that counts evaluate_plate calls."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def evaluate_plate(self, plate_bgr: np.ndarray, whitelist_plates: List[str]) -> Tuple[bool, str, float]:
+        """Record an evaluation call and return non-matching result to evaluate all candidate crops."""
+        self.calls += 1
+        return (False, "", 0.0)
+
+
+def test_plate_ocr_reads_only_the_pool() -> None:
+    """Verify plate OCR reads only the first PLATE_OCR_CANDIDATES crops of the pool, skipping best_quality crops outside it."""
+    print("Test: Kiểm tra đọc OCR chỉ lấy từ candidate pool, không đọc kèm crop ngoài pool...")
+    processor = VideoRedactProcessor()
+    track = Track(track_id=1, label="plate")
+
+    # Frame 0 has confidence=0.99, narrow crop width 20, box=[0, 0, 300, 100] (best quality score)
+    roi_0 = np.zeros((20, 20, 3), dtype=np.uint8)
+    track.add_detection(
+        frame_idx=0,
+        frame_ms=0,
+        box=[0, 0, 300, 100],
+        confidence=0.99,
+        orig_w=640,
+        orig_h=480,
+        plate_roi=roi_0,
+    )
+
+    # Frames 1-5 have confidence=0.3 and widths 100, 110, 120, 130, 140 with box=[0, 0, w, 20]
+    for frame_idx, w in enumerate([100, 110, 120, 130, 140], start=1):
+        roi = np.zeros((20, w, 3), dtype=np.uint8)
+        track.add_detection(
+            frame_idx=frame_idx,
+            frame_ms=frame_idx * 40,
+            box=[0, 0, w, 20],
+            confidence=0.3,
+            orig_w=640,
+            orig_h=480,
+            plate_roi=roi,
+        )
+
+    plate_mgr = CountingPlateManager()
+    processor._match_plate_directly(track, plate_mgr, ["51F234780"])
+    assert plate_mgr.calls == 5, f"Expected 5 calls but got {plate_mgr.calls}"
+    print("  -> PASS: Đọc đúng 5 crop từ pool, crop chất lượng cao ngoài pool không bị đọc.")
 
 
 def test_two_pass_video_redaction_pipeline():
@@ -463,14 +514,14 @@ def test_track_level_face_whitelist_matching():
     assert t1.redacted is False, "Track 1 should NOT be redacted"
     assert t1.whitelist_ref == 0, f"Expected whitelist_ref=0, got {t1.whitelist_ref}"
     assert t1.similarity >= 0.95, f"Expected similarity ~ 1.0, got {t1.similarity}"
-    assert len(t1.face_candidates) == 0, "face_candidates should be freed to release memory"
+    assert len(t1.face_pool) == 0, "face_pool should be freed to release memory"
 
     # Stranger assertions
     assert t2.whitelisted is False, "Track 2 (stranger) should NOT be whitelisted"
     assert t2.redacted is True, "Track 2 (stranger) MUST be redacted"
     assert t2.whitelist_ref is None, "Stranger should have no whitelist_ref"
     assert t2.similarity < 0.45, f"Stranger similarity should be < 0.45, got {t2.similarity}"
-    assert len(t2.face_candidates) == 0, "face_candidates should be freed"
+    assert len(t2.face_pool) == 0, "face_pool should be freed"
 
     # Contract summary assertions
     summary, counts = mgr.to_contract_summary(review_threshold=0.50)
@@ -1266,8 +1317,8 @@ def test_face_whitelist_multiple_candidate_frames():
     )
 
     t1 = track_mgr.tracks[1]
-    # In window 0, only the higher-quality crop (stranger_roi) was retained; pool size is 1
-    assert len(t1.face_candidates) == 1, f"Expected 1 candidate window, got {len(t1.face_candidates)}"
+    # window 0 keeps the stranger crop, the top part keeps the owner crop too
+    assert len(t1.face_pool) == 2, f"Expected 2 candidates, got {len(t1.face_pool)}"
 
     # Add continuous intermediate detections (gap <= 2 frames) up to window 1
     for f in range(4, 26, 2):
@@ -1281,7 +1332,7 @@ def test_face_whitelist_multiple_candidate_frames():
             sharpness=50.0,
         )
 
-    # Frame 26 (ms 1040, window 1): Different second window with owner face and lower confidence 0.80
+    # Frame 26 (ms 1040): Different window with owner face and lower confidence 0.80
     track_mgr.add_detection(
         track_id=1,
         label="face",
@@ -1293,7 +1344,7 @@ def test_face_whitelist_multiple_candidate_frames():
         sharpness=80.0,
     )
 
-    assert len(t1.face_candidates) == 2, f"Expected 2 candidate windows, got {len(t1.face_candidates)}"
+    assert len(t1.face_pool) == 3, f"Expected 3 candidates, got {len(t1.face_pool)}"
 
     processor._evaluate_face_whitelist(
         track_mgr=track_mgr,
@@ -1302,11 +1353,11 @@ def test_face_whitelist_multiple_candidate_frames():
         whitelist_mgr=whitelist_mgr,
     )
 
-    # Even though best-quality crop was stranger, the second window matched and whitelisted the track
+    # Even though best-quality crop was stranger, the other window matched and whitelisted the track
     assert t1.whitelisted is True, "Track should be whitelisted via candidate from second window"
     assert t1.redacted is False, "Track should not be redacted"
     assert t1.similarity >= 0.95, f"Expected high similarity, got {t1.similarity}"
-    assert len(t1.face_candidates) == 0, "face_candidates must be cleared after evaluation"
+    assert len(t1.face_pool) == 0, "face_pool must be cleared after evaluation"
     print("  -> PASS: Nhiều candidate frames được đánh giá, track được miễn che khi có frame khớp.")
 
 
@@ -1645,164 +1696,6 @@ def test_time_based_gap_replaces_frame_clamp():
     print("  -> PASS: Thời gian gap tính chuẩn theo 1.5s ở cả high-fps (60fps) và low-fps (8fps).")
 
 
-def test_face_whitelist_prefers_alignable_crops():
-    """Verify video face matching prefers YuNet-alignable crops over higher-quality unalignable ones."""
-    print("Test 30: Kiểm tra ưu tiên crop YuNet căn chỉnh được trên pool khuôn mặt...")
-    from src.processors.face_embedding import ARCFACE_INPUT_SIZE, FaceEmbedder
-    from src.processors.whitelist import WhitelistManager
-
-    rng = np.random.RandomState(301)
-    ref_emb = rng.randn(512).astype(np.float32)
-    ref_emb /= np.linalg.norm(ref_emb)
-    stranger_emb = rng.randn(512).astype(np.float32)
-    stranger_emb /= np.linalg.norm(stranger_emb)
-
-    class AlignControlledEmbedder(FaceEmbedder):
-        def __init__(self):
-            super().__init__(model_name="w600k_mbf.onnx")
-            self.align_calls: List[float] = []
-            self.embed_calls: List[Tuple[Tuple[int, ...], float]] = []
-
-        def align_crop(self, face_bgr: np.ndarray) -> Optional[np.ndarray]:
-            mean_val = float(np.mean(face_bgr))
-            self.align_calls.append(mean_val)
-            if mean_val > 120:
-                return cv2.resize(face_bgr, (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE))
-            return None
-
-        def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
-            mean_val = float(np.mean(face_112))
-            self.embed_calls.append((face_112.shape, mean_val))
-            if mean_val > 120:
-                return ref_emb.copy()
-            return stranger_emb.copy()
-
-    embedder = AlignControlledEmbedder()
-    whitelist_mgr = WhitelistManager(embedder=embedder)
-    processor = VideoRedactProcessor(
-        face_embedder=embedder,
-        whitelist_manager=whitelist_mgr,
-    )
-    mgr = TrackManager(fps=25.0, orig_w=640, orig_h=480)
-
-    # 3 high-quality unalignable crops (pixel values 40, 50, 60) + 1 lower-quality alignable crop (200)
-    candidates = {
-        0: (0.95, 150.0, 40),
-        26: (0.90, 140.0, 50),
-        50: (0.85, 130.0, 60),
-        76: (0.55, 60.0, 200),
-    }
-    for f_idx in range(0, 77, 2):
-        if f_idx in candidates:
-            conf, sharp, val = candidates[f_idx]
-            crop = np.full((80, 90, 3), val, dtype=np.uint8)
-        else:
-            # Keep track_id=1 continuous across 1-second windows without adding extra crops
-            conf, sharp, crop = 0.50, 40.0, None
-        mgr.add_detection(
-            track_id=1,
-            label="face",
-            frame_idx=f_idx,
-            frame_ms=int(f_idx * 1000 / 25),
-            box=[100, 100, 200, 200],
-            confidence=conf,
-            face_roi=crop,
-            sharpness=sharp,
-        )
-    assert len(mgr.tracks) == 1, f"Expected 1 continuous track, got {len(mgr.tracks)}"
-
-    processor._evaluate_face_whitelist(
-        track_mgr=mgr,
-        ref_embeddings=[ref_emb],
-        similarity_threshold=0.45,
-        whitelist_mgr=whitelist_mgr,
-    )
-
-    t1 = mgr.tracks[1]
-    assert len(embedder.align_calls) == 4, f"Expected align_crop on all 4 crops, got {len(embedder.align_calls)}"
-    assert len(embedder.embed_calls) == 3, f"Expected embed_aligned on 3 chosen crops, got {len(embedder.embed_calls)}"
-    assert all(shape == (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE, 3) for shape, _ in embedder.embed_calls)
-    embedded_means = [round(m) for _, m in embedder.embed_calls]
-    assert 200 in embedded_means, f"Alignable lower-quality crop should be embedded, got {embedded_means}"
-    assert 60 not in embedded_means, f"Lowest-quality unaligned crop should be displaced, got {embedded_means}"
-    assert t1.whitelisted is True and t1.redacted is False
-    assert t1.similarity >= 0.95
-    print("  -> PASS: YuNet chạy trên cả pool, crop align được ở quality thấp hơn được chọn và miễn che track.")
-
-
-def test_face_whitelist_fallback_when_no_crop_aligns():
-    """Verify fallback chooses the top 3 crops by quality resized to 112x112 when no crop aligns."""
-    print("Test 31: Kiểm tra fallback top 3 theo chất lượng khi không crop nào align được...")
-    from src.processors.face_embedding import ARCFACE_INPUT_SIZE
-    from src.processors.whitelist import WhitelistManager
-
-    rng = np.random.RandomState(302)
-    ref_emb = rng.randn(512).astype(np.float32)
-    ref_emb /= np.linalg.norm(ref_emb)
-    stranger_emb = rng.randn(512).astype(np.float32)
-    stranger_emb /= np.linalg.norm(stranger_emb)
-
-    class NeverAlignEmbedder(NoAlignEmbedder):
-        def __init__(self):
-            super().__init__(model_name="w600k_mbf.onnx")
-            self.embed_calls: List[Tuple[Tuple[int, ...], float]] = []
-
-        def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
-            mean_val = float(np.mean(face_112))
-            self.embed_calls.append((face_112.shape, mean_val))
-            if mean_val > 120:
-                return ref_emb.copy()
-            return stranger_emb.copy()
-
-    embedder = NeverAlignEmbedder()
-    whitelist_mgr = WhitelistManager(embedder=embedder)
-    processor = VideoRedactProcessor(
-        face_embedder=embedder,
-        whitelist_manager=whitelist_mgr,
-    )
-    mgr = TrackManager(fps=25.0, orig_w=640, orig_h=480)
-
-    # Top 3 by quality are stranger (40, 50, 60); 4th is ref (200) so it must not be evaluated
-    candidates = {
-        0: (0.95, 150.0, 40),
-        26: (0.90, 140.0, 50),
-        50: (0.85, 130.0, 60),
-        76: (0.55, 60.0, 200),
-    }
-    for f_idx in range(0, 77, 2):
-        if f_idx in candidates:
-            conf, sharp, val = candidates[f_idx]
-            crop = np.full((80, 90, 3), val, dtype=np.uint8)
-        else:
-            conf, sharp, crop = 0.50, 40.0, None
-        mgr.add_detection(
-            track_id=1,
-            label="face",
-            frame_idx=f_idx,
-            frame_ms=int(f_idx * 1000 / 25),
-            box=[100, 100, 200, 200],
-            confidence=conf,
-            face_roi=crop,
-            sharpness=sharp,
-        )
-    assert len(mgr.tracks) == 1, f"Expected 1 continuous track, got {len(mgr.tracks)}"
-
-    processor._evaluate_face_whitelist(
-        track_mgr=mgr,
-        ref_embeddings=[ref_emb],
-        similarity_threshold=0.45,
-        whitelist_mgr=whitelist_mgr,
-    )
-
-    t1 = mgr.tracks[1]
-    assert len(embedder.embed_calls) == 3, f"Expected 3 fallback crops, got {len(embedder.embed_calls)}"
-    assert all(shape == (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE, 3) for shape, _ in embedder.embed_calls)
-    embedded_means = [round(m) for _, m in embedder.embed_calls]
-    assert embedded_means == [40, 50, 60], f"Expected top 3 by quality [40, 50, 60], got {embedded_means}"
-    assert t1.whitelisted is False and t1.redacted is True
-    print("  -> PASS: Khi không crop nào align được, fallback đúng top 3 chất lượng cao nhất sau resize.")
-
-
 def test_extract_embedding_matches_step_composition():
     """Verify extract_embedding equals embed_aligned(align_crop(crop) or resize_crop(crop)) for image path."""
     print("Test 32: Kiểm tra extract_embedding khớp với tổ hợp 3 bước align_crop/resize_crop/embed_aligned...")
@@ -1822,6 +1715,37 @@ def test_extract_embedding_matches_step_composition():
     print("  -> PASS: extract_embedding khớp hoàn toàn với tổ hợp align_crop / resize_crop / embed_aligned.")
 
 
+def test_candidate_pool_spreads_over_time():
+    """Verify CandidatePool retains crops spread across time windows even when high scores cluster in one window."""
+    pool = CandidatePool(top_n=2, capacity=6, window_ms=500)
+    for i in range(20):
+        crop = np.zeros((4, 4, 3), np.uint8)
+        score = float(100 + i if i >= 15 else i)
+        pool.add(frame_idx=i, frame_ms=i * 100, crop=crop, score=score)
+    assert {c.frame_ms // 500 for c in pool.ordered()[:4]} == {0, 1, 2, 3}
+
+
+def test_candidate_pool_tops_up_short_track():
+    """Verify CandidatePool tops up candidates up to top_n even for short tracks in a single time window."""
+    pool = CandidatePool(top_n=5)
+    for i in range(6):
+        crop = np.zeros((4, 4, 3), np.uint8)
+        pool.add(frame_idx=i, frame_ms=i * 40, crop=crop, score=float(i))
+    assert len(pool.ordered()) == 5
+    assert [c.score for c in pool.ordered()] == [5, 4, 3, 2, 1]
+
+
+def test_candidate_pool_is_bounded_and_keeps_best():
+    """Verify CandidatePool bounds memory at CANDIDATE_POOL_FACTOR x top_n while preserving the track's highest score crop."""
+    pool = CandidatePool(top_n=5)
+    for i in range(100):
+        crop = np.zeros((4, 4, 3), np.uint8)
+        score = float((i * 37) % 100)
+        pool.add(frame_idx=i, frame_ms=i * 100, crop=crop, score=score)
+    assert len(pool) <= CANDIDATE_POOL_FACTOR * 5
+    assert 99 in [c.score for c in pool.ordered()]
+
+
 if __name__ == "__main__":
     print("==================================================")
     print("🚀 BẮT ĐẦU CHẠY KIỂM THỬ VIDEO REDACT (GIAI ĐOẠN 6)")
@@ -1837,6 +1761,7 @@ if __name__ == "__main__":
     test_track_best_frame_selection()
     test_track_split_after_long_gap()
     test_plate_ocr_reads_widest_crops()
+    test_plate_ocr_reads_only_the_pool()
     test_two_pass_video_redaction_pipeline()
     test_track_level_face_whitelist_matching()
     test_whitelist_reference_error_propagation()
@@ -1859,9 +1784,10 @@ if __name__ == "__main__":
     test_face_whitelist_no_cascading_chaining()
     test_face_distance_has_no_floor_unlike_plates()
     test_time_based_gap_replaces_frame_clamp()
-    test_face_whitelist_prefers_alignable_crops()
-    test_face_whitelist_fallback_when_no_crop_aligns()
     test_extract_embedding_matches_step_composition()
+    test_candidate_pool_spreads_over_time()
+    test_candidate_pool_tops_up_short_track()
+    test_candidate_pool_is_bounded_and_keeps_best()
     print("==================================================")
-    print("✅ TOÀN BỘ 36/36 TEST CASES GIAI ĐOẠN 6 PASS 100%!")
+    print("✅ TOÀN BỘ 38/38 TEST CASES GIAI ĐOẠN 6 PASS 100%!")
     print("==================================================")

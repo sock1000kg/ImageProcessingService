@@ -157,8 +157,10 @@ than 167 ms and found again is decided as a new one) are measured in
    clips (same link): 0 of 3,396 stranger face frames kept, owner kept 71-76% with 5 photos.
 3. ~~Decide the similarity threshold~~: kept at 0.45 (section above). Was: (0.45 today; 0.40 keeps 91% clean / 79% at 64 px / 49% at 40 px with 1 photo, 98 / 93 / 76% with
    3 photos, at ~0.00% leak on LFW) and whether to add the size schedule above as an "auto" default.
-4. **Several frames per video track:** average the embeddings of the 3-5 sharpest, largest frames instead of one best frame.
-   Untested; needs video.
+4. ~~Several frames per video track~~: done (2026-11-26). A face track compares up to 3 crops from different moments and
+   takes the best similarity, and pieces of one face inherit a matched neighbour's decision: owner kept 66.5-68.3 % →
+   71.3-72.9 % on the 3 clips, no stranger kept ([`../video/results/comparison.md`](../video/results/comparison.md)).
+   Averaging the embeddings was not tried.
 5. **Flip averaging:** embed the face and its mirror and average. Cheap, usually a small gain, doubles embedding time. Untested.
 6. **Tiny faces:** under about 32 px send the face to review (or tell the user the whitelist needs larger faces) instead of guessing.
 7. **Web UI guidance:** recommend 3 reference photos per person (front and both sides, up to the 5-file limit); the Engine already

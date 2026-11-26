@@ -63,7 +63,7 @@ This document outlines the complete plan to deploy the foundational infrastructu
         - [x] Configure engine worker manifests (`infra/app/engine-workers/`) using the real engine image `socknot1000kg/imgproc-engine:dev`. *(code only, not yet run on the lab)*
         - [x] Deploy a `video-worker` Deployment consuming from `video-workers` on `VIDEO_JOBS` (`jobs.video`). *(code only, not yet run on the lab)*
         - [x] Deploy an `image-worker` Deployment consuming from `image-workers` on `IMAGE_JOBS` (`jobs.image`). *(code only, not yet run on the lab)*
-        - [x] Set strict CPU and Memory requests/limits on these deployments (Video: 768Mi/2048Mi; Image: 512Mi/1536Mi). *(code only, not yet run on the lab)*
+        - [x] Set strict CPU and Memory requests/limits on these deployments (Video: 768Mi/3072Mi; Image: 512Mi/1536Mi). *(code only, not yet run on the lab)*
 *   **Verification:**
         - [ ] Manually scale both deployments to 1.
         - [ ] Publish messages to both queues and verify independent processing and ACKing in the respective logs.
@@ -120,14 +120,14 @@ This document outlines the complete plan to deploy the foundational infrastructu
 ## Operational notes (Task 2, engine workers)
 * **Worker workloads:** Engine worker Deployments (`video-worker`, `image-worker`) are included in `infra/app` via `infra/app/kustomization.yaml` (`engine-workers`).
 * **Image tags:** `web` uses `socknot1000kg/imgproc-web:main` with `imagePullPolicy: Always` (picks up the latest build on restart). The **engine is pinned** to a CI commit-SHA tag via `images:` in `infra/app/engine-workers/kustomization.yaml`, with `IfNotPresent`: the image is ~3.5GB and a new `:main` build made the next KEDA scale-up pull and unpack it, maxing out the lab node's CPU. Upgrade the engine by changing `newTag` on purpose. Both worker Deployments use `strategy: Recreate` so an update never runs two engine pods at once.
-* **Worker label and steady-state budget:** Worker Deployments carry label `app.kubernetes.io/component: worker` and are excluded from the platform steady-state budget (which remains at **2560Mi**). Their sizing (Video: 2048Mi limit; Image: 1536Mi limit) is reported informationally by `verify-render.sh`.
+* **Worker label and steady-state budget:** Worker Deployments carry label `app.kubernetes.io/component: worker` and are excluded from the platform steady-state budget (which remains at **2560Mi**). Their sizing (Video: 3072Mi limit; Image: 1536Mi limit) is reported informationally by `verify-render.sh`.
 * **MinIO credentials:** Workers mount MinIO credentials from the existing `imgproc-minio` Secret (`rootUser`/`rootPassword`). Root credentials are used temporarily for dev; a scoped MinIO service account user is a future improvement.
 * **Smoke test interaction:** When worker Deployments have ready replicas, `smoke-test.sh` skips the pool queue drain (`SKIP (workers running)`) to prevent racing with active engine workers, and asserts stream and consumer presence.
 
 ## Operational notes (Task 3, KEDA ScaledObjects)
 * **Replicas owned by KEDA:** `video-worker` and `image-worker` Deployments omit `replicas` so `kubectl apply` does not fight the KEDA HPA.
-* **Pool thresholds and peak RAM:** `video-worker` scales with `lagThreshold: "1"` (1 heavy video job per pod) up to 1 replica (peak 2048Mi limit); `image-worker` scales with `lagThreshold: "5"` up to 3 replicas (peak 4608Mi limit). Total peak worker memory is **6656Mi**.
-* **Pool sizing and scale rationale:** Image redaction handles many small, fast requests and now runs YOLO + face embeddings, so it needs more memory per pod (1536Mi limit) and scales out more (up to 3 replicas, lagThreshold: "5"). Video redaction is heavy and long-running (YOLO + ByteTrack + FFmpeg per job), so the video pool gets fewer, bigger pods (1 replica max, 2048Mi limit, lagThreshold: "1"). These sizes are interim until the engine reports measured RAM (engine plan M3).
+* **Pool thresholds and peak RAM:** `video-worker` scales with `lagThreshold: "1"` (1 heavy video job per pod) up to 1 replica (peak 3072Mi limit); `image-worker` scales with `lagThreshold: "5"` up to 3 replicas (peak 4608Mi limit). Total peak worker memory is **7680Mi**.
+* **Pool sizing and scale rationale:** Image redaction handles many small, fast requests and now runs YOLO + face embeddings, so it needs more memory per pod (1536Mi limit) and scales out more (up to 3 replicas, lagThreshold: "5"). Video redaction is heavy and long-running (YOLO + ByteTrack + FFmpeg per job), so the video pool gets fewer, bigger pods (1 replica max, 3072Mi limit, lagThreshold: "1"). The limit was 2048Mi until 2026-11-26: a 2560x1440 Max privacy job was OOMKilled when FFmpeg started (Python about 1.2 GB after pass 1, x264 encoder about 1.1 GB at 1440p). These sizes are interim until the engine reports measured RAM (engine plan M3).
 * **Lab input size (YOLO_IMGSZ):** `image-worker` and `video-worker` specify `YOLO_IMGSZ="960"` in their manifests (`infra/app/engine-workers/`). 1280 is the Engine default, and the lab runs on CPU (960 balances detection quality with CPU latency).
 * **Monitoring endpoint:** Trigger `natsServerMonitoringEndpoint: nats.imgproc.svc.cluster.local:8222` targets the `imgproc` namespace.
 

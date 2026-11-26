@@ -6,10 +6,11 @@ Complies strictly with Contract §2B, §3 B2, and §4:
   * Pass 1: Detection & Object Tracking (YOLOv8 + ByteTrack) across all frames.
   * Linear Bounding Box Interpolation (bridges dropouts <= 167 ms to eliminate flicker).
   * Records lowConfidenceRanges and gapRanges per Contract §3 B2.
-  * Best Face Frame Selection: evaluates confidence, normalized area, and Laplacian sharpness.
+  * Best Face Frame Selection: scores crops by confidence, area, and Laplacian sharpness.
   * Milestone 2 (Phase 2): Track-Level Face Whitelisting (ArcFace 512-d).
-    - Extracts embedding once per track at bestFrameMs.
+    - Compares up to 3 candidate pool crops with ArcFace.
     - Matches cosine similarity with params.whitelist.faces.
+    - Propagates whitelist status across broken track pieces (spatial-temporal inheritance).
     - Synchronous global redacted/whitelisted flag across all frames of the track.
   * Pass 2: Masks redacted targets with boundary padding and pipes frames to FFmpeg.
 - Preserves 100% original audio stream via FFmpeg remux (-c:a copy) without re-encoding.
@@ -99,6 +100,12 @@ CRF_MAP: Dict[str, int] = {
     "max": 18,
 }
 
+# Frames x264 buffers ahead to place B-frames and share bitrate (preset "fast" uses 30).
+# Why: each buffered frame costs several MB at 1440p; 10 frames cut the encoder's peak RAM from about 1.1 GB to
+# 0.74 GB on a 2560x1440 clip, at the cost of slightly less efficient compression. It saves memory on any machine
+# without capping threads, which stay sized by x264 to the host.
+X264_RC_LOOKAHEAD = 10
+
 # Maximum time dropout to bridge with linear interpolation (167 ms).
 # A time limit means the same protection at any frame rate.
 MAX_INTERPOLATION_GAP_MS = 167
@@ -119,11 +126,77 @@ def hold_frames_for_fps(fps: float) -> int:
     return max(1, round(fps * TRACK_HOLD_MS / 1000))
 
 
-# Plate crops read by OCR for the allow list: the widest few of the whole track.
+# Plate crops read by OCR: the first 5 of the track's candidate pool (widest per time window, then the widest
+# overall).
 # Why: the first frames of a track are usually the plate coming into view, small or half hidden; read alone they gave
 # garbage that made a long track on the owner's plate count as a stranger. No minimum width: OCR still matches 37 px
 # plates, and the widest crops already skip small ones when the track has larger (video bench, 2026-11-20).
 PLATE_OCR_CANDIDATES = 5
+
+# Face crops compared by ArcFace for the whitelist: the first 3 of the track's candidate pool (best quality per
+# time window, then best overall). Each crop is aligned with YuNet when possible, else resized
+# (FaceEmbedder.extract_embedding).
+# Why: a single crop missed owners caught at a bad angle in that one frame. Preferring crops YuNet can align
+# changed no result on the video bench (2026-11-25), so the pool order alone decides.
+FACE_ARCFACE_CANDIDATES = 3
+
+# Pool size as a multiple of the crops compared per track (top_n).
+# Why: the time-window part then holds exactly the crops compared, so a long track compares crops from different
+# 500 ms windows, and the top part holds as many again to top up short tracks. Crops past that were never read
+# (video bench, 2026-11-25).
+CANDIDATE_POOL_FACTOR = 2
+
+# Time window for the pool: at most one crop per 500 ms window is kept in its time part.
+# Why: the crops compared tend to come from different moments instead of neighbouring, near-identical frames.
+CANDIDATE_WINDOW_MS = 500
+
+# Maximum temporal gap in milliseconds to bridge between track pieces during whitelist inheritance.
+# Why: replaces the old 15-45 frame clamp (which shrank the gap to 0.9 s at 50 fps and stretched it past 1.5 s
+# below 10 fps) with a consistent 1.5-second physical time window across all frame rates.
+INHERIT_MAX_GAP_MS = 1500
+
+# Near temporal gap in milliseconds allowed when bounding boxes do not overlap in IoU but center distance is within tolerance.
+# Why: allows bridging pieces when an object moves quickly during a brief occlusion (up to 1.0 s) if spatial center distance remains bounded.
+INHERIT_NEAR_GAP_MS = 1000
+
+# Maximum duration in milliseconds of concurrent/overlapping frames considered for Case C duplicate track inheritance.
+# Why: tracker splits or re-identifications can create brief parallel tracks for up to 0.5 s (replaces hardcoded 15 frames).
+INHERIT_OVERLAP_MS = 500
+
+# Minimum IoU required to connect sequential track pieces in Case A and B without distance restriction.
+# Why: spatial overlap between consecutive pieces of the same trajectory indicates the object remained in the same position.
+INHERIT_MIN_IOU = 0.10
+
+# Minimum IoU on common frames required for concurrent track pieces in Case C.
+# Why: concurrent tracks in the same time frame must significantly overlap spatially to ensure they represent the same physical entity.
+INHERIT_OVERLAP_MIN_IOU = 0.25
+
+# Center distance tolerance factor relative to the seed bounding box size.
+# Why: larger objects move across more pixels per frame than smaller ones when in motion.
+INHERIT_CENTER_DIST_FACTOR = 1.5
+
+# Distance floor in pixels for license plate inheritance.
+# Why: plate boxes are small, so 1.5x their size is too tight to bridge camera shake and bumps between pieces;
+# plates always get at least this much centre-distance tolerance.
+PLATE_INHERIT_MIN_DIST_PX = 90
+
+# Minimum plate text length required to treat a non-matching OCR read as a distinct stranger plate.
+# Why: 1-2 character fragments are usually partial/noisy reads on the owner's plate, whereas 3+ readable
+# characters that do not match the whitelist indicate a different vehicle that must not inherit.
+PLATE_INHERIT_BLOCK_MIN_CHARS = 3
+
+# Distance floor in pixels for face inheritance.
+# Why: people standing side by side are often less than 90 px apart, so faces have no artificial floor.
+FACE_INHERIT_MIN_DIST_PX = 0
+
+# Minimum similarity threshold below which a face track is explicitly blocked from inheriting whitelist status.
+# Why: a track piece scoring below 0.30 against all whitelist references clearly depicts someone else.
+FACE_INHERIT_BLOCK_SIMILARITY = 0.30
+
+
+def frames_for_ms(fps: float, ms: int) -> int:
+    """Convert a duration in milliseconds to a frame count at the given frame rate."""
+    return max(1, round(fps * ms / 1000))
 
 
 @dataclass
@@ -148,6 +221,114 @@ class TrackDetection:
     is_interpolated: bool = False
 
 
+@dataclass
+class CropCandidate:
+    """A crop kept for whitelist matching, with the frame it came from.
+
+    score: ranking value inside a CandidatePool (width for plates, quality score for faces).
+    """
+    frame_idx: int
+    frame_ms: int
+    crop: np.ndarray
+    score: float = 0.0
+
+
+class CandidatePool:
+    """Keeps candidate crops for whitelist matching across time windows and top overall scores.
+
+    The pool maintains two parts:
+    1. Time windows: the best crop per window_ms, holding up to capacity - top_n windows (by default
+       as many as are compared), spreading candidates across the track duration.
+    2. Top crops: the best top_n crops of the whole track regardless of time (top_n crops).
+    Why: bounds RAM on long tracks while guaranteeing short tracks are topped up to the comparison budget,
+    and the best crop overall is never dropped.
+    """
+
+    def __init__(
+        self,
+        top_n: int,
+        capacity: Optional[int] = None,
+        window_ms: int = CANDIDATE_WINDOW_MS,
+    ) -> None:
+        """Initialize CandidatePool with top_n, capacity, and window_ms constraints."""
+        if capacity is None:
+            capacity = CANDIDATE_POOL_FACTOR * top_n
+        if not (0 < top_n < capacity):
+            raise ValueError(f"top_n must satisfy 0 < top_n < capacity (got top_n={top_n}, capacity={capacity})")
+        self._top_n: int = top_n
+        self._window_capacity: int = capacity - top_n
+        self._window_ms: int = window_ms
+        self._by_window: Dict[int, CropCandidate] = {}
+        self._top: List[CropCandidate] = []
+
+    def add(self, frame_idx: int, frame_ms: int, crop: Optional[np.ndarray], score: float) -> None:
+        """Keep the crop if it is the best of its time window or among the track's top_n; ignore None/empty crops.
+
+        Ties keep the earlier crop. When a part is full, its lowest-score crop makes room.
+        """
+        if crop is None or crop.size == 0:
+            return
+
+        window = frame_ms // self._window_ms
+
+        if window in self._by_window:
+            keep_window = score > self._by_window[window].score
+        else:
+            if len(self._by_window) < self._window_capacity:
+                keep_window = True
+            else:
+                lowest_win_key = min(self._by_window.keys(), key=lambda w: self._by_window[w].score)
+                keep_window = score > self._by_window[lowest_win_key].score
+
+        if len(self._top) < self._top_n:
+            keep_top = True
+        else:
+            lowest_top_idx = min(range(len(self._top)), key=lambda i: self._top[i].score)
+            keep_top = score > self._top[lowest_top_idx].score
+
+        if not keep_window and not keep_top:
+            return
+
+        # One object shared by both parts, copied only when kept, so a rejected crop costs no memory.
+        candidate = CropCandidate(frame_idx=frame_idx, frame_ms=frame_ms, crop=crop.copy(), score=score)
+
+        if keep_window:
+            if window not in self._by_window and len(self._by_window) >= self._window_capacity:
+                lowest_win_key = min(self._by_window.keys(), key=lambda w: self._by_window[w].score)
+                del self._by_window[lowest_win_key]
+            self._by_window[window] = candidate
+
+        if keep_top:
+            if len(self._top) >= self._top_n:
+                lowest_top_idx = min(range(len(self._top)), key=lambda i: self._top[i].score)
+                del self._top[lowest_top_idx]
+            self._top.append(candidate)
+
+    def ordered(self) -> List[CropCandidate]:
+        """Return window crops (best first), then the remaining top crops (best first).
+
+        Why window crops come first: callers take the first few, which should come from different moments. The top
+        crops only top up short tracks that have fewer windows than the caller needs.
+        """
+        window_crops = sorted(self._by_window.values(), key=lambda c: c.score, reverse=True)
+        seen_frame_indices = {c.frame_idx for c in window_crops}
+        result = list(window_crops)
+        for c in sorted(self._top, key=lambda c: c.score, reverse=True):
+            if c.frame_idx not in seen_frame_indices:
+                result.append(c)
+                seen_frame_indices.add(c.frame_idx)
+        return result
+
+    def __len__(self) -> int:
+        """Return the number of unique candidate crops in the pool."""
+        return len(self.ordered())
+
+    def clear(self) -> None:
+        """Empty both window and top containers to release crop memory."""
+        self._by_window.clear()
+        self._top.clear()
+
+
 class Track:
     """Represents a continuous trajectory of a tracked face or license plate."""
 
@@ -162,14 +343,15 @@ class Track:
         self.best_box: List[int] = [0, 0, 0, 0]
         self.best_confidence: float = -1.0
         self.best_quality_score: float = -1.0
-        self.best_face_roi: Optional[np.ndarray] = None
-        self.best_plate_roi: Optional[np.ndarray] = None
-        self.plate_candidates: List[np.ndarray] = []
+        self.face_pool = CandidatePool(top_n=FACE_ARCFACE_CANDIDATES)
+        self.has_embedding: bool = False
+        self.plate_pool = CandidatePool(top_n=PLATE_OCR_CANDIDATES)
         self.plate_text: Optional[str] = None
 
         # Whitelist status per Contract §3 B2
         self.whitelisted: bool = False
         self.redacted: bool = True
+        self.inherited_from: Optional[int] = None
         self.similarity: Optional[float] = None
         self.whitelist_ref: Optional[int] = None
 
@@ -214,21 +396,10 @@ class Track:
             self.best_frame_idx = frame_idx
             self.best_frame_ms = frame_ms
             self.best_box = box
-            if face_roi is not None and face_roi.size > 0:
-                self.best_face_roi = face_roi.copy()
-            if plate_roi is not None and plate_roi.size > 0:
-                self.best_plate_roi = plate_roi.copy()
+        if face_roi is not None and face_roi.size > 0:
+            self.face_pool.add(frame_idx, frame_ms, face_roi, quality_score)
         if plate_roi is not None and plate_roi.size > 0:
-            self._keep_plate_candidate(plate_roi)
-
-    def _keep_plate_candidate(self, plate_roi: np.ndarray):
-        """Keep the PLATE_OCR_CANDIDATES widest crops of the track (a wider crop replaces the narrowest)."""
-        if len(self.plate_candidates) < PLATE_OCR_CANDIDATES:
-            self.plate_candidates.append(plate_roi.copy())
-            return
-        narrowest = min(range(len(self.plate_candidates)), key=lambda i: self.plate_candidates[i].shape[1])
-        if plate_roi.shape[1] > self.plate_candidates[narrowest].shape[1]:
-            self.plate_candidates[narrowest] = plate_roi.copy()
+            self.plate_pool.add(frame_idx, frame_ms, plate_roi, float(plate_roi.shape[1]))
 
 
 class TrackManager:
@@ -683,7 +854,7 @@ class VideoRedactProcessor(BaseProcessor):
     1. Demuxes metadata and audio stream.
     2. Pass 1: Runs YOLOv8 + ByteTrack object tracking on all frames.
     3. Bridges tracking dropouts (<= 167 ms) via linear interpolation.
-    4. Evaluates Face Whitelisting (ArcFace 512-d) per track using bestFrameMs.
+    4. Evaluates Face Whitelisting (ArcFace 512-d) across candidate frames with spatial-temporal inheritance.
     5. Pass 2: Renders target masking with padding and streams into FFmpeg H.264 writer.
     6. Remuxes original audio stream (-c:a copy) without re-encoding.
     """
@@ -806,54 +977,81 @@ class VideoRedactProcessor(BaseProcessor):
         """Apply blur, pixelate, or blackout to a single region of interest."""
         return apply_redaction_style(roi, style, strength)
 
+    def _match_face_directly(
+        self,
+        track: Track,
+        ref_embeddings: List[np.ndarray],
+        similarity_threshold: float,
+        whitelist_mgr: WhitelistManager,
+    ) -> None:
+        """Embed the first FACE_ARCFACE_CANDIDATES crops of the track's pool and whitelist the track if any is similar enough to a reference."""
+        embedder = whitelist_mgr.embedder
+
+        best_sim: Optional[float] = None
+        best_ref: Optional[int] = None
+        has_embedding = False
+
+        for candidate in track.face_pool.ordered()[:FACE_ARCFACE_CANDIDATES]:
+            try:
+                det_emb = embedder.extract_embedding(candidate.crop)
+                has_embedding = True
+                for ref_idx, ref_emb in enumerate(ref_embeddings):
+                    sim = float(embedder.compute_similarity(det_emb, ref_emb))
+                    if best_sim is None or sim > best_sim:
+                        best_sim = sim
+                        best_ref = ref_idx
+            except Exception as e:
+                logger.warning(f"Error computing embedding for track {track.track_id}: {e}")
+
+        track.has_embedding = has_embedding
+        if has_embedding and best_sim is not None:
+            track.similarity = round(best_sim, 4)
+            if best_sim >= similarity_threshold:
+                track.whitelisted = True
+                track.redacted = False
+                track.whitelist_ref = best_ref
+                logger.info(
+                    f"Track {track.track_id} (face) WHITELISTED: similarity={best_sim:.4f} >= {similarity_threshold} "
+                    f"(ref index={best_ref})"
+                )
+            else:
+                track.whitelisted = False
+                track.redacted = True
+                track.whitelist_ref = None
+                logger.info(
+                    f"Track {track.track_id} (face) REDACTED: similarity={best_sim:.4f} < {similarity_threshold}"
+                )
+        else:
+            track.whitelisted = False
+            track.redacted = True
+            track.similarity = 0.0
+            track.whitelist_ref = None
+
+        # Free face candidate memory immediately
+        track.face_pool.clear()
+
     def _evaluate_face_whitelist(
         self,
         track_mgr: TrackManager,
         ref_embeddings: List[np.ndarray],
         similarity_threshold: float,
         whitelist_mgr: WhitelistManager,
-    ):
-        """Evaluate Face Whitelist matching per track using ArcFace embeddings at bestFrameMs."""
+    ) -> None:
+        """Evaluate Face Whitelist matching per track using ArcFace embeddings, then inherit across broken tracks."""
         for track in track_mgr.tracks.values():
-            if track.label != "face":
-                continue
+            if track.label == "face":
+                self._match_face_directly(track, ref_embeddings, similarity_threshold, whitelist_mgr)
 
-            if track.best_face_roi is not None and track.best_face_roi.size > 0:
-                try:
-                    det_emb = whitelist_mgr.embedder.extract_embedding(track.best_face_roi)
-                    sims = [
-                        whitelist_mgr.embedder.compute_similarity(det_emb, ref_emb)
-                        for ref_emb in ref_embeddings
-                    ]
-                    best_idx = int(np.argmax(sims))
-                    best_sim = float(sims[best_idx])
-                except Exception as e:
-                    logger.warning(f"Error computing embedding for track {track.track_id}: {e}")
-                    best_idx = 0
-                    best_sim = 0.0
+        def is_face_blocked(t: Track) -> bool:
+            """Block inheritance when best similarity is below FACE_INHERIT_BLOCK_SIMILARITY (looks like someone else); tracks with no embedding are not blocked."""
+            return t.has_embedding and t.similarity is not None and t.similarity < FACE_INHERIT_BLOCK_SIMILARITY
 
-                track.similarity = round(best_sim, 4)
-                if best_sim >= similarity_threshold:
-                    track.whitelisted = True
-                    track.redacted = False
-                    track.whitelist_ref = best_idx
-                    logger.info(
-                        f"Track {track.track_id} (face) WHITELISTED: similarity={best_sim:.4f} >= {similarity_threshold} "
-                        f"(ref index={best_idx})"
-                    )
-                else:
-                    track.whitelisted = False
-                    track.redacted = True
-                    logger.info(
-                        f"Track {track.track_id} (face) REDACTED: similarity={best_sim:.4f} < {similarity_threshold}"
-                    )
-            else:
-                track.whitelisted = False
-                track.redacted = True
-                track.similarity = 0.0
-
-            # Free face crop memory immediately
-            track.best_face_roi = None
+        self._inherit_whitelist(
+            track_mgr=track_mgr,
+            label="face",
+            min_dist_px=FACE_INHERIT_MIN_DIST_PX,
+            is_blocked=is_face_blocked,
+        )
 
     def _get_plate_whitelist_manager(self) -> PlateWhitelistManager:
         """Lazily initialize PlateWhitelistManager."""
@@ -861,131 +1059,192 @@ class VideoRedactProcessor(BaseProcessor):
             self.plate_whitelist_manager = PlateWhitelistManager()
         return self.plate_whitelist_manager
 
+    def _match_plate_directly(
+        self,
+        track: Track,
+        plate_mgr: PlateWhitelistManager,
+        whitelist_plates: List[str],
+    ) -> None:
+        """OCR the first PLATE_OCR_CANDIDATES crops of the track's pool (widest per time window, then widest overall) and whitelist the track if any reads as a whitelisted plate."""
+        crops_to_eval = [
+            c.crop
+            for c in track.plate_pool.ordered()[:PLATE_OCR_CANDIDATES]
+            if c is not None and c.crop is not None and c.crop.size > 0
+        ]
+
+        matched = bool(track.whitelisted)
+        best_text = track.plate_text
+        best_conf = 0.0
+
+        for crop in crops_to_eval:
+            is_white, norm_text, conf = plate_mgr.evaluate_plate(
+                plate_bgr=crop,
+                whitelist_plates=whitelist_plates,
+            )
+            if conf > best_conf or best_text is None:
+                best_conf = conf
+                best_text = norm_text
+            if is_white:
+                matched = True
+                best_text = norm_text
+                break
+
+        track.plate_text = best_text if best_text else None
+        if matched:
+            track.whitelisted = True
+            track.redacted = False
+            logger.info(
+                f"Track {track.track_id} (plate '{best_text}') WHITELISTED (conf={best_conf:.2f})"
+            )
+        else:
+            track.whitelisted = False
+            track.redacted = True
+            logger.info(
+                f"Track {track.track_id} (plate '{best_text}') REDACTED"
+            )
+
+        # Free plate crop memory
+        track.plate_pool.clear()
+
     def _evaluate_plate_whitelist(
         self,
         track_mgr: TrackManager,
         whitelist_plates: List[str],
-    ):
-        """Evaluate license plate OCR whitelist matching per track using temporal candidate consensus."""
+    ) -> None:
+        """Evaluate license plate OCR whitelist matching per track using temporal candidate consensus, then inherit."""
         plate_mgr = self._get_plate_whitelist_manager()
         for track in track_mgr.tracks.values():
-            if track.label != "plate":
-                continue
+            if track.label == "plate":
+                self._match_plate_directly(track, plate_mgr, whitelist_plates)
 
-            crops_to_eval = []
-            if track.best_plate_roi is not None and track.best_plate_roi.size > 0:
-                crops_to_eval.append(track.best_plate_roi)
-            if hasattr(track, "plate_candidates"):
-                crops_to_eval.extend([c for c in track.plate_candidates if c is not None and c.size > 0])
-
-            matched = bool(track.whitelisted)
-            best_text = track.plate_text
-            best_conf = 0.0
-
-            for crop in crops_to_eval:
-                is_white, norm_text, conf = plate_mgr.evaluate_plate(
-                    plate_bgr=crop,
-                    whitelist_plates=whitelist_plates,
-                )
-                if conf > best_conf or best_text is None:
-                    best_conf = conf
-                    best_text = norm_text
-                if is_white:
-                    matched = True
-                    best_text = norm_text
-                    break
-
-            track.plate_text = best_text if best_text else None
-            if matched:
-                track.whitelisted = True
-                track.redacted = False
-                logger.info(
-                    f"Track {track.track_id} (plate '{best_text}') WHITELISTED (conf={best_conf:.2f})"
-                )
-            else:
-                track.whitelisted = False
-                track.redacted = True
-                logger.info(
-                    f"Track {track.track_id} (plate '{best_text}') REDACTED"
-                )
-
-            # Free plate crop memory
-            track.best_plate_roi = None
-            if hasattr(track, "plate_candidates"):
-                track.plate_candidates.clear()
-
-        # Step 2: Spatial-Temporal Whitelist Inheritance (Hàn gắn quỹ đạo & Kế thừa quyền Whitelist)
-        # In real-world motorcycle footage, vibration and road bumps cause ByteTrack to split
-        # a single continuous vehicle trajectory into multiple fragmented Track IDs.
-        # Spatially contiguous tracks that follow or precede a confirmed whitelisted vehicle
-        # within a reasonable time window inherit whitelist exemption (unless conflicting stranger plate).
         norm_whitelist = plate_mgr.normalize_whitelist(whitelist_plates)
-        plate_tracks = [t for t in track_mgr.tracks.values() if t.label == "plate" and t.detections]
 
-        # Only tracks that directly matched OCR act as seeds to prevent cascading whitelist leaks
-        seed_whitelisted = {t.track_id for t in plate_tracks if t.whitelisted}
-        if not seed_whitelisted:
+        def is_plate_blocked(t: Track) -> bool:
+            """Block inheritance when a plate has readable text of at least PLATE_INHERIT_BLOCK_MIN_CHARS characters not on the whitelist."""
+            if t.plate_text and len(t.plate_text) >= PLATE_INHERIT_BLOCK_MIN_CHARS:
+                is_m, _ = plate_mgr.is_plate_match(t.plate_text, norm_whitelist)
+                return not is_m
+            return False
+
+        self._inherit_whitelist(
+            track_mgr=track_mgr,
+            label="plate",
+            min_dist_px=PLATE_INHERIT_MIN_DIST_PX,
+            is_blocked=is_plate_blocked,
+        )
+
+    @classmethod
+    def _is_sequential_continuation(
+        cls,
+        box_first: List[int],
+        box_second: List[int],
+        seed_box: List[int],
+        gap: int,
+        max_gap_frames: int,
+        near_gap_frames: int,
+        min_dist_px: float,
+    ) -> bool:
+        """Check whether box_second sequentially continues box_first within the allowed time gap and distance."""
+        if not (0 <= gap <= max_gap_frames):
+            return False
+        if cls._box_iou(box_first, box_second) >= INHERIT_MIN_IOU:
+            return True
+        dist = cls._box_center_dist(box_first, box_second)
+        seed_size = max(seed_box[2] - seed_box[0], seed_box[3] - seed_box[1])
+        allowed_dist = max(seed_size * INHERIT_CENTER_DIST_FACTOR, min_dist_px)
+        return dist <= allowed_dist and gap <= near_gap_frames
+
+    @classmethod
+    def _piece_continues_seed(
+        cls,
+        seed: Track,
+        candidate: Track,
+        fps: float,
+        min_dist_px: float,
+    ) -> bool:
+        """Decide whether candidate track continues seed track via Case A (follows), B (precedes), or C (overlaps)."""
+        f_w = sorted(seed.detections.keys())
+        min_w, max_w = f_w[0], f_w[-1]
+        box_w_start = seed.detections[min_w].box
+        box_w_end = seed.detections[max_w].box
+
+        f_u = sorted(candidate.detections.keys())
+        min_u, max_u = f_u[0], f_u[-1]
+        box_u_start = candidate.detections[min_u].box
+        box_u_end = candidate.detections[max_u].box
+
+        max_gap_frames = frames_for_ms(fps, INHERIT_MAX_GAP_MS)
+        near_gap_frames = frames_for_ms(fps, INHERIT_NEAR_GAP_MS)
+
+        # Case A: candidate follows seed
+        if cls._is_sequential_continuation(
+            box_first=box_w_end,
+            box_second=box_u_start,
+            seed_box=box_w_end,
+            gap=min_u - max_w,
+            max_gap_frames=max_gap_frames,
+            near_gap_frames=near_gap_frames,
+            min_dist_px=min_dist_px,
+        ):
+            return True
+
+        # Case B: candidate precedes seed
+        if cls._is_sequential_continuation(
+            box_first=box_u_end,
+            box_second=box_w_start,
+            seed_box=box_w_start,
+            gap=min_w - max_u,
+            max_gap_frames=max_gap_frames,
+            near_gap_frames=near_gap_frames,
+            min_dist_px=min_dist_px,
+        ):
+            return True
+
+        # Case C: Overlapping or concurrent frames
+        overlap_frames = frames_for_ms(fps, INHERIT_OVERLAP_MS)
+        if abs(min_u - min_w) <= overlap_frames or abs(max_u - max_w) <= overlap_frames:
+            common_f = max(min_u, min_w)
+            if common_f in seed.detections and common_f in candidate.detections:
+                iou = cls._box_iou(seed.detections[common_f].box, candidate.detections[common_f].box)
+                if iou >= INHERIT_OVERLAP_MIN_IOU:
+                    return True
+
+        return False
+
+    def _inherit_whitelist(
+        self,
+        track_mgr: TrackManager,
+        label: str,
+        min_dist_px: float,
+        is_blocked: Callable[[Track], bool],
+    ) -> None:
+        """Propagate whitelist exemption from directly matched seed tracks to contiguous pieces."""
+        tracks = [t for t in track_mgr.tracks.values() if t.label == label and t.detections]
+        seed_tracks = [t for t in tracks if t.whitelisted and t.inherited_from is None]
+        if not seed_tracks:
             return
 
-        max_gap_frames = min(45, max(15, round(track_mgr.fps * 1.5)))
-
-        for t_w_id in seed_whitelisted:
-            t_w = track_mgr.tracks[t_w_id]
-            f_w = sorted(t_w.detections.keys())
-            min_w, max_w = f_w[0], f_w[-1]
-            box_w_start = t_w.detections[min_w].box
-            box_w_end = t_w.detections[max_w].box
-
-            for t_u in plate_tracks:
-                if t_u.whitelisted or not t_u.detections:
+        for seed in seed_tracks:
+            for candidate in tracks:
+                if candidate.whitelisted or not candidate.detections:
                     continue
-
-                # If t_u recognized a plate text of >= 3 characters that does not match whitelist, do NOT inherit
-                if t_u.plate_text and len(t_u.plate_text) >= 3:
-                    is_m, _ = plate_mgr.is_plate_match(t_u.plate_text, norm_whitelist)
-                    if not is_m:
-                        continue
-
-                f_u = sorted(t_u.detections.keys())
-                min_u, max_u = f_u[0], f_u[-1]
-                box_u_start = t_u.detections[min_u].box
-                box_u_end = t_u.detections[max_u].box
-
-                is_contiguous = False
-
-                # Case A: t_u follows t_w (t_u starts shortly after t_w ends)
-                if 0 <= (min_u - max_w) <= max_gap_frames:
-                    gap_a = min_u - max_w
-                    iou = self._box_iou(box_w_end, box_u_start)
-                    dist = self._box_center_dist(box_w_end, box_u_start)
-                    w_size = max(box_w_end[2] - box_w_end[0], box_w_end[3] - box_w_end[1], 25)
-                    if iou >= 0.10 or (dist <= max(w_size * 1.5, 90) and gap_a <= round(track_mgr.fps * 1.0)):
-                        is_contiguous = True
-
-                # Case B: t_u precedes t_w (t_u ended shortly before t_w starts)
-                elif 0 <= (min_w - max_u) <= max_gap_frames:
-                    gap_b = min_w - max_u
-                    iou = self._box_iou(box_u_end, box_w_start)
-                    dist = self._box_center_dist(box_u_end, box_w_start)
-                    w_size = max(box_w_start[2] - box_w_start[0], box_w_start[3] - box_w_start[1], 25)
-                    if iou >= 0.10 or (dist <= max(w_size * 1.5, 90) and gap_b <= round(track_mgr.fps * 1.0)):
-                        is_contiguous = True
-
-                # Case C: Overlapping or concurrent frames (slight tracking overlap <= 15 frames)
-                elif abs(min_u - min_w) <= 15 or abs(max_u - max_w) <= 15:
-                    common_f = max(min_u, min_w)
-                    if common_f in t_w.detections and common_f in t_u.detections:
-                        iou = self._box_iou(t_w.detections[common_f].box, t_u.detections[common_f].box)
-                        if iou >= 0.25:
-                            is_contiguous = True
-
-                if is_contiguous:
-                    t_u.whitelisted = True
-                    t_u.redacted = False
-                    if not t_u.plate_text and t_w.plate_text:
-                        t_u.plate_text = t_w.plate_text
+                if is_blocked(candidate):
+                    continue
+                if self._piece_continues_seed(
+                    seed=seed,
+                    candidate=candidate,
+                    fps=track_mgr.fps,
+                    min_dist_px=min_dist_px,
+                ):
+                    candidate.whitelisted = True
+                    candidate.redacted = False
+                    candidate.inherited_from = seed.track_id
+                    if candidate.whitelist_ref is None and seed.whitelist_ref is not None:
+                        candidate.whitelist_ref = seed.whitelist_ref
+                    if candidate.plate_text is None and seed.plate_text is not None:
+                        candidate.plate_text = seed.plate_text
                     logger.info(
-                        f"Track {t_u.track_id} inherited WHITELIST from seed Track {t_w.track_id}"
+                        f"Track {candidate.track_id} inherited WHITELIST from seed Track {seed.track_id}"
                     )
 
     @staticmethod
@@ -1518,6 +1777,7 @@ class VideoRedactProcessor(BaseProcessor):
                 "-c:v", "libx264",
                 "-crf", str(crf),
                 "-preset", "fast",
+                "-x264-params", f"rc-lookahead={X264_RC_LOOKAHEAD}",
                 "-pix_fmt", "yuv420p",
             ])
         elif encoder == "h264_mf":

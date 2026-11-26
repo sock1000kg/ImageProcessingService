@@ -296,6 +296,54 @@ skipping a box inside an allow-listed box (it only trusts the allow list more: w
 comparisons. A size-aware threshold would keep more owners (at 40 px: 35 % → 73 % at a 1-in-10,000 leak) but needs a
 leak target per video and checking on side views first.
 
+## Face allow list on tracks, one crop pool, and a label fix (2026-11-26)
+
+**Engine changes** (`engine/src/processors/video_redact.py`, dashcam models of both modes):
+
+1. **Faces get the plates' track handling.** A face track compares up to 3 crops with the references
+   (`FACE_ARCFACE_CANDIDATES`) and takes the best similarity, instead of one "best" frame. Pieces of one face split by the
+   tracker inherit the decision of a directly matched neighbour, under the plates' rules (gap up to 1.5 s with IoU 0.10, or
+   1 s and centres within 1.5 box sizes, or two pieces running side by side with IoU 0.25), without the plates' 90 px
+   floor. A piece below similarity 0.30 to every reference is someone else and never inherits
+   (`FACE_INHERIT_BLOCK_SIMILARITY`): on LFW 99 % of stranger pairs score under 0.17-0.30 depending on face size, the
+   highest stranger track on these clips is about 0.30, and 0.25 gained 0.4-0.7 points of owner kept for 128-131 stranger
+   frames kept.
+2. **One crop pool per track for faces and plates.** During pass 1 each track keeps the best crop of every 500 ms window
+   plus its overall best (`CANDIDATE_WINDOW_MS`, pool size twice the crops compared, `CANDIDATE_POOL_FACTOR`); matching
+   reads the window bests first and tops up from the overall best for short tracks. Plates: score = width, up to 5 OCR
+   reads, stopping at the first match. Faces: score = detection confidence, size and sharpness. The separate "best plate"
+   read is gone (it was nearly always one of the widest crops): plate whitelist time drops ~35 % with the same results.
+
+**Label fix.** Eleven short `unknown` pieces in the two dashcam clips (1-3 frames each, 0-28 px from the owner's plate in
+the next frame) were the owner's plate: a track split while labelling, or a duplicate box (`plate-test1` GT365 at frames
+1423-1424, which also made the scorer drop the owner's box there). They were merged into the owner track or deleted in
+CVAT. All `plate-test1` / `plate-test2` runs in `bench/scores/` were scored again; the sections above keep the numbers of
+their time (old labels: 1,668 / 66 stranger plates, 894 / 1,245 owner frames, 6,031 stranger frames). Every "stranger kept
+as owner" frame of the dashcam models was one of these pieces.
+
+| Clip (labelled boxes) | Max privacy | Fast |
+| --- | --- | --- |
+| `plate-test1` plates missed (1,657) | **2.1%** | 5.4% |
+| … from 40 px wide (1,616) | **2.0%** | 5.1% |
+| … partly hidden (219) | **11.9%** | 21.5% |
+| … fully blurred at 90% | **77.0%** | 75.0% |
+| `plate-test1` owner kept (905) | 69.6% | 68.8% |
+| `plate-test2` plates missed (60) | 10.0% | 10.0% |
+| `plate-test2` owner kept (1,249) | **89.1%** | 83.7% |
+| `face-test1` / `2a` / `2b` faces missed | 0.0 / 0.0 / 0.4% | 0.7 / 0.0 / 2.1% |
+| `face-test1` / `2a` / `2b` fully blurred at 70% | 91.4 / 93.2 / 92.9% | 90.2 / 93.4 / 90.6% |
+| `face-test1` / `2a` / `2b` owner kept (347 / 549 / 699) | 72.3 / 70.1 / 71.8% | 71.5 / 73.8 / 73.0% |
+| **Owner kept, all clips: plates / faces** | **80.9% / 71.3%** | 77.4% / 72.9% |
+| **Stranger frames kept as owner (6,014)** | **0** | **0** |
+
+Before change 1 (track split only, same labels): faces owner kept 66.5 % (Max) and 68.3 % (Fast), with `face-test2a` at
+58.3 / 61.6 %; plates unchanged. Run name suffixes: `-split` (before), `-t10` (now), e.g.
+`SUFFIX=-t10 bash training/video/run_dashcam.sh maxnew fastnew`.
+
+Tried and dropped: 3 OCR crops instead of 5 (7 s faster per clip, 0.6 points of owner kept lost); holding a box 167 ms
+instead of 200 ms (+1.1-1.6 points of owner kept, more stranger frames shown); an inheritance gap of 1.0 s (same as
+1.5 s); preferring YuNet-aligned face crops in the pool (no gain for the extra cost).
+
 ## Pitfalls hit while labelling (for the next round)
 
 - **Load clips into CVAT as frames, not as the video.** CVAT seeks inside B-frame H.264 inexactly: after a reload the same
@@ -311,8 +359,8 @@ leak target per video and checking on side views first.
 
 ## Open
 
-- Win back the owner frames lost by the second fix: attach each recovered one-frame box to the track that confirms on the
-  next frame, so it inherits the owner decision.
+- Win back the owner frames lost by the second fix: inheritance between track pieces (plates, and faces since 2026-11-26)
+  wins back part of it; one-frame boxes without a track are still blurred.
 - ~~Real labelled dashcam plates to train on~~: done (dashcam fine-tune). Next: rider's-view frames with the speedometer in
   view, as negatives, against the logo false alarm.
 - One plate split over many tracks (`plate-test2`: 15+ for the owner's plate): link the pieces and decide once from all their

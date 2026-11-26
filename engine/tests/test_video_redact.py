@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import tempfile
+from typing import List, Optional, Tuple
 import numpy as np
 import cv2
 
@@ -32,12 +33,21 @@ from src.processors.video_redact import (
     TrackManager,
     InvalidInputFileError,
 )
+from src.processors.face_embedding import FaceEmbedder
 from src.processors.whitelist import WhitelistReferenceError
 from src.processors.plate_ocr import (
     PlateWhitelistManager,
     PlateOCRRecognizer,
     normalize_plate_text,
 )
+
+
+class NoAlignEmbedder(FaceEmbedder):
+    """Test base class that bypasses YuNet alignment so mock embedders skip real landmark detection."""
+
+    def align_crop(self, face_bgr: np.ndarray) -> Optional[np.ndarray]:
+        """Return None to skip YuNet alignment and fall back to resize_crop."""
+        return None
 
 
 def _create_synthetic_video(width: int = 320, height: int = 240, fps: float = 25.0, num_frames: int = 30) -> bytes:
@@ -378,7 +388,6 @@ def test_two_pass_video_redaction_pipeline():
 def test_track_level_face_whitelist_matching():
     """Verify Track-Level Face Whitelisting accurately distinguishes vlogger from stranger."""
     print("Test 10: Kiểm tra so khớp Whitelist khuôn mặt theo Track (Track-Level ArcFace)...")
-    from src.processors.face_embedding import FaceEmbedder
     from src.processors.whitelist import WhitelistManager
 
     np.random.seed(42)
@@ -388,12 +397,12 @@ def test_track_level_face_whitelist_matching():
     stranger_emb = np.random.randn(512).astype(np.float32)
     stranger_emb /= np.linalg.norm(stranger_emb)
 
-    class ControlledEmbedder(FaceEmbedder):
+    class ControlledEmbedder(NoAlignEmbedder):
         def __init__(self):
             super().__init__(model_name="w600k_mbf.onnx")
 
-        def extract_embedding(self, face_bgr: np.ndarray) -> np.ndarray:
-            if np.mean(face_bgr) > 120:
+        def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
+            if np.mean(face_112) > 120:
                 return vlogger_emb.copy()
             return stranger_emb.copy()
 
@@ -454,14 +463,14 @@ def test_track_level_face_whitelist_matching():
     assert t1.redacted is False, "Track 1 should NOT be redacted"
     assert t1.whitelist_ref == 0, f"Expected whitelist_ref=0, got {t1.whitelist_ref}"
     assert t1.similarity >= 0.95, f"Expected similarity ~ 1.0, got {t1.similarity}"
-    assert t1.best_face_roi is None, "best_face_roi should be freed to release memory"
+    assert len(t1.face_candidates) == 0, "face_candidates should be freed to release memory"
 
     # Stranger assertions
     assert t2.whitelisted is False, "Track 2 (stranger) should NOT be whitelisted"
     assert t2.redacted is True, "Track 2 (stranger) MUST be redacted"
     assert t2.whitelist_ref is None, "Stranger should have no whitelist_ref"
     assert t2.similarity < 0.45, f"Stranger similarity should be < 0.45, got {t2.similarity}"
-    assert t2.best_face_roi is None, "best_face_roi should be freed"
+    assert len(t2.face_candidates) == 0, "face_candidates should be freed"
 
     # Contract summary assertions
     summary, counts = mgr.to_contract_summary(review_threshold=0.50)
@@ -1200,9 +1209,622 @@ def test_detection_mode_selects_model_and_thresholds():
         processor._model = None
 
 
+def test_face_whitelist_multiple_candidate_frames():
+    """Verify that multiple temporal candidates are kept across windows and whitelisted if any matches."""
+    print("Test 24: Kiểm tra đánh giá nhiều candidate frames trên track khuôn mặt...")
+    from src.processors.whitelist import WhitelistManager
+
+    np.random.seed(101)
+    ref_emb = np.random.randn(512).astype(np.float32)
+    ref_emb /= np.linalg.norm(ref_emb)
+
+    stranger_emb = np.random.randn(512).astype(np.float32)
+    stranger_emb /= np.linalg.norm(stranger_emb)
+
+    class MultiCandidateEmbedder(NoAlignEmbedder):
+        def __init__(self):
+            super().__init__(model_name="w600k_mbf.onnx")
+
+        def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
+            if np.mean(face_112) > 120:
+                return ref_emb.copy()
+            return stranger_emb.copy()
+
+    controlled_embedder = MultiCandidateEmbedder()
+    whitelist_mgr = WhitelistManager(embedder=controlled_embedder)
+    processor = VideoRedactProcessor(
+        face_embedder=controlled_embedder,
+        whitelist_manager=whitelist_mgr,
+    )
+    track_mgr = TrackManager(fps=25.0, orig_w=640, orig_h=480)
+
+    stranger_roi = np.full((112, 112, 3), 50, dtype=np.uint8)
+    owner_roi = np.full((112, 112, 3), 200, dtype=np.uint8)
+
+    # Frame 0 (ms 0, window 0): Stranger face with high confidence 0.95 (best overall quality)
+    track_mgr.add_detection(
+        track_id=1,
+        label="face",
+        frame_idx=0,
+        frame_ms=0,
+        box=[100, 100, 200, 200],
+        confidence=0.95,
+        face_roi=stranger_roi,
+        sharpness=150.0,
+    )
+
+    # Frame 2 (ms 80, window 0): Second detection in same 1-second window with lower confidence
+    track_mgr.add_detection(
+        track_id=1,
+        label="face",
+        frame_idx=2,
+        frame_ms=80,
+        box=[100, 100, 200, 200],
+        confidence=0.60,
+        face_roi=owner_roi,
+        sharpness=50.0,
+    )
+
+    t1 = track_mgr.tracks[1]
+    # In window 0, only the higher-quality crop (stranger_roi) was retained; pool size is 1
+    assert len(t1.face_candidates) == 1, f"Expected 1 candidate window, got {len(t1.face_candidates)}"
+
+    # Add continuous intermediate detections (gap <= 2 frames) up to window 1
+    for f in range(4, 26, 2):
+        track_mgr.add_detection(
+            track_id=1,
+            label="face",
+            frame_idx=f,
+            frame_ms=int(f * 1000 / 25),
+            box=[100, 100, 200, 200],
+            confidence=0.60,
+            sharpness=50.0,
+        )
+
+    # Frame 26 (ms 1040, window 1): Different second window with owner face and lower confidence 0.80
+    track_mgr.add_detection(
+        track_id=1,
+        label="face",
+        frame_idx=26,
+        frame_ms=1040,
+        box=[100, 100, 200, 200],
+        confidence=0.80,
+        face_roi=owner_roi,
+        sharpness=80.0,
+    )
+
+    assert len(t1.face_candidates) == 2, f"Expected 2 candidate windows, got {len(t1.face_candidates)}"
+
+    processor._evaluate_face_whitelist(
+        track_mgr=track_mgr,
+        ref_embeddings=[ref_emb],
+        similarity_threshold=0.45,
+        whitelist_mgr=whitelist_mgr,
+    )
+
+    # Even though best-quality crop was stranger, the second window matched and whitelisted the track
+    assert t1.whitelisted is True, "Track should be whitelisted via candidate from second window"
+    assert t1.redacted is False, "Track should not be redacted"
+    assert t1.similarity >= 0.95, f"Expected high similarity, got {t1.similarity}"
+    assert len(t1.face_candidates) == 0, "face_candidates must be cleared after evaluation"
+    print("  -> PASS: Nhiều candidate frames được đánh giá, track được miễn che khi có frame khớp.")
+
+
+def _make_embedding_with_sim(ref: np.ndarray, target_sim: float) -> np.ndarray:
+    """Generate a 512-d unit vector with exact cosine similarity target_sim to ref."""
+    noise = np.random.randn(len(ref)).astype(np.float32)
+    noise -= np.dot(noise, ref) * ref
+    noise /= np.linalg.norm(noise)
+    res = target_sim * ref + np.sqrt(1.0 - target_sim**2) * noise
+    return (res / np.linalg.norm(res)).astype(np.float32)
+
+
+def test_face_whitelist_spatial_temporal_inheritance():
+    """Verify face track pieces inherit whitelist via Case A, B, and C."""
+    print("Test 25: Kiểm tra kế thừa Whitelist giữa các đoạn track khuôn mặt (Case A, B, C)...")
+    from src.processors.whitelist import WhitelistManager
+
+    np.random.seed(102)
+    ref_emb = np.random.randn(512).astype(np.float32)
+    ref_emb /= np.linalg.norm(ref_emb)
+
+    # Moderate embedding with similarity 0.35 against ref_emb (above 0.30 block, below 0.45 threshold)
+    moderate_emb = _make_embedding_with_sim(ref_emb, 0.35)
+
+    class InheritanceEmbedder(NoAlignEmbedder):
+        def __init__(self):
+            super().__init__(model_name="w600k_mbf.onnx")
+
+        def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
+            val = int(face_112[0, 0, 0])
+            if val == 255:
+                return ref_emb.copy()
+            return moderate_emb.copy()
+
+    embedder = InheritanceEmbedder()
+    whitelist_mgr = WhitelistManager(embedder=embedder)
+    processor = VideoRedactProcessor(face_embedder=embedder, whitelist_manager=whitelist_mgr)
+    track_mgr = TrackManager(fps=30.0, orig_w=1920, orig_h=1080)
+
+    # Seed Track 1: Confirmed whitelisted face at frames 20..40 (ms 666..1333)
+    seed_roi = np.full((112, 112, 3), 255, dtype=np.uint8)
+    for f in range(20, 41):
+        track_mgr.add_detection(
+            track_id=1, label="face", frame_idx=f, frame_ms=int(f * 1000 / 30),
+            box=[200, 200, 300, 300], confidence=0.90, face_roi=seed_roi, sharpness=100.0,
+        )
+
+    # Track 2: Case A (follows seed at frames 45..60, gap = 4 frames < 1.5s, IoU > 0.8)
+    mod_roi = np.full((112, 112, 3), 100, dtype=np.uint8)
+    for f in range(45, 61):
+        track_mgr.add_detection(
+            track_id=2, label="face", frame_idx=f, frame_ms=int(f * 1000 / 30),
+            box=[205, 200, 305, 300], confidence=0.80, face_roi=mod_roi, sharpness=80.0,
+        )
+
+    # Track 3: Case B (precedes seed at frames 5..15, gap = 5 frames < 1.5s, IoU > 0.8)
+    for f in range(5, 16):
+        track_mgr.add_detection(
+            track_id=3, label="face", frame_idx=f, frame_ms=int(f * 1000 / 30),
+            box=[195, 200, 295, 300], confidence=0.80, face_roi=mod_roi, sharpness=80.0,
+        )
+
+    # Track 4: Case C (concurrent/overlapping duplicate at frames 25..35, IoU > 0.7 on concurrent frames)
+    for f in range(25, 36):
+        track_mgr.add_detection(
+            track_id=4, label="face", frame_idx=f, frame_ms=int(f * 1000 / 30),
+            box=[205, 205, 305, 305], confidence=0.85, face_roi=mod_roi, sharpness=80.0,
+        )
+
+    processor._evaluate_face_whitelist(
+        track_mgr=track_mgr,
+        ref_embeddings=[ref_emb],
+        similarity_threshold=0.45,
+        whitelist_mgr=whitelist_mgr,
+    )
+
+    t1 = track_mgr.tracks[1]
+    t2 = track_mgr.tracks[2]
+    t3 = track_mgr.tracks[3]
+    t4 = track_mgr.tracks[4]
+
+    assert t1.whitelisted is True and t1.inherited_from is None
+    assert t2.whitelisted is True and t2.redacted is False and t2.inherited_from == 1
+    assert t3.whitelisted is True and t3.redacted is False and t3.inherited_from == 1
+    assert t4.whitelisted is True and t4.redacted is False and t4.inherited_from == 1
+    assert t2.whitelist_ref == t1.whitelist_ref == 0
+    assert t3.whitelist_ref == t1.whitelist_ref == 0
+    assert t4.whitelist_ref == t1.whitelist_ref == 0
+    print("  -> PASS: Kế thừa Whitelist khuôn mặt thành công cho Case A (sau), Case B (trước), và Case C (trùng).")
+
+
+def test_face_whitelist_blocking_rule():
+    """Verify that a face piece with similarity < 0.30 is blocked from inheriting whitelist."""
+    print("Test 26: Kiểm tra chặn kế thừa cho khuôn mặt có similarity < 0.30...")
+    from src.processors.whitelist import WhitelistManager
+
+    np.random.seed(103)
+    ref_emb = np.random.randn(512).astype(np.float32)
+    ref_emb /= np.linalg.norm(ref_emb)
+
+    # Low similarity embedding 0.15 against ref_emb
+    stranger_emb = _make_embedding_with_sim(ref_emb, 0.15)
+
+    class BlockingEmbedder(NoAlignEmbedder):
+        def __init__(self):
+            super().__init__(model_name="w600k_mbf.onnx")
+
+        def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
+            val = int(face_112[0, 0, 0])
+            if val == 255:
+                return ref_emb.copy()
+            return stranger_emb.copy()
+
+    embedder = BlockingEmbedder()
+    whitelist_mgr = WhitelistManager(embedder=embedder)
+    processor = VideoRedactProcessor(face_embedder=embedder, whitelist_manager=whitelist_mgr)
+    track_mgr = TrackManager(fps=30.0, orig_w=1920, orig_h=1080)
+
+    # Seed Track 1: Confirmed whitelisted face at frames 0..20
+    seed_roi = np.full((112, 112, 3), 255, dtype=np.uint8)
+    for f in range(0, 21):
+        track_mgr.add_detection(
+            track_id=1, label="face", frame_idx=f, frame_ms=int(f * 1000 / 30),
+            box=[200, 200, 300, 300], confidence=0.90, face_roi=seed_roi, sharpness=100.0,
+        )
+
+    # Candidate Track 2: Follows seed closely (frames 23..40, same spot), but crop yields similarity ~0.15 < 0.30
+    stranger_roi = np.full((112, 112, 3), 50, dtype=np.uint8)
+    for f in range(23, 41):
+        track_mgr.add_detection(
+            track_id=2, label="face", frame_idx=f, frame_ms=int(f * 1000 / 30),
+            box=[202, 200, 302, 300], confidence=0.85, face_roi=stranger_roi, sharpness=80.0,
+        )
+
+    processor._evaluate_face_whitelist(
+        track_mgr=track_mgr,
+        ref_embeddings=[ref_emb],
+        similarity_threshold=0.45,
+        whitelist_mgr=whitelist_mgr,
+    )
+
+    t1 = track_mgr.tracks[1]
+    t2 = track_mgr.tracks[2]
+    assert t1.whitelisted is True
+    assert t2.similarity is not None and t2.similarity < 0.30
+    assert t2.whitelisted is False, "Stranger piece with similarity < 0.30 must NOT inherit whitelist"
+    assert t2.redacted is True, "Stranger piece must stay redacted"
+    assert t2.inherited_from is None
+    print("  -> PASS: Đoạn mặt có similarity < 0.30 bị chặn kế thừa chính xác, giữ nguyên che.")
+
+
+def test_face_whitelist_no_cascading_chaining():
+    """Verify that inheritance never chains (A seeds B, but B cannot seed C)."""
+    print("Test 27: Kiểm tra không kế thừa bắc cầu (No Chaining)...")
+    from src.processors.whitelist import WhitelistManager
+
+    np.random.seed(104)
+    ref_emb = np.random.randn(512).astype(np.float32)
+    ref_emb /= np.linalg.norm(ref_emb)
+
+    moderate_emb = _make_embedding_with_sim(ref_emb, 0.35)
+
+    class ChainingEmbedder(NoAlignEmbedder):
+        def __init__(self):
+            super().__init__(model_name="w600k_mbf.onnx")
+
+        def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
+            val = int(face_112[0, 0, 0])
+            if val == 255:
+                return ref_emb.copy()
+            return moderate_emb.copy()
+
+    embedder = ChainingEmbedder()
+    whitelist_mgr = WhitelistManager(embedder=embedder)
+    processor = VideoRedactProcessor(face_embedder=embedder, whitelist_manager=whitelist_mgr)
+    track_mgr = TrackManager(fps=30.0, orig_w=1920, orig_h=1080)
+
+    # Seed Track 1: frames 0..20 (ends at 20 = 666ms)
+    seed_roi = np.full((112, 112, 3), 255, dtype=np.uint8)
+    for f in range(0, 21):
+        track_mgr.add_detection(
+            track_id=1, label="face", frame_idx=f, frame_ms=int(f * 1000 / 30),
+            box=[100, 100, 200, 200], confidence=0.90, face_roi=seed_roi, sharpness=100.0,
+        )
+
+    # Piece 2: frames 25..45 (starts at 25 = 833ms, gap from Track 1 is 4 frames < 1.5s).
+    # Inherits from Track 1.
+    mod_roi = np.full((112, 112, 3), 100, dtype=np.uint8)
+    for f in range(25, 46):
+        track_mgr.add_detection(
+            track_id=2, label="face", frame_idx=f, frame_ms=int(f * 1000 / 30),
+            box=[105, 100, 205, 200], confidence=0.85, face_roi=mod_roi, sharpness=80.0,
+        )
+
+    # Piece 3: frames 70..90 (starts at 70 = 2333ms).
+    # Gap from Piece 2 (ended at 45) is 24 frames (0.8s <= 1.0s, IoU > 0.8).
+    # BUT gap from Seed 1 (ended at 20) is 49 frames (1.63s > 1.5s max gap)!
+    for f in range(70, 91):
+        track_mgr.add_detection(
+            track_id=3, label="face", frame_idx=f, frame_ms=int(f * 1000 / 30),
+            box=[110, 100, 210, 200], confidence=0.85, face_roi=mod_roi, sharpness=80.0,
+        )
+
+    processor._evaluate_face_whitelist(
+        track_mgr=track_mgr,
+        ref_embeddings=[ref_emb],
+        similarity_threshold=0.45,
+        whitelist_mgr=whitelist_mgr,
+    )
+
+    t1 = track_mgr.tracks[1]
+    t2 = track_mgr.tracks[2]
+    t3 = track_mgr.tracks[3]
+
+    assert t1.whitelisted is True and t1.inherited_from is None
+    assert t2.whitelisted is True and t2.inherited_from == 1
+    # Piece 3 must NOT inherit from Piece 2
+    assert t3.whitelisted is False, "Piece 3 should NOT chain-inherit from inherited Piece 2"
+    assert t3.redacted is True
+    assert t3.inherited_from is None
+    print("  -> PASS: Không có hiện tượng kế thừa bắc cầu; chỉ seed trực tiếp mới truyền quyền.")
+
+
+def test_face_distance_has_no_floor_unlike_plates():
+    """Verify face inheritance has no 90px floor (faces within 80px of 40px box fail, plates succeed)."""
+    print("Test 28: Kiểm tra khuôn mặt không áp sàn 90px (Plate có sàn 90px, Face thì không)...")
+    from src.processors.whitelist import WhitelistManager
+
+    np.random.seed(105)
+    ref_emb = np.random.randn(512).astype(np.float32)
+    ref_emb /= np.linalg.norm(ref_emb)
+
+    moderate_emb = _make_embedding_with_sim(ref_emb, 0.35)
+
+    class SimpleEmbedder(NoAlignEmbedder):
+        def __init__(self):
+            super().__init__(model_name="w600k_mbf.onnx")
+
+        def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
+            if int(face_112[0, 0, 0]) == 255:
+                return ref_emb.copy()
+            return moderate_emb.copy()
+
+    embedder = SimpleEmbedder()
+    whitelist_mgr = WhitelistManager(embedder=embedder)
+    processor = VideoRedactProcessor(face_embedder=embedder, whitelist_manager=whitelist_mgr)
+
+    # 1. Test Faces: Seed box size = 40px [100, 100, 140, 140] (center 120, 120).
+    # Candidate box size = 40px [180, 100, 220, 140] (center 200, 120, dist = 80px, IoU = 0).
+    # For face: limit = max(1.5 * 40, 0) = 60px. Since 80 > 60, does NOT inherit!
+    track_mgr_face = TrackManager(fps=30.0, orig_w=1920, orig_h=1080)
+    seed_roi = np.full((40, 40, 3), 255, dtype=np.uint8)
+    mod_roi = np.full((40, 40, 3), 100, dtype=np.uint8)
+
+    for f in range(0, 15):
+        track_mgr_face.add_detection(track_id=1, label="face", frame_idx=f, frame_ms=f * 33,
+                                     box=[100, 100, 140, 140], confidence=0.90, face_roi=seed_roi)
+    for f in range(20, 35):  # gap = 5 frames < 1s
+        track_mgr_face.add_detection(track_id=2, label="face", frame_idx=f, frame_ms=f * 33,
+                                     box=[180, 100, 220, 140], confidence=0.85, face_roi=mod_roi)
+
+    processor._evaluate_face_whitelist(
+        track_mgr=track_mgr_face,
+        ref_embeddings=[ref_emb],
+        similarity_threshold=0.45,
+        whitelist_mgr=whitelist_mgr,
+    )
+    t_face_cand = track_mgr_face.tracks[2]
+    assert t_face_cand.whitelisted is False, "Face candidate 80px away from 40px face must NOT inherit"
+    assert t_face_cand.redacted is True
+
+    # 2. Test Plates: Same layout! Seed box size = 40px, candidate center dist = 80px, IoU = 0.
+    # For plate: limit = max(1.5 * 40, 90) = 90px. Since 80 <= 90, DOES inherit!
+    track_mgr_plate = TrackManager(fps=30.0, orig_w=1920, orig_h=1080)
+    for f in range(0, 15):
+        track_mgr_plate.add_detection(track_id=10, label="plate", frame_idx=f, frame_ms=f * 33,
+                                      box=[100, 100, 140, 140], confidence=0.90)
+    track_mgr_plate.tracks[10].whitelisted = True
+    track_mgr_plate.tracks[10].redacted = False
+    track_mgr_plate.tracks[10].plate_text = "51F12345"
+
+    for f in range(20, 35):
+        track_mgr_plate.add_detection(track_id=20, label="plate", frame_idx=f, frame_ms=f * 33,
+                                      box=[180, 100, 220, 140], confidence=0.85)
+    track_mgr_plate.tracks[20].whitelisted = False
+    track_mgr_plate.tracks[20].redacted = True
+
+    processor._evaluate_plate_whitelist(track_mgr=track_mgr_plate, whitelist_plates=["51F1-23.45"])
+    t_plate_cand = track_mgr_plate.tracks[20]
+    assert t_plate_cand.whitelisted is True, "Plate candidate 80px away must inherit due to 90px floor"
+    assert t_plate_cand.redacted is False
+    assert t_plate_cand.inherited_from == 10
+    print("  -> PASS: Face không có sàn 90px (bị che), Plate có sàn 90px (được miễn che) chuẩn xác.")
+
+
+def test_time_based_gap_replaces_frame_clamp():
+    """Verify gap tolerance is purely time-based (1500 ms) rather than 15-45 frame clamped."""
+    print("Test 29: Kiểm tra khoảng cách thời gian thuần túy (1.5s) thay thế frame clamp...")
+    processor = VideoRedactProcessor()
+
+    # Case 1: 60 fps. Seed ends at 30, candidate starts 80 frames later (at frame 110, gap = 80 frames = 1.33s <= 1.5s).
+    # Under old clamp (max 45 frames), 80 frames would fail. Under 1500ms, it inherits!
+    mgr_60fps = TrackManager(fps=60.0, orig_w=1920, orig_h=1080)
+    for f in range(0, 31):
+        mgr_60fps.add_detection(track_id=1, label="plate", frame_idx=f, frame_ms=int(f * 1000 / 60),
+                                box=[500, 500, 650, 600], confidence=0.90)
+    mgr_60fps.tracks[1].whitelisted = True
+    mgr_60fps.tracks[1].redacted = False
+    mgr_60fps.tracks[1].plate_text = "51F12345"
+
+    for f in range(110, 141):
+        mgr_60fps.add_detection(track_id=2, label="plate", frame_idx=f, frame_ms=int(f * 1000 / 60),
+                                box=[500, 500, 650, 600], confidence=0.85)
+
+    processor._evaluate_plate_whitelist(track_mgr=mgr_60fps, whitelist_plates=["51F1-23.45"])
+    assert mgr_60fps.tracks[2].whitelisted is True, "At 60 fps, 80-frame gap (1.33s) must inherit under 1.5s rule"
+    assert mgr_60fps.tracks[2].inherited_from == 1
+
+    # Case 2: 8 fps. Seed ends at 10, candidate starts 13 frames later (at frame 23, gap = 13 frames = 1.625s > 1.5s).
+    # Under old clamp (min 15 frames), 13 frames would inherit. Under 1500ms, it does NOT inherit!
+    mgr_8fps = TrackManager(fps=8.0, orig_w=1920, orig_h=1080)
+    for f in range(0, 11):
+        mgr_8fps.add_detection(track_id=3, label="plate", frame_idx=f, frame_ms=int(f * 1000 / 8),
+                               box=[500, 500, 650, 600], confidence=0.90)
+    mgr_8fps.tracks[3].whitelisted = True
+    mgr_8fps.tracks[3].redacted = False
+    mgr_8fps.tracks[3].plate_text = "51F12345"
+
+    for f in range(23, 33):
+        mgr_8fps.add_detection(track_id=4, label="plate", frame_idx=f, frame_ms=int(f * 1000 / 8),
+                               box=[500, 500, 650, 600], confidence=0.85)
+
+    processor._evaluate_plate_whitelist(track_mgr=mgr_8fps, whitelist_plates=["51F1-23.45"])
+    assert mgr_8fps.tracks[4].whitelisted is False, "At 8 fps, 13-frame gap (1.625s) must NOT inherit"
+    assert mgr_8fps.tracks[4].redacted is True
+    print("  -> PASS: Thời gian gap tính chuẩn theo 1.5s ở cả high-fps (60fps) và low-fps (8fps).")
+
+
+def test_face_whitelist_prefers_alignable_crops():
+    """Verify video face matching prefers YuNet-alignable crops over higher-quality unalignable ones."""
+    print("Test 30: Kiểm tra ưu tiên crop YuNet căn chỉnh được trên pool khuôn mặt...")
+    from src.processors.face_embedding import ARCFACE_INPUT_SIZE, FaceEmbedder
+    from src.processors.whitelist import WhitelistManager
+
+    rng = np.random.RandomState(301)
+    ref_emb = rng.randn(512).astype(np.float32)
+    ref_emb /= np.linalg.norm(ref_emb)
+    stranger_emb = rng.randn(512).astype(np.float32)
+    stranger_emb /= np.linalg.norm(stranger_emb)
+
+    class AlignControlledEmbedder(FaceEmbedder):
+        def __init__(self):
+            super().__init__(model_name="w600k_mbf.onnx")
+            self.align_calls: List[float] = []
+            self.embed_calls: List[Tuple[Tuple[int, ...], float]] = []
+
+        def align_crop(self, face_bgr: np.ndarray) -> Optional[np.ndarray]:
+            mean_val = float(np.mean(face_bgr))
+            self.align_calls.append(mean_val)
+            if mean_val > 120:
+                return cv2.resize(face_bgr, (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE))
+            return None
+
+        def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
+            mean_val = float(np.mean(face_112))
+            self.embed_calls.append((face_112.shape, mean_val))
+            if mean_val > 120:
+                return ref_emb.copy()
+            return stranger_emb.copy()
+
+    embedder = AlignControlledEmbedder()
+    whitelist_mgr = WhitelistManager(embedder=embedder)
+    processor = VideoRedactProcessor(
+        face_embedder=embedder,
+        whitelist_manager=whitelist_mgr,
+    )
+    mgr = TrackManager(fps=25.0, orig_w=640, orig_h=480)
+
+    # 3 high-quality unalignable crops (pixel values 40, 50, 60) + 1 lower-quality alignable crop (200)
+    candidates = {
+        0: (0.95, 150.0, 40),
+        26: (0.90, 140.0, 50),
+        50: (0.85, 130.0, 60),
+        76: (0.55, 60.0, 200),
+    }
+    for f_idx in range(0, 77, 2):
+        if f_idx in candidates:
+            conf, sharp, val = candidates[f_idx]
+            crop = np.full((80, 90, 3), val, dtype=np.uint8)
+        else:
+            # Keep track_id=1 continuous across 1-second windows without adding extra crops
+            conf, sharp, crop = 0.50, 40.0, None
+        mgr.add_detection(
+            track_id=1,
+            label="face",
+            frame_idx=f_idx,
+            frame_ms=int(f_idx * 1000 / 25),
+            box=[100, 100, 200, 200],
+            confidence=conf,
+            face_roi=crop,
+            sharpness=sharp,
+        )
+    assert len(mgr.tracks) == 1, f"Expected 1 continuous track, got {len(mgr.tracks)}"
+
+    processor._evaluate_face_whitelist(
+        track_mgr=mgr,
+        ref_embeddings=[ref_emb],
+        similarity_threshold=0.45,
+        whitelist_mgr=whitelist_mgr,
+    )
+
+    t1 = mgr.tracks[1]
+    assert len(embedder.align_calls) == 4, f"Expected align_crop on all 4 crops, got {len(embedder.align_calls)}"
+    assert len(embedder.embed_calls) == 3, f"Expected embed_aligned on 3 chosen crops, got {len(embedder.embed_calls)}"
+    assert all(shape == (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE, 3) for shape, _ in embedder.embed_calls)
+    embedded_means = [round(m) for _, m in embedder.embed_calls]
+    assert 200 in embedded_means, f"Alignable lower-quality crop should be embedded, got {embedded_means}"
+    assert 60 not in embedded_means, f"Lowest-quality unaligned crop should be displaced, got {embedded_means}"
+    assert t1.whitelisted is True and t1.redacted is False
+    assert t1.similarity >= 0.95
+    print("  -> PASS: YuNet chạy trên cả pool, crop align được ở quality thấp hơn được chọn và miễn che track.")
+
+
+def test_face_whitelist_fallback_when_no_crop_aligns():
+    """Verify fallback chooses the top 3 crops by quality resized to 112x112 when no crop aligns."""
+    print("Test 31: Kiểm tra fallback top 3 theo chất lượng khi không crop nào align được...")
+    from src.processors.face_embedding import ARCFACE_INPUT_SIZE
+    from src.processors.whitelist import WhitelistManager
+
+    rng = np.random.RandomState(302)
+    ref_emb = rng.randn(512).astype(np.float32)
+    ref_emb /= np.linalg.norm(ref_emb)
+    stranger_emb = rng.randn(512).astype(np.float32)
+    stranger_emb /= np.linalg.norm(stranger_emb)
+
+    class NeverAlignEmbedder(NoAlignEmbedder):
+        def __init__(self):
+            super().__init__(model_name="w600k_mbf.onnx")
+            self.embed_calls: List[Tuple[Tuple[int, ...], float]] = []
+
+        def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
+            mean_val = float(np.mean(face_112))
+            self.embed_calls.append((face_112.shape, mean_val))
+            if mean_val > 120:
+                return ref_emb.copy()
+            return stranger_emb.copy()
+
+    embedder = NeverAlignEmbedder()
+    whitelist_mgr = WhitelistManager(embedder=embedder)
+    processor = VideoRedactProcessor(
+        face_embedder=embedder,
+        whitelist_manager=whitelist_mgr,
+    )
+    mgr = TrackManager(fps=25.0, orig_w=640, orig_h=480)
+
+    # Top 3 by quality are stranger (40, 50, 60); 4th is ref (200) so it must not be evaluated
+    candidates = {
+        0: (0.95, 150.0, 40),
+        26: (0.90, 140.0, 50),
+        50: (0.85, 130.0, 60),
+        76: (0.55, 60.0, 200),
+    }
+    for f_idx in range(0, 77, 2):
+        if f_idx in candidates:
+            conf, sharp, val = candidates[f_idx]
+            crop = np.full((80, 90, 3), val, dtype=np.uint8)
+        else:
+            conf, sharp, crop = 0.50, 40.0, None
+        mgr.add_detection(
+            track_id=1,
+            label="face",
+            frame_idx=f_idx,
+            frame_ms=int(f_idx * 1000 / 25),
+            box=[100, 100, 200, 200],
+            confidence=conf,
+            face_roi=crop,
+            sharpness=sharp,
+        )
+    assert len(mgr.tracks) == 1, f"Expected 1 continuous track, got {len(mgr.tracks)}"
+
+    processor._evaluate_face_whitelist(
+        track_mgr=mgr,
+        ref_embeddings=[ref_emb],
+        similarity_threshold=0.45,
+        whitelist_mgr=whitelist_mgr,
+    )
+
+    t1 = mgr.tracks[1]
+    assert len(embedder.embed_calls) == 3, f"Expected 3 fallback crops, got {len(embedder.embed_calls)}"
+    assert all(shape == (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE, 3) for shape, _ in embedder.embed_calls)
+    embedded_means = [round(m) for _, m in embedder.embed_calls]
+    assert embedded_means == [40, 50, 60], f"Expected top 3 by quality [40, 50, 60], got {embedded_means}"
+    assert t1.whitelisted is False and t1.redacted is True
+    print("  -> PASS: Khi không crop nào align được, fallback đúng top 3 chất lượng cao nhất sau resize.")
+
+
+def test_extract_embedding_matches_step_composition():
+    """Verify extract_embedding equals embed_aligned(align_crop(crop) or resize_crop(crop)) for image path."""
+    print("Test 32: Kiểm tra extract_embedding khớp với tổ hợp 3 bước align_crop/resize_crop/embed_aligned...")
+    from src.processors.face_embedding import FaceEmbedder
+
+    embedder = FaceEmbedder(model_name="w600k_mbf.onnx")
+    rng = np.random.RandomState(303)
+    crop = rng.randint(0, 255, (150, 130, 3), dtype=np.uint8)
+
+    direct = embedder.extract_embedding(crop)
+    aligned = embedder.align_crop(crop)
+    prepared = aligned if aligned is not None else embedder.resize_crop(crop)
+    composed = embedder.embed_aligned(prepared)
+
+    assert direct.shape == (512,)
+    assert np.allclose(direct, composed, atol=1e-6), "extract_embedding diverged from step composition"
+    print("  -> PASS: extract_embedding khớp hoàn toàn với tổ hợp align_crop / resize_crop / embed_aligned.")
+
+
 if __name__ == "__main__":
     print("==================================================")
-    print("🚀 BẮT ĐẦU CHẠY KIỂM THỬ VIDEO REDACT (GIAI ĐOẠN 5)")
+    print("🚀 BẮT ĐẦU CHẠY KIỂM THỬ VIDEO REDACT (GIAI ĐOẠN 6)")
     print("==================================================")
     test_quality_crf_mapping()
     test_video_probe_valid()
@@ -1223,6 +1845,7 @@ if __name__ == "__main__":
     test_ffmpeg_writer_flags_and_metadata_stripping()
     test_plate_normalization()
     test_plate_whitelist_manager_matching()
+    test_spatial_temporal_plate_whitelist_inheritance()
     test_plate_whitelist_video_e2e()
     test_track_manager_low_confidence_track_count()
     test_low_score_box_tracking_recovery()
@@ -1230,6 +1853,15 @@ if __name__ == "__main__":
     test_track_manager_apply_holds()
     test_detection_error_on_one_frame_fails_the_job()
     test_detection_mode_selects_model_and_thresholds()
+    test_face_whitelist_multiple_candidate_frames()
+    test_face_whitelist_spatial_temporal_inheritance()
+    test_face_whitelist_blocking_rule()
+    test_face_whitelist_no_cascading_chaining()
+    test_face_distance_has_no_floor_unlike_plates()
+    test_time_based_gap_replaces_frame_clamp()
+    test_face_whitelist_prefers_alignable_crops()
+    test_face_whitelist_fallback_when_no_crop_aligns()
+    test_extract_embedding_matches_step_composition()
     print("==================================================")
-    print("✅ TOÀN BỘ 26/26 TEST CASES GIAI ĐOẠN 5 PASS 100%!")
+    print("✅ TOÀN BỘ 36/36 TEST CASES GIAI ĐOẠN 6 PASS 100%!")
     print("==================================================")

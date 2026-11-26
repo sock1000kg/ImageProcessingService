@@ -26,7 +26,7 @@ def test_missing_align_model_matches_resize():
     crop = rng.randint(0, 255, (150, 130, 3), dtype=np.uint8)
     got = emb.extract_embedding(crop)
     ref = FaceEmbedder(models_dir=MODELS_DIR)
-    ref._align = lambda _img: None  # old path: plain resize
+    ref.align_crop = lambda _img: None  # old path: plain resize
     assert np.allclose(got, ref.extract_embedding(crop), atol=1e-6)
     print("✅ missing align model falls back")
 

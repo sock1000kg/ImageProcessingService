@@ -5,10 +5,14 @@ Supports both onnxruntime (preferred) and cv2.dnn (zero-dependency fallback).
 """
 import os
 import logging
+from typing import Optional
 import numpy as np
 import cv2
 
 logger = logging.getLogger(__name__)
+
+# ArcFace expects 112x112 BGR input crops.
+ARCFACE_INPUT_SIZE = 112
 
 # Where ArcFace expects the eyes, nose tip and mouth corners inside the 112x112 input.
 ARCFACE_TEMPLATE = np.array(
@@ -17,8 +21,8 @@ ARCFACE_TEMPLATE = np.array(
 )
 
 
-def align_face(image_bgr: np.ndarray, points: np.ndarray):
-    """Warp `image_bgr` to 112x112 so the 5 landmark `points` land on ARCFACE_TEMPLATE.
+def align_face(image_bgr: np.ndarray, points: np.ndarray) -> Optional[np.ndarray]:
+    """Warp `image_bgr` to ARCFACE_INPUT_SIZE x ARCFACE_INPUT_SIZE so the 5 landmark `points` land on ARCFACE_TEMPLATE.
 
     Returns None when no transform can be estimated.
     """
@@ -26,7 +30,7 @@ def align_face(image_bgr: np.ndarray, points: np.ndarray):
     matrix, _ = cv2.estimateAffinePartial2D(pts, ARCFACE_TEMPLATE, method=cv2.LMEDS)
     if matrix is None:
         return None
-    return cv2.warpAffine(image_bgr, matrix, (112, 112), borderValue=0.0)
+    return cv2.warpAffine(image_bgr, matrix, (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE), borderValue=0.0)
 
 
 class FaceEmbedder:
@@ -128,8 +132,12 @@ class FaceEmbedder:
                 self._detector = cv2.FaceDetectorYN.create(self._align_path, "", (320, 320), 0.6)
         return self._detector
 
-    def _align(self, face_bgr: np.ndarray):
-        """Return the 112x112 aligned crop, or None to fall back to resize."""
+    def align_crop(self, face_bgr: np.ndarray) -> Optional[np.ndarray]:
+        """Align a face crop to ARCFACE_INPUT_SIZE x ARCFACE_INPUT_SIZE using YuNet landmarks.
+
+        Returns None when the detector is unavailable, finds no face, or cannot estimate a transform,
+        allowing callers to prefer alignable crops or fall back to resize_crop.
+        """
         try:
             detector = self._get_detector()
             if detector is None:
@@ -151,11 +159,55 @@ class FaceEmbedder:
             self._warn_align_once(f"error: {e}")
             return None
 
+    def resize_crop(self, face_bgr: np.ndarray) -> np.ndarray:
+        """Resize a face crop to ARCFACE_INPUT_SIZE x ARCFACE_INPUT_SIZE when alignment is unavailable.
+
+        Returns the input unchanged if it already has the target dimensions.
+        """
+        h, w = face_bgr.shape[:2]
+        if (w, h) != (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE):
+            return cv2.resize(
+                face_bgr,
+                (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE),
+                interpolation=cv2.INTER_LINEAR,
+            )
+        return face_bgr
+
+    def embed_aligned(self, face_112: np.ndarray) -> np.ndarray:
+        """Run ArcFace on an ARCFACE_INPUT_SIZE x ARCFACE_INPUT_SIZE BGR crop and return an L2-normalized vector."""
+        if self.backend == "onnxruntime":
+            # Convert BGR -> RGB and normalize: (pixel - 127.5) / 127.5
+            face_rgb = cv2.cvtColor(face_112, cv2.COLOR_BGR2RGB).astype(np.float32)
+            face_norm = (face_rgb - 127.5) / 127.5
+            # Transpose to (1, 3, ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE)
+            blob = np.transpose(face_norm, (2, 0, 1))[np.newaxis, ...]
+
+            outputs = self.session.run(None, {self.input_name: blob})
+            raw_vec = outputs[0].flatten().astype(np.float32)
+        else:
+            # cv2.dnn fallback
+            blob = cv2.dnn.blobFromImage(
+                face_112,
+                scalefactor=1.0 / 127.5,
+                size=(ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE),
+                mean=(127.5, 127.5, 127.5),
+                swapRB=True,
+            )
+            self.net.setInput(blob)
+            out = self.net.forward()
+            raw_vec = out.flatten().astype(np.float32)
+
+        # L2 normalize
+        norm = np.linalg.norm(raw_vec)
+        if norm > 1e-12:
+            return raw_vec / norm
+        return raw_vec
+
     def extract_embedding(self, face_bgr: np.ndarray) -> np.ndarray:
         """Extract a 512-dimensional normalized face embedding vector from a BGR face crop.
 
         The crop is aligned to the ArcFace template using YuNet landmarks (see class docstring); when
-        that is not possible it falls back to resizing the crop to 112x112.
+        that is not possible it falls back to resizing the crop to ARCFACE_INPUT_SIZE x ARCFACE_INPUT_SIZE.
 
         Args:
             face_bgr: Face crop in BGR format (H, W, 3).
@@ -170,42 +222,9 @@ class FaceEmbedder:
         if h <= 0 or w <= 0:
             raise ValueError(f"Invalid face crop dimensions: {w}x{h}")
 
-        # Standard ArcFace input dimensions: 112x112
-        aligned = self._align(face_bgr)
-        if aligned is not None:
-            face_resized = aligned
-        elif (w, h) != (112, 112):
-            face_resized = cv2.resize(face_bgr, (112, 112), interpolation=cv2.INTER_LINEAR)
-        else:
-            face_resized = face_bgr
-
-        if self.backend == "onnxruntime":
-            # Convert BGR -> RGB and normalize: (pixel - 127.5) / 127.5
-            face_rgb = cv2.cvtColor(face_resized, cv2.COLOR_BGR2RGB).astype(np.float32)
-            face_norm = (face_rgb - 127.5) / 127.5
-            # Transpose to (1, 3, 112, 112)
-            blob = np.transpose(face_norm, (2, 0, 1))[np.newaxis, ...]
-
-            outputs = self.session.run(None, {self.input_name: blob})
-            raw_vec = outputs[0].flatten().astype(np.float32)
-        else:
-            # cv2.dnn fallback
-            blob = cv2.dnn.blobFromImage(
-                face_resized,
-                scalefactor=1.0 / 127.5,
-                size=(112, 112),
-                mean=(127.5, 127.5, 127.5),
-                swapRB=True,
-            )
-            self.net.setInput(blob)
-            out = self.net.forward()
-            raw_vec = out.flatten().astype(np.float32)
-
-        # L2 normalize
-        norm = np.linalg.norm(raw_vec)
-        if norm > 1e-12:
-            return raw_vec / norm
-        return raw_vec
+        aligned = self.align_crop(face_bgr)
+        prepared = aligned if aligned is not None else self.resize_crop(face_bgr)
+        return self.embed_aligned(prepared)
 
     @staticmethod
     def compute_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:

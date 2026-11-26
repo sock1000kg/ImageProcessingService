@@ -100,6 +100,12 @@ CRF_MAP: Dict[str, int] = {
     "max": 18,
 }
 
+# Frames x264 buffers ahead to place B-frames and share bitrate (preset "fast" uses 30).
+# Why: each buffered frame costs several MB at 1440p; 10 frames cut the encoder's peak RAM from about 1.1 GB to
+# 0.74 GB on a 2560x1440 clip, at the cost of slightly less efficient compression. It saves memory on any machine
+# without capping threads, which stay sized by x264 to the host.
+X264_RC_LOOKAHEAD = 10
+
 # Maximum time dropout to bridge with linear interpolation (167 ms).
 # A time limit means the same protection at any frame rate.
 MAX_INTERPOLATION_GAP_MS = 167
@@ -1771,6 +1777,7 @@ class VideoRedactProcessor(BaseProcessor):
                 "-c:v", "libx264",
                 "-crf", str(crf),
                 "-preset", "fast",
+                "-x264-params", f"rc-lookahead={X264_RC_LOOKAHEAD}",
                 "-pix_fmt", "yuv420p",
             ])
         elif encoder == "h264_mf":

@@ -15,7 +15,7 @@ Evaluates:
 4. End-to-End Performance across Standard Resolutions:
    - 480p (854x480), 720p (1280x720), 1080p (1920x1080), all cut from the same real clip.
    - Throughput (FPS), Processing Latency (s), Real-time Factor (RTF).
-   - Memory Profiling: Baseline RSS, Peak RSS, and K8s Pod (2048Mi) Compliance.
+   - Memory Profiling: Baseline RSS, Peak RSS, and K8s Pod (video-worker memory limit) Compliance.
 5. Export formatted Markdown report for academic project defense.
 
 Every clip is cut from a real video with ffmpeg (default: the local, git-ignored
@@ -45,6 +45,7 @@ if sys.platform == "win32":
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.processors.video_redact import (
+    FACE_ARCFACE_CANDIDATES,
     VideoRedactProcessor,
 )
 from src.processors.face_embedding import FaceEmbedder
@@ -101,6 +102,10 @@ def get_hardware_info() -> dict:
 
     return info
 
+
+# video-worker memory limit in infra/app/engine-workers/video-worker.yaml (MB).
+# Why: the margin below is reported against the limit the lab pod really has; raised from 2048 on 2026-11-26.
+POD_MEMORY_LIMIT_MB = 3072.0
 
 DEFAULT_CLIP = os.path.join(os.path.dirname(__file__), "..", "training", "datasets", "whitelist-videos", "plate", "video", "test1.mp4")
 
@@ -245,8 +250,8 @@ def benchmark_whitelist_strategy(embed_latency_ms: float) -> dict:
     per_frame_calls = num_frames * num_faces  # 5400 calls
     per_frame_time_sec = (per_frame_calls * embed_latency_ms) / 1000.0
 
-    # Track-Level: Chỉ gọi ArcFace đúng 1 lần trên khung hình tốt nhất (bestFrameMs) của từng track
-    track_level_calls = num_faces  # 3 calls
+    # Track-Level: ArcFace runs on at most FACE_ARCFACE_CANDIDATES crops of each track (the Engine's pool)
+    track_level_calls = num_faces * FACE_ARCFACE_CANDIDATES
     track_level_time_sec = (track_level_calls * embed_latency_ms) / 1000.0
 
     reduction_pct = ((per_frame_calls - track_level_calls) / per_frame_calls) * 100.0
@@ -453,7 +458,7 @@ def generate_markdown_report(hw_info: dict, breakdown: dict, strategy: dict, e2e
     md.append("|---|---|---|---|")
     md.append(f"| **Per-Frame Embedding** (Tiếp cận ngây thơ) | {strategy['per_frame_calls']} lần | {strategy['per_frame_time_sec']} s | Baseline (100% chi phí) |")
     md.append(f"| **Track-Level Embedding** (Giải pháp đề tài) | {strategy['track_level_calls']} lần | {strategy['track_level_time_sec']} s | **Giảm {strategy['reduction_pct']}%** |")
-    md.append(f"\n* **Kết luận định lượng:** Chiến lược trích xuất embedding tại `bestFrameMs` tiết kiệm tới **{strategy['saved_time_sec']} giây** thời gian CPU cho mỗi phút video, triệt tiêu hoàn toàn hiện tượng nghẽn cổ chai tính toán trên CPU.")
+    md.append(f"\n* **Kết luận định lượng:** Chiến lược so tối đa vài vùng cắt cho mỗi track tiết kiệm tới **{strategy['saved_time_sec']} giây** thời gian CPU cho mỗi phút video, triệt tiêu hoàn toàn hiện tượng nghẽn cổ chai tính toán trên CPU.")
 
     md.append("\n## 4. Hiệu năng Toàn trình (End-to-End) theo Độ phân giải")
     md.append(
@@ -476,12 +481,12 @@ def generate_markdown_report(hw_info: dict, breakdown: dict, strategy: dict, e2e
         md.append(f"| {name} | " + " | ".join(f"{r['stages_s'][key]} s ({r['stage_calls'][key]})" for r in e2e_list) + " |")
 
     md.append("\n## 5. Đánh giá Khả năng Đáp ứng Tài nguyên Kubernetes (Pod Limits)")
-    md.append("* **Ngưỡng giới hạn Pod cấu hình bởi Infra:** `resources.limits.memory: 2048Mi` (~2048 MB), node k3s 2C/4T/12GB.")
+    md.append(f"* **Ngưỡng giới hạn Pod cấu hình bởi Infra:** `resources.limits.memory: {POD_MEMORY_LIMIT_MB:.0f}Mi`, node k3s 2C/4T/12GB.")
     max_peak = max(r["ram_peak_mb"] for r in e2e_list)
-    margin_mb = 2048.0 - max_peak
+    margin_mb = POD_MEMORY_LIMIT_MB - max_peak
     md.append(f"* **Mức RAM đỉnh thực tế lớn nhất ghi nhận (1080p):** `{max_peak:.1f} MB`.")
-    md.append(f"* **Biên an toàn (Safety Margin):** `{margin_mb:.1f} MB` (Tiêu thụ chỉ ~{round(max_peak/2048.0*100, 1)}% giới hạn cho phép).")
-    md.append("* **Đánh giá chống OOM:** Kiến trúc Two-Pass giải phóng bộ nhớ từng khung hình ngay sau khi phân tích tọa độ, kết hợp stream raw pipe vào FFmpeg thay vì tích trữ mảng numpy trong RAM, giúp hệ thống **hoàn toàn miễn nhiễm với lỗi OOMKilled trên môi trường Kubernetes production**.")
+    md.append(f"* **Biên an toàn (Safety Margin):** `{margin_mb:.1f} MB` (Tiêu thụ chỉ ~{round(max_peak / POD_MEMORY_LIMIT_MB * 100, 1)}% giới hạn cho phép).")
+    md.append("* **Lưu ý:** RAM đỉnh ở trên chỉ tính tiến trình Python. Encoder FFmpeg (libx264) là tiến trình con riêng và tăng theo độ phân giải: khoảng 0,74 GB ở 2560x1440 với `rc-lookahead=10`, nên video độ phân giải cao cần thêm khoảng trống này trong giới hạn Pod.")
 
     return "\n".join(md)
 
